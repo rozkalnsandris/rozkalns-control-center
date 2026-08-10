@@ -6,20 +6,22 @@ This roadmap mirrors master issue #1 but is repository-local so implementation w
 
 Goal: create a safe, understandable codebase before any live integration.
 
+**Status:** complete on merge of PR #5. Contract evidence is PR #3; executable/CI evidence is PR #5 and its successful GitHub-hosted validation run.
+
 ### Deliverables
 
-- [ ] concise README linked to master #1;
-- [ ] `AGENTS.md`;
-- [ ] `CONTRIBUTING.md`;
-- [ ] `SECURITY.md`;
-- [ ] architecture document;
-- [ ] threat model;
-- [ ] deterministic state model;
-- [ ] ADR baseline;
-- [ ] issue/PR templates;
-- [ ] React + TypeScript + Vite + Cloudflare Worker skeleton;
-- [ ] CI for typecheck, lint, unit tests and build;
-- [ ] secret/action safety checks appropriate to a public repository.
+- [x] concise README linked to master #1;
+- [x] `AGENTS.md`;
+- [x] `CONTRIBUTING.md`;
+- [x] `SECURITY.md`;
+- [x] architecture document;
+- [x] threat model;
+- [x] deterministic state model;
+- [x] ADR baseline;
+- [x] issue/PR templates;
+- [x] React + TypeScript + Vite + Cloudflare Worker skeleton;
+- [x] CI for dependency install, runtime audit, typecheck, lint, unit tests, build and Wrangler dry-run;
+- [x] secret/action safety checks appropriate to a public repository.
 
 ### Must not do
 
@@ -33,10 +35,12 @@ Goal: create a safe, understandable codebase before any live integration.
 
 Phase 0 exits only when:
 
-- contracts are merged and non-contradictory;
-- application skeleton builds/tests locally/CI;
-- repository has a deterministic contribution workflow;
-- no production integration was introduced.
+- [x] contracts are merged and non-contradictory;
+- [x] application skeleton builds/tests in authoritative GitHub CI;
+- [x] repository has a deterministic contribution workflow;
+- [x] no production integration was introduced.
+
+**Next after PR #5 merges:** Phase 1 — mobile-first read-only UI. Do not skip ahead to live GitHub integration.
 
 ## Phase 1 — mobile-first read-only UI
 
