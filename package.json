@@ -21,7 +21,6 @@
     "check": "npm run verify:policy && npm run audit:runtime && npm run typecheck && npm run lint && npm test && npm run build && npm run cf:dry-run"
   },
   "dependencies": {
-    "hono": "4.11.1",
     "react": "19.2.1",
     "react-dom": "19.2.1"
   },

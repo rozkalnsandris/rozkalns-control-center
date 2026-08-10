@@ -1,9 +1,15 @@
-import { Hono } from "hono";
-
 import { buildHealthPayload } from "../shared/health";
 
-const app = new Hono();
+const worker: ExportedHandler<Env> = {
+  fetch(request) {
+    const url = new URL(request.url);
 
-app.get("/api/health", (context) => context.json(buildHealthPayload()));
+    if (request.method === "GET" && url.pathname === "/api/health") {
+      return Response.json(buildHealthPayload());
+    }
 
-export default app;
+    return new Response("Not Found", { status: 404 });
+  }
+};
+
+export default worker;
