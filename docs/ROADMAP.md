@@ -171,7 +171,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] first authoritative GitHub CI run #41 PASS on source/test implementation;
 - [x] README/read-policy docs reconciled with current source contracts;
 - [x] canonical master #1 reconciled with current Phase 2 status;
-- [ ] final authoritative GitHub CI PASS after all documentation/master-adjacent repository changes;
+- [x] authoritative GitHub CI PASS after code/docs reconciliation — run #46;
 - [ ] #19 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
