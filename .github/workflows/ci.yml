@@ -34,6 +34,9 @@ jobs:
       - name: Verify repository policy
         run: npm run verify:policy
 
+      - name: Audit runtime dependencies
+        run: npm run audit:runtime
+
       - name: Typecheck and generate Worker types
         run: npm run typecheck
 
