@@ -79,7 +79,7 @@ Goal: replace fixtures with trustworthy live GitHub state.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #19. RPi5 automation remains in Phase 3 — CV pull-deploy migration. CV recovery is complete; its first incomplete gate is now the cross-repository #140 evidence-directory contract (`rozkalns-cv-auto-deploy-*` controller producer vs `rozkalns-cv-main-deploy-*` CV root-wrapper allow-list), which must be fixed and regression-proven before reviewed controller installation/execution.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read again before finalizing PR #20. RPi5 automation remains in Phase 3 — CV pull-deploy migration. CV recovery and the cross-repository #140 evidence-directory contract are now complete. The first incomplete gate is to install and host-prove the reviewed #140 controller/readiness artifacts while the recurring timer remains disabled/inactive, using the merged activation operator only after exact-source/CI/artifact revalidation and without running unrelated maintenance.
 
 Therefore source-only interfaces, schemas, crypto/reconciliation/projection/merge-state/policy/evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
@@ -171,7 +171,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] first authoritative GitHub CI run #41 PASS on source/test implementation;
 - [x] README/read-policy docs reconciled with current source contracts;
 - [x] canonical master #1 reconciled with current Phase 2 status;
-- [x] authoritative GitHub CI PASS after code/docs reconciliation — run #46;
+- [x] authoritative GitHub CI PASS after code/docs reconciliation — run #47;
 - [ ] #19 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
@@ -232,7 +232,7 @@ A real PR can be safely decided from phone; stale approvals are rejected; action
 
 ## Phase 4 — notifications + deterministic continuation
 
-Goal: reduce user interaction to meaningful gates.
+Goal: reduce normal interaction to meaningful gates.
 
 ### Deliverables
 
