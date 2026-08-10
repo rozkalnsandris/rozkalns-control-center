@@ -128,7 +128,7 @@ test("classic review and conversation requirements remain fail-closed when curre
   ]);
 });
 
-test("simple complete classic evidence can derive a simple policy when no stronger semantics are present", () => {
+test("simple complete classic evidence derives an any-App check policy", () => {
   const evidence = combineWithEmptyRuleset({
     required_status_checks: {
       checks: [{ context: "validate", app_id: -1 }],
@@ -140,8 +140,29 @@ test("simple complete classic evidence can derive a simple policy when no strong
 
   const derived = deriveProjectionPolicies(evidence);
   assert.deepEqual(derived.blockedReasons, []);
-  assert.deepEqual(derived.ciPolicy, { requiredCheckNames: ["validate"], requiredWorkflowNames: [] });
+  assert.deepEqual(derived.ciPolicy, {
+    requiredChecks: [{ context: "validate", integrationId: null }],
+    requiredWorkflowNames: [],
+  });
   assert.deepEqual(derived.reviewPolicy, { requiredApprovals: 1 });
+});
+
+test("complete classic evidence preserves an App-bound required check", () => {
+  const evidence = combineWithEmptyRuleset({
+    required_status_checks: {
+      checks: [{ context: "validate", app_id: 15368 }],
+      contexts: ["validate"],
+    },
+    required_pull_request_reviews: simpleReviews(),
+    required_conversation_resolution: { enabled: false },
+  });
+
+  const derived = deriveProjectionPolicies(evidence);
+  assert.deepEqual(derived.blockedReasons, []);
+  assert.deepEqual(derived.ciPolicy, {
+    requiredChecks: [{ context: "validate", integrationId: 15368 }],
+    requiredWorkflowNames: [],
+  });
 });
 
 test("classic mapper rejects conflicting or malformed consumed policy data", () => {
