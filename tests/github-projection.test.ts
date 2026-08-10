@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { mapGitHubGraphqlPullRequestMergeState } from "../src/shared/github-graphql-mappers.js";
 import {
   keepExactHeadCheckRuns,
   keepExactHeadWorkflowRuns,
@@ -19,6 +20,7 @@ import {
 import type {
   ChangeRequestReadSnapshot,
   CheckRunRead,
+  PullRequestMergeStateRead,
   PullRequestReviewRead,
   WorkflowRunRead,
 } from "../src/shared/source-control-read.js";
@@ -62,6 +64,17 @@ function review(overrides: Partial<PullRequestReviewRead> = {}): PullRequestRevi
   };
 }
 
+function mergeState(overrides: Partial<PullRequestMergeStateRead> = {}): PullRequestMergeStateRead {
+  return {
+    pullNumber: 42,
+    headSha: HEAD,
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    draft: false,
+    ...overrides,
+  };
+}
+
 function snapshot(overrides: Partial<ChangeRequestReadSnapshot> = {}): ChangeRequestReadSnapshot {
   return {
     repository: "rozkalnsandris/hermes-tech",
@@ -80,6 +93,7 @@ function snapshot(overrides: Partial<ChangeRequestReadSnapshot> = {}): ChangeReq
       changedFiles: 4,
       htmlUrl: "https://github.com/rozkalnsandris/hermes-tech/pull/42",
     },
+    mergeState: mergeState(),
     reviews: [review()],
     checkRuns: [check()],
     workflowRuns: [workflow()],
@@ -87,6 +101,17 @@ function snapshot(overrides: Partial<ChangeRequestReadSnapshot> = {}): ChangeReq
     ...overrides,
   };
 }
+
+const projectionContext = {
+  issue: {
+    number: 10,
+    title: "Projection parity",
+    state: "open" as const,
+    htmlUrl: "https://github.com/rozkalnsandris/hermes-tech/issues/10",
+  },
+  ciPolicy: { requiredCheckNames: ["validate"], requiredWorkflowNames: ["CI"] },
+  reviewPolicy: { requiredApprovals: 1 },
+};
 
 test("GitHub REST mappers accept only consumed documented fields", () => {
   assert.deepEqual(
@@ -126,6 +151,32 @@ test("GitHub REST mappers accept only consumed documented fields", () => {
       html_url: "https://github.com/rozkalnsandris/hermes-tech/issues/10",
     }).number,
     10,
+  );
+});
+
+test("GraphQL merge-state mapper accepts documented values and fails closed on unknown ones", () => {
+  assert.deepEqual(
+    mapGitHubGraphqlPullRequestMergeState({
+      number: 42,
+      headRefOid: HEAD,
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+      isDraft: false,
+      ignored: true,
+    }),
+    mergeState(),
+  );
+
+  assert.throws(
+    () =>
+      mapGitHubGraphqlPullRequestMergeState({
+        number: 42,
+        headRefOid: HEAD,
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "FUTURE_STATE",
+        isDraft: false,
+      }),
+    /unsupported value/,
   );
 });
 
@@ -254,17 +305,8 @@ test("review aggregation uses the latest effective review per actor and requires
   );
 });
 
-test("authoritative projection preserves the Phase 1 UI contract without enabling Merge", () => {
-  const projected = projectAuthoritativeSnapshotToDecision(snapshot(), {
-    issue: {
-      number: 10,
-      title: "Projection parity",
-      state: "open",
-      htmlUrl: "https://github.com/rozkalnsandris/hermes-tech/issues/10",
-    },
-    ciPolicy: { requiredCheckNames: ["validate"], requiredWorkflowNames: ["CI"] },
-    reviewPolicy: { requiredApprovals: 1 },
-  });
+test("authoritative projection preserves the Phase 1 UI contract without enabling a write action", () => {
+  const projected = projectAuthoritativeSnapshotToDecision(snapshot(), projectionContext);
 
   assert.equal(projected.workflowState, "MERGE_READY");
   assert.equal(projected.ci, "PASS");
@@ -279,22 +321,41 @@ test("authoritative projection preserves the Phase 1 UI contract without enablin
   assert.deepEqual(projectedKeys, fixtureKeys);
 });
 
+test("only authoritative MERGEABLE/CLEAN merge state can produce MERGE_READY", () => {
+  const nonReadyStates = ["BEHIND", "BLOCKED", "DIRTY", "DRAFT", "HAS_HOOKS", "UNKNOWN", "UNSTABLE"] as const;
+
+  for (const mergeStateStatus of nonReadyStates) {
+    const projected = projectAuthoritativeSnapshotToDecision(
+      snapshot({ mergeState: mergeState({ mergeStateStatus }) }),
+      projectionContext,
+    );
+    assert.equal(projected.workflowState, "WAITING", mergeStateStatus);
+    assert.match(projected.reason, /GitHub merge state/);
+  }
+
+  const conflicting = projectAuthoritativeSnapshotToDecision(
+    snapshot({ mergeState: mergeState({ mergeable: "CONFLICTING", mergeStateStatus: "DIRTY" }) }),
+    projectionContext,
+  );
+  assert.equal(conflicting.workflowState, "WAITING");
+});
+
 test("projection rejects stale-head evidence even if statuses look green", () => {
   assert.throws(
     () =>
       projectAuthoritativeSnapshotToDecision(
         snapshot({ checkRuns: [check({ headSha: OTHER_HEAD })] }),
-        {
-          issue: {
-            number: 10,
-            title: "Projection parity",
-            state: "open",
-            htmlUrl: "https://github.com/rozkalnsandris/hermes-tech/issues/10",
-          },
-          ciPolicy: { requiredCheckNames: ["validate"], requiredWorkflowNames: ["CI"] },
-          reviewPolicy: { requiredApprovals: 1 },
-        },
+        projectionContext,
       ),
     /different pull-request head SHA/,
+  );
+
+  assert.throws(
+    () =>
+      projectAuthoritativeSnapshotToDecision(
+        snapshot({ mergeState: mergeState({ headSha: OTHER_HEAD }) }),
+        projectionContext,
+      ),
+    /merge-state evidence from a different pull-request head SHA/,
   );
 });
