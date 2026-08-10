@@ -9,14 +9,20 @@ import { requireManagedProjectPolicy } from "./project-policy.js";
 import type {
   ChangeRequestReadSnapshot,
   CheckRunRead,
+  CommitStatusRead,
   IssueRead,
   PullRequestMergeStateRead,
   PullRequestReviewRead,
   WorkflowRunRead,
 } from "./source-control-read.js";
 
+export interface RequiredCheckPolicy {
+  context: string;
+  integrationId: number | null;
+}
+
 export interface CiRequirementPolicy {
-  requiredCheckNames: readonly string[];
+  requiredChecks: readonly RequiredCheckPolicy[];
   requiredWorkflowNames: readonly string[];
 }
 
@@ -33,13 +39,20 @@ export interface DecisionProjectionContext {
 
 type EvidenceState = "success" | "failure" | "running" | "waiting";
 
+const passingCheckConclusions = new Set(["success", "neutral", "skipped"]);
 const failureConclusions = new Set(["failure", "timed_out", "action_required", "startup_failure"]);
 
 function evaluateCheck(check: CheckRunRead): EvidenceState {
   if (check.status !== "completed") return "running";
-  if (check.conclusion === "success") return "success";
+  if (check.conclusion && passingCheckConclusions.has(check.conclusion)) return "success";
   if (check.conclusion && failureConclusions.has(check.conclusion)) return "failure";
   return "waiting";
+}
+
+function evaluateCommitStatus(status: CommitStatusRead): EvidenceState {
+  if (status.state === "success") return "success";
+  if (status.state === "failure" || status.state === "error") return "failure";
+  return "running";
 }
 
 function evaluateWorkflow(run: WorkflowRunRead): EvidenceState {
@@ -56,8 +69,41 @@ function foldEvidence(states: readonly EvidenceState[]): CiState {
   return states.length > 0 ? "PASS" : "WAITING";
 }
 
+function sameContext(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase();
+}
+
+function evaluateRequiredCheck(
+  checkRuns: readonly CheckRunRead[],
+  commitStatuses: readonly CommitStatusRead[],
+  required: RequiredCheckPolicy,
+): EvidenceState[] {
+  const contextChecks = checkRuns.filter((item) => sameContext(item.name, required.context));
+  const contextStatuses = commitStatuses.filter((item) => sameContext(item.context, required.context));
+  const states: EvidenceState[] = [];
+
+  if (required.integrationId !== null) {
+    const matchingChecks = contextChecks.filter((item) => item.appId === required.integrationId);
+    if (matchingChecks.length === 0) states.push("waiting");
+    else states.push(...matchingChecks.map(evaluateCheck));
+
+    for (const status of contextStatuses) {
+      const state = evaluateCommitStatus(status);
+      states.push(state === "success" ? "waiting" : state);
+    }
+
+    return states;
+  }
+
+  if (contextChecks.length === 0 && contextStatuses.length === 0) return ["waiting"];
+  states.push(...contextChecks.map(evaluateCheck));
+  states.push(...contextStatuses.map(evaluateCommitStatus));
+  return states;
+}
+
 export function aggregateCiState(
   checkRuns: readonly CheckRunRead[],
+  commitStatuses: readonly CommitStatusRead[],
   workflowRuns: readonly WorkflowRunRead[],
   policy?: CiRequirementPolicy,
 ): CiState {
@@ -65,13 +111,8 @@ export function aggregateCiState(
 
   const states: EvidenceState[] = [];
 
-  for (const requiredName of policy.requiredCheckNames) {
-    const matches = checkRuns.filter((item) => item.name === requiredName);
-    if (matches.length === 0) {
-      states.push("waiting");
-      continue;
-    }
-    states.push(...matches.map(evaluateCheck));
+  for (const required of policy.requiredChecks) {
+    states.push(...evaluateRequiredCheck(checkRuns, commitStatuses, required));
   }
 
   for (const requiredName of policy.requiredWorkflowNames) {
@@ -116,6 +157,9 @@ function assertExactHeadEvidence(snapshot: ChangeRequestReadSnapshot): void {
   }
   if (snapshot.checkRuns.some((item) => item.headSha !== expected)) {
     throw new Error("Cannot project check evidence from a different pull-request head SHA");
+  }
+  if (snapshot.commitStatuses.some((item) => item.headSha !== expected)) {
+    throw new Error("Cannot project commit-status evidence from a different pull-request head SHA");
   }
   if (snapshot.workflowRuns.some((item) => item.headSha !== expected)) {
     throw new Error("Cannot project workflow evidence from a different pull-request head SHA");
@@ -167,7 +211,7 @@ export function projectAuthoritativeSnapshotToDecision(
   assertExactHeadEvidence(snapshot);
 
   const project = requireManagedProjectPolicy(snapshot.repository);
-  const ci = aggregateCiState(snapshot.checkRuns, snapshot.workflowRuns, context.ciPolicy);
+  const ci = aggregateCiState(snapshot.checkRuns, snapshot.commitStatuses, snapshot.workflowRuns, context.ciPolicy);
   const review = aggregateReviewState(snapshot.reviews, context.reviewPolicy);
   const workflowState = deriveWorkflowState(snapshot, ci, review);
 
