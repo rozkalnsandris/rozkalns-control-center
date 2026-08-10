@@ -14,10 +14,11 @@
     "test": "rm -rf .tmp-tests && tsc -p tsconfig.test.json && node --test .tmp-tests/tests/*.test.js",
     "build": "wrangler types && tsc -b && vite build",
     "cf:dry-run": "wrangler deploy --dry-run --outdir .wrangler-dry-run",
+    "audit:runtime": "npm audit --omit=dev --audit-level=high",
     "verify:actions": "node scripts/verify-actions-pinning.mjs",
     "verify:public": "node scripts/verify-public-repo-safety.mjs",
     "verify:policy": "npm run verify:actions && npm run verify:public",
-    "check": "npm run verify:policy && npm run typecheck && npm run lint && npm test && npm run build && npm run cf:dry-run"
+    "check": "npm run verify:policy && npm run audit:runtime && npm run typecheck && npm run lint && npm test && npm run build && npm run cf:dry-run"
   },
   "dependencies": {
     "hono": "4.11.1",
