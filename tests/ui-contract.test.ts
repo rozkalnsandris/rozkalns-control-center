@@ -29,3 +29,19 @@ test("Phase 1 preserves mobile touch and keyboard focus affordances", async () =
   assert.match(css, /@media \(min-width: 640px\)/);
   assert.match(css, /@media \(prefers-contrast: more\)/);
 });
+
+test("compact portrait phone profile remains safe for Galaxy A55-class screens", async () => {
+  const [compactCss, html, main] = await Promise.all([
+    source("src/react-app/compact-phone.css"),
+    source("index.html"),
+    source("src/react-app/main.tsx"),
+  ]);
+
+  assert.match(html, /viewport-fit=cover/);
+  assert.match(main, /compact-phone\.css/);
+  assert.match(compactCss, /@media \(max-width: 430px\)/);
+  assert.match(compactCss, /@supports \(height: 100dvh\)/);
+  assert.match(compactCss, /env\(safe-area-inset-top\)/);
+  assert.match(compactCss, /\.action-row\s*\{[\s\S]*?grid-template-columns:\s*1fr;/);
+  assert.match(compactCss, /\.action-button\s*\{[\s\S]*?min-height:\s*52px;/);
+});
