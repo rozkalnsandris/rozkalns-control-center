@@ -95,7 +95,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] reconciliation trigger requiring authoritative GitHub reread;
 - [x] planned REST endpoint → minimum GitHub App permission documentation;
 - [x] focused tests for allow-list, HMAC vector, missing/malformed auth metadata, duplicate delivery and stale SHA evidence;
-- [ ] authoritative GitHub CI PASS on final #8 branch head;
+- [x] authoritative GitHub CI PASS on the source-preflight branch after the Web Crypto compatibility fix;
 - [ ] #8 reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
