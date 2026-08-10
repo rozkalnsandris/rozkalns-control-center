@@ -10,6 +10,7 @@ import type {
   ChangeRequestReadSnapshot,
   CheckRunRead,
   IssueRead,
+  PullRequestMergeStateRead,
   PullRequestReviewRead,
   WorkflowRunRead,
 } from "./source-control-read.js";
@@ -104,12 +105,25 @@ export function aggregateReviewState(
 
 function assertExactHeadEvidence(snapshot: ChangeRequestReadSnapshot): void {
   const expected = snapshot.pullRequest.headSha;
+  if (snapshot.mergeState.pullNumber !== snapshot.pullRequest.number) {
+    throw new Error("Cannot project merge-state evidence from a different pull request");
+  }
+  if (snapshot.mergeState.headSha !== expected) {
+    throw new Error("Cannot project merge-state evidence from a different pull-request head SHA");
+  }
+  if (snapshot.mergeState.draft !== snapshot.pullRequest.draft) {
+    throw new Error("Cannot project merge-state evidence with a conflicting draft state");
+  }
   if (snapshot.checkRuns.some((item) => item.headSha !== expected)) {
     throw new Error("Cannot project check evidence from a different pull-request head SHA");
   }
   if (snapshot.workflowRuns.some((item) => item.headSha !== expected)) {
     throw new Error("Cannot project workflow evidence from a different pull-request head SHA");
   }
+}
+
+function isReadyAccordingToGitHub(mergeState: PullRequestMergeStateRead): boolean {
+  return !mergeState.draft && mergeState.mergeable === "MERGEABLE" && mergeState.mergeStateStatus === "CLEAN";
 }
 
 function deriveWorkflowState(
@@ -121,17 +135,27 @@ function deriveWorkflowState(
   if (ci === "FAIL") return "CI_FAILED";
   if (snapshot.pullRequest.draft || ci === "RUNNING" || ci === "WAITING") return "WAITING";
   if (review === "CHANGES_REQUESTED") return "NEEDS_ANDRIS";
-  if (ci === "PASS" && review === "PASS") return "MERGE_READY";
+  if (ci === "PASS" && review === "PASS" && isReadyAccordingToGitHub(snapshot.mergeState)) return "MERGE_READY";
   return "WAITING";
 }
 
-function reasonFor(state: WorkflowState, ci: CiState, review: UiReviewState): string {
+function reasonFor(
+  state: WorkflowState,
+  ci: CiState,
+  review: UiReviewState,
+  mergeState: PullRequestMergeStateRead,
+): string {
   if (state === "DONE") return "The pull request is closed; no live action is available from this read-only projection.";
-  if (state === "CI_FAILED") return "Required CI evidence failed. Merge must remain unavailable until authoritative evidence changes.";
+  if (state === "CI_FAILED") return "Required CI evidence failed. The decision must wait for authoritative evidence to change.";
   if (review === "CHANGES_REQUESTED") return "The latest effective review state includes changes requested; human attention is required.";
-  if (state === "MERGE_READY") return "Required read-only CI and review evidence is satisfied, but Phase 2 exposes no Merge capability.";
+  if (state === "MERGE_READY") {
+    return "Required CI/review evidence is satisfied and GitHub reports this exact PR head as MERGEABLE/CLEAN; Phase 2 remains read-only.";
+  }
   if (ci === "RUNNING") return "Required CI evidence is still running; Control must wait for a fresh authoritative reconciliation.";
   if (ci === "WAITING") return "Required CI evidence is missing, ambiguous, or not successful; Control must fail closed and wait.";
+  if (ci === "PASS" && review === "PASS") {
+    return `CI/review evidence is satisfied, but GitHub merge state is ${mergeState.mergeable}/${mergeState.mergeStateStatus}; Control must remain non-ready.`;
+  }
   return "Read-only evidence is incomplete; no mutation is allowed.";
 }
 
@@ -162,7 +186,7 @@ export function projectAuthoritativeSnapshotToDecision(
     expectedHeadSha: snapshot.pullRequest.headSha,
     currentHeadSha: snapshot.pullRequest.headSha,
     mainSha: snapshot.mainSha,
-    reason: reasonFor(workflowState, ci, review),
+    reason: reasonFor(workflowState, ci, review, snapshot.mergeState),
     lastReconciledAt: snapshot.observedAt,
     allowedActions: ["OPEN_PR"],
   };
