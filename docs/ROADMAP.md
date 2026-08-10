@@ -40,30 +40,39 @@ Phase 0 exits only when:
 - [x] repository has a deterministic contribution workflow;
 - [x] no production integration was introduced.
 
-**Next after PR #5 merges:** Phase 1 — mobile-first read-only UI. Do not skip ahead to live GitHub integration.
-
 ## Phase 1 — mobile-first read-only UI
 
 Goal: prove the Android-first UX before live GitHub writes.
 
+**Status:** complete on merge of PR #7. Implementation evidence is issue #6 / PR #7; accessibility and fixture safety contract is `docs/PHASE1_UI_NOTES.md`; final GitHub CI must be green on the exact merge candidate head.
+
 ### Deliverables
 
-- project overview;
-- PR/CI/review read models using deterministic fixtures;
-- `Needs Andris` queue;
-- decision card layout;
-- working/waiting/failed states;
-- responsive and accessibility checks.
+- [x] project overview;
+- [x] PR/CI/review read models using deterministic fixtures;
+- [x] `Needs Andris` queue;
+- [x] decision card layout;
+- [x] working/waiting/failed and merge-ready states;
+- [x] responsive/mobile-first layout;
+- [x] accessibility contract checks for touch targets, visible focus, skip navigation and text-based status meaning;
+- [x] explicit fixture-mode safety so mock actions cannot be mistaken for live mutations.
 
 ### Must not do
 
-- no GitHub writes;
-- no live production mutation;
-- no AI execution.
+- [x] no GitHub writes;
+- [x] no live production mutation;
+- [x] no AI execution.
 
 ### Exit gate
 
-A phone user can understand the state/reason for a mocked real-world PR decision without opening multiple systems.
+- [x] a phone-first layout surfaces `Needs Andris` before secondary states;
+- [x] a mocked PR decision includes enough CI/review/SHA/deploy evidence to understand why a human is needed;
+- [x] primary mock controls meet the Android-oriented >=48px touch-target goal;
+- [x] status meaning is not color-only and keyboard focus remains visible;
+- [x] fixture/model and UI-contract tests are part of normal CI;
+- [x] no live GitHub/production write path was introduced.
+
+**Next after PR #7 merges:** Phase 2 — live read-only GitHub integration. Before starting Phase 2, reconcile master issue #1's current-phase marker and the active `RPi5_main` automation phase. Do not create or broaden GitHub App permissions until that prerequisite is explicitly satisfied.
 
 ## Phase 2 — live read-only GitHub integration
 

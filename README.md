@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 0 bootstrap. No production deployment is authorized. After Phase 0 merges, the next implementation phase is the mobile-first read-only UI.
+> **Status:** Phase 1 mobile-first read-only UI. PR #7 completes the fixture-based UX gate; after it merges, Phase 2 live read-only GitHub integration is next only after its prerequisite reconciliation. No production deployment is authorized.
 
 The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
 
@@ -52,11 +52,39 @@ The first useful release is intentionally focused on approvals and visibility ra
 
 **Merge authorization is not deploy authorization.**
 
+## Current Phase 1 UI
+
+Phase 1 intentionally uses deterministic fixture data rather than live GitHub state. Its purpose is to prove the phone UX before adding integration permissions.
+
+The fixture dashboard contains:
+
+- `Needs Andris` first;
+- Working / Waiting;
+- CI Failed;
+- Merge Ready;
+- Projects overview;
+- decision cards with PR/CI/review/SHA/deploy evidence;
+- mock-only `Merge`, `Needs changes`, `Later` and `Open PR` controls;
+- explicit `Fixture mode` labeling so demo data cannot be confused with live state.
+
+Mock actions change only local React notice state. They do not call GitHub, Cloudflare or RPi5.
+
+Accessibility/mobile baseline:
+
+- semantic landmarks/headings;
+- visible keyboard focus;
+- skip-to-content navigation;
+- status meaning in text, not color alone;
+- primary actions at least 52 CSS px high;
+- mobile-first single-column layout with wider-screen enhancement.
+
+See [`docs/PHASE1_UI_NOTES.md`](docs/PHASE1_UI_NOTES.md) for the explicit Phase 1 verification contract.
+
 ## Bootstrap runtime
 
-Phase 0 provides only the minimum executable foundation:
+The executable foundation provides:
 
-- React + TypeScript + Vite shell;
+- React + TypeScript + Vite;
 - Cloudflare Vite plugin;
 - native Cloudflare Worker API;
 - deterministic `GET /api/health` endpoint;
@@ -64,7 +92,7 @@ Phase 0 provides only the minimum executable foundation:
 - locked dependencies;
 - read-only GitHub CI for policy checks, runtime dependency audit, typecheck, lint, unit tests, build and Wrangler dry-run.
 
-There is intentionally **no deploy script** and no Cloudflare account, route, Access, D1, Queue, Workflow or GitHub App binding in the bootstrap configuration.
+There is intentionally **no deploy script** and no Cloudflare account, route, Access, D1, Queue, Workflow or GitHub App binding in the current configuration.
 
 ### Local validation
 
@@ -104,6 +132,7 @@ The initial design targets Cloudflare Free-compatible components where practical
 - [`docs/STATE_MODEL.md`](docs/STATE_MODEL.md) — deterministic task/approval state contract;
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — threats and required mitigations;
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — phase gates and exit criteria;
+- [`docs/PHASE1_UI_NOTES.md`](docs/PHASE1_UI_NOTES.md) — Phase 1 read-only/mobile verification contract;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
 
 ## Development rule
