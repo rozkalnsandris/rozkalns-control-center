@@ -183,7 +183,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] source-boundary proves no D1/Queue binding, handler, `fetch()` transport or `env.*` access exists;
 - [x] first authoritative GitHub CI run #49 PASS on source/tests implementation;
 - [x] document durability, DLQ observability and current RPi sequencing contract;
-- [ ] final authoritative GitHub CI PASS after docs reconciliation;
+- [x] authoritative GitHub CI PASS after docs reconciliation — run #52;
 - [ ] #21 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
