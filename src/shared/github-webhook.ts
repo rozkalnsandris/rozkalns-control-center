@@ -40,16 +40,22 @@ function validateOpaqueHeader(value: string, name: string) {
   return value;
 }
 
-function hexToBytes(hex: string) {
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function hexToArrayBuffer(hex: string): ArrayBuffer {
   const bytes = new Uint8Array(hex.length / 2);
   for (let index = 0; index < bytes.length; index += 1) {
     bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
   }
-  return bytes;
+  return bytes.buffer;
 }
 
-function payloadBytes(payload: string | Uint8Array) {
-  return typeof payload === "string" ? encoder.encode(payload) : payload;
+function payloadArrayBuffer(payload: string | Uint8Array): ArrayBuffer {
+  return copyToArrayBuffer(typeof payload === "string" ? encoder.encode(payload) : payload);
 }
 
 export function readGitHubWebhookHeaders(headers: HeaderReader): GitHubWebhookHeaders {
@@ -77,13 +83,18 @@ export async function verifyGitHubWebhookSignature(
 
   const key = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(secret),
+    copyToArrayBuffer(encoder.encode(secret)),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["verify"],
   );
 
-  return crypto.subtle.verify("HMAC", key, hexToBytes(match[1]), payloadBytes(payload));
+  return crypto.subtle.verify(
+    "HMAC",
+    key,
+    hexToArrayBuffer(match[1]),
+    payloadArrayBuffer(payload),
+  );
 }
 
 export async function authenticateGitHubWebhook(
