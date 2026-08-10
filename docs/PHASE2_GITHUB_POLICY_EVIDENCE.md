@@ -1,6 +1,6 @@
 # Phase 2 GitHub Branch-Policy Evidence Contract
 
-Issue: #15
+Issues: #15, #17
 
 This document defines how Rozkalns Control may reason about required CI and pull-request review policy before any live GitHub mutation exists.
 
@@ -48,7 +48,19 @@ For a GitHub App installation token, the documented minimum permission is:
 
 - Repository **Administration: read**.
 
-That is a broader permission than the ruleset read endpoint. This source-only phase does **not** add it.
+The response can expose:
+
+- `required_status_checks.contexts`;
+- the more precise `required_status_checks.checks[]` with `context` and `app_id`;
+- `required_pull_request_reviews.required_approving_review_count`;
+- stale-review dismissal;
+- required code-owner review;
+- last-push approval;
+- `required_conversation_resolution.enabled`.
+
+GitHub documents `app_id=-1` as explicitly allowing any App to provide that required check. A positive `app_id` binds the check to that GitHub App. A `checks[]` item with a missing `app_id`, or a legacy `contexts` entry that has no corresponding `checks[]` item, does not provide enough producer identity for Control to safely flatten the requirement to a name-only check.
+
+This source-only phase parses those fields but does **not** add `Administration: read` or make a live branch-protection request.
 
 ## Provenance model
 
@@ -69,24 +81,29 @@ Ruleset evidence alone is deliberately `PARTIAL` while classic branch protection
 
 ## Conservative combination rules
 
-When multiple observations are combined for the same repository/branch:
+When multiple observations are combined for the same repository/branch/reconciliation time:
 
 - required status-check contexts are unioned;
 - required approval count uses the strictest observed count (`max`);
 - review-complexity flags use logical OR;
+- unresolved required-check producer identity is propagated with logical OR;
 - duplicate observations for the same source are rejected;
 - repository/branch mismatches are rejected;
-- conflicting source identities for the same required status-check context are rejected.
+- mixed reconciliation timestamps are rejected;
+- conflicting explicit source identities for the same required status-check context are rejected.
 
 ## Required check source identity
 
-GitHub rulesets may bind a required status check to a specific integration using `integration_id`.
+GitHub rulesets may bind a required status check to a specific integration using `integration_id`. Classic branch protection can bind a required check using `checks[].app_id`.
 
-The current `CheckRunRead` model evaluates checks by name and does not yet preserve/verify the originating GitHub App identity. Reducing an integration-bound check to only its name could accept a same-named check from the wrong producer.
+The current `CheckRunRead` model evaluates checks by name and does not yet preserve/verify the originating GitHub App identity. Reducing a producer-bound check to only its name could accept a same-named check from the wrong producer.
 
-Therefore any required check with a non-null `integration_id` blocks derivation of the current `CiRequirementPolicy` with:
+Therefore:
 
-`REQUIRED_CHECK_SOURCE_IDENTITY_NOT_MODELED`
+- any required check with a non-null explicit integration/App ID blocks current CI policy derivation with `REQUIRED_CHECK_SOURCE_IDENTITY_NOT_MODELED`;
+- any required check whose source identity could not be resolved from the policy payload blocks derivation with `REQUIRED_CHECK_SOURCE_IDENTITY_UNKNOWN`.
+
+Legacy classic `contexts` are particularly important here. They are still preserved as required names, but they are marked unresolved unless a corresponding `checks[]` entry provides explicit producer semantics.
 
 This is fail-closed by design.
 
@@ -99,7 +116,7 @@ That simple model cannot fully encode:
 - dismiss-stale-reviews-on-push semantics;
 - required code-owner review;
 - approval of the most recent reviewable push;
-- required review-thread resolution;
+- required review-thread/conversation resolution;
 - required file-pattern/team reviewers.
 
 If any of those semantics are active, policy derivation is blocked rather than flattening them into an unsafe approval count.
@@ -109,8 +126,9 @@ If any of those semantics are active, policy derivation is blocked rather than f
 `deriveProjectionPolicies()` may return the existing `CiRequirementPolicy` and `ReviewRequirementPolicy` only when:
 
 1. branch-policy coverage is `COMPLETE`;
-2. required checks do not require an unmodeled integration identity;
-3. review policy contains no unmodeled complex semantics.
+2. required-check producer identity is known;
+3. required checks do not require an unmodeled integration identity;
+4. review policy contains no unmodeled complex semantics.
 
 Otherwise the function returns only explicit `blockedReasons` and no policy objects. The existing projection then remains `WAITING/PENDING`.
 
@@ -118,8 +136,10 @@ Even complete policy evidence does not create a Merge action. Phase 2 remains re
 
 ## Live rollout implication
 
-The future dedicated `Rozkalns Control` GitHub App should first canary the Metadata-read active-rules endpoint on selected repositories. Only if managed repositories actually require classic branch-protection inspection should `Administration: read` be proposed as a separate permission expansion with new threat-model review.
+The future dedicated `Rozkalns Control` GitHub App should first canary the Metadata-read active-rules endpoint on selected repositories. A later, separately authorized canary may test classic branch-protection reads only if `Administration: read` is explicitly approved after permission/threat review.
 
-No App installation, permission change, token, network client, Cloudflare binding, RPi5 mutation or GitHub write is introduced by issue #15.
+The source-only classic mapper added by issue #17 exists so that any future permission decision can be evaluated against deterministic tests before credentials or live transport are introduced. It does not itself justify the permission expansion.
+
+No App installation, permission change, token, network client, Cloudflare binding, RPi5 mutation or GitHub write is introduced by issues #15/#17.
 
 `DEPLOY_REQUIRED=no`.

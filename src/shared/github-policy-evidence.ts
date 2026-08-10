@@ -22,6 +22,7 @@ export interface BranchPolicyObservation {
   branch: string;
   observedAt: string;
   requiredStatusChecks: readonly RequiredStatusCheckPolicyRead[];
+  hasUnresolvedRequiredCheckSourceIdentity: boolean;
   requiredApprovals: number;
   reviewFeatures: ReviewPolicyFeaturesRead;
 }
@@ -33,6 +34,7 @@ export interface BranchPolicyEvidence {
   coverage: BranchPolicyCoverage;
   sources: readonly BranchPolicySource[];
   requiredStatusChecks: readonly RequiredStatusCheckPolicyRead[];
+  hasUnresolvedRequiredCheckSourceIdentity: boolean;
   requiredApprovals: number;
   reviewFeatures: ReviewPolicyFeaturesRead;
 }
@@ -211,6 +213,7 @@ export function mapGitHubActiveBranchRules(
     branch,
     observedAt,
     requiredStatusChecks: [...requiredChecks.values()].sort((a, b) => a.context.localeCompare(b.context)),
+    hasUnresolvedRequiredCheckSourceIdentity: false,
     requiredApprovals,
     reviewFeatures,
   };
@@ -228,6 +231,7 @@ export function combineBranchPolicyObservations(
 
   const sourceSet = new Set<BranchPolicySource>();
   const requiredChecks = new Map<string, RequiredStatusCheckPolicyRead>();
+  let hasUnresolvedRequiredCheckSourceIdentity = false;
   let requiredApprovals = 0;
   const reviewFeatures = emptyReviewFeatures();
 
@@ -244,6 +248,7 @@ export function combineBranchPolicyObservations(
     }
     sourceSet.add(observation.source);
     mergeRequiredChecks(requiredChecks, observation.requiredStatusChecks);
+    hasUnresolvedRequiredCheckSourceIdentity ||= observation.hasUnresolvedRequiredCheckSourceIdentity;
     requiredApprovals = Math.max(requiredApprovals, observation.requiredApprovals);
     mergeReviewFeatures(reviewFeatures, observation.reviewFeatures);
   }
@@ -263,6 +268,7 @@ export function combineBranchPolicyObservations(
     coverage,
     sources: [...sourceSet].sort(),
     requiredStatusChecks: [...requiredChecks.values()].sort((a, b) => a.context.localeCompare(b.context)),
+    hasUnresolvedRequiredCheckSourceIdentity,
     requiredApprovals,
     reviewFeatures,
   };
@@ -271,6 +277,9 @@ export function combineBranchPolicyObservations(
 export function deriveProjectionPolicies(evidence: BranchPolicyEvidence): ProjectionPolicyDerivation {
   const blockedReasons: string[] = [];
   if (evidence.coverage !== "COMPLETE") blockedReasons.push("BRANCH_POLICY_COVERAGE_INCOMPLETE");
+  if (evidence.hasUnresolvedRequiredCheckSourceIdentity) {
+    blockedReasons.push("REQUIRED_CHECK_SOURCE_IDENTITY_UNKNOWN");
+  }
 
   const sourceBoundChecks = evidence.requiredStatusChecks.filter((check) => check.integrationId !== null);
   if (sourceBoundChecks.length > 0) blockedReasons.push("REQUIRED_CHECK_SOURCE_IDENTITY_NOT_MODELED");

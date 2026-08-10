@@ -7,17 +7,19 @@ async function source(path: string) {
 }
 
 test("Phase 2 read contracts contain no live GitHub transport or mutation methods", async () => {
-  const [provider, webhook, reconciliation, restMappers, graphqlMappers, projection, policyEvidence] = await Promise.all([
-    source("src/shared/source-control-read.ts"),
-    source("src/shared/github-webhook.ts"),
-    source("src/shared/github-reconciliation.ts"),
-    source("src/shared/github-rest-mappers.ts"),
-    source("src/shared/github-graphql-mappers.ts"),
-    source("src/shared/github-projection.ts"),
-    source("src/shared/github-policy-evidence.ts"),
-  ]);
+  const [provider, webhook, reconciliation, restMappers, graphqlMappers, projection, policyEvidence, classicProtection] =
+    await Promise.all([
+      source("src/shared/source-control-read.ts"),
+      source("src/shared/github-webhook.ts"),
+      source("src/shared/github-reconciliation.ts"),
+      source("src/shared/github-rest-mappers.ts"),
+      source("src/shared/github-graphql-mappers.ts"),
+      source("src/shared/github-projection.ts"),
+      source("src/shared/github-policy-evidence.ts"),
+      source("src/shared/github-classic-protection-mapper.ts"),
+    ]);
 
-  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${policyEvidence}`;
+  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${policyEvidence}\n${classicProtection}`;
 
   assert.equal(combined.includes("api.github.com"), false);
   assert.equal(combined.includes("Authorization:"), false);
@@ -59,6 +61,17 @@ test("Phase 2 branch-policy evidence cannot fabricate complete policy from one G
   assert.match(policyEvidence, /GITHUB_ACTIVE_RULES/);
   assert.match(policyEvidence, /GITHUB_CLASSIC_BRANCH_PROTECTION/);
   assert.match(policyEvidence, /BRANCH_POLICY_COVERAGE_INCOMPLETE/);
+  assert.match(policyEvidence, /REQUIRED_CHECK_SOURCE_IDENTITY_UNKNOWN/);
   assert.match(policyEvidence, /REQUIRED_CHECK_SOURCE_IDENTITY_NOT_MODELED/);
   assert.match(policyEvidence, /CODE_OWNER_REVIEW_NOT_MODELED/);
+});
+
+test("classic protection mapper is pure source mapping and keeps producer identity explicit", async () => {
+  const classicProtection = await source("src/shared/github-classic-protection-mapper.ts");
+
+  assert.match(classicProtection, /GITHUB_CLASSIC_BRANCH_PROTECTION/);
+  assert.match(classicProtection, /app_id/);
+  assert.match(classicProtection, /sourceIdentityKnown/);
+  assert.match(classicProtection, /required_conversation_resolution/);
+  assert.equal(classicProtection.includes("Administration:"), false);
 });
