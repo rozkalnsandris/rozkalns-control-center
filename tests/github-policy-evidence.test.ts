@@ -36,6 +36,7 @@ function classicObservation(overrides: Partial<BranchPolicyObservation> = {}): B
     branch: BRANCH,
     observedAt: OBSERVED_AT,
     requiredStatusChecks: [],
+    hasUnresolvedRequiredCheckSourceIdentity: false,
     requiredApprovals: 0,
     reviewFeatures: {
       dismissStaleReviewsOnPush: false,
@@ -72,6 +73,7 @@ test("active branch rules mapper deduplicates checks and keeps the strictest sim
   );
 
   assert.equal(observation.source, "GITHUB_ACTIVE_RULES");
+  assert.equal(observation.hasUnresolvedRequiredCheckSourceIdentity, false);
   assert.deepEqual(
     observation.requiredStatusChecks.map((check) => check.context.toLowerCase()),
     ["security", "validate"],
@@ -172,6 +174,20 @@ test("source-bound required checks cannot be reduced to a name-only CI policy", 
   assert.equal(derived.ciPolicy, undefined);
   assert.equal(derived.reviewPolicy, undefined);
   assert.deepEqual(derived.blockedReasons, ["REQUIRED_CHECK_SOURCE_IDENTITY_NOT_MODELED"]);
+});
+
+test("unresolved required-check source identity also blocks policy derivation", () => {
+  const rulesetObservation = mapGitHubActiveBranchRules([], REPOSITORY, BRANCH, OBSERVED_AT);
+  const evidence = combineBranchPolicyObservations(
+    [rulesetObservation, classicObservation({ hasUnresolvedRequiredCheckSourceIdentity: true })],
+    REPOSITORY,
+    BRANCH,
+    OBSERVED_AT,
+  );
+
+  const derived = deriveProjectionPolicies(evidence);
+  assert.equal(derived.ciPolicy, undefined);
+  assert.deepEqual(derived.blockedReasons, ["REQUIRED_CHECK_SOURCE_IDENTITY_UNKNOWN"]);
 });
 
 test("complex review rules remain fail-closed instead of fabricating a simple approval policy", () => {
