@@ -170,7 +170,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] source-boundary tests prove no live GitHub transport/auth/mutation path was introduced;
 - [x] first authoritative GitHub CI run #41 PASS on source/test implementation;
 - [x] README/read-policy docs reconciled with current source contracts;
-- [ ] canonical master #1 reconciled with current Phase 2 status;
+- [x] canonical master #1 reconciled with current Phase 2 status;
 - [ ] final authoritative GitHub CI PASS after all documentation/master-adjacent repository changes;
 - [ ] #19 final branch reviewed and merged.
 
