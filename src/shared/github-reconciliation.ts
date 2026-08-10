@@ -40,11 +40,10 @@ export class InMemoryDeliveryClaimStore implements DeliveryClaimStore {
 
 export async function createGitHubReconciliationTrigger(
   webhook: VerifiedGitHubWebhook,
-  repositoryHint: string,
   receivedAt: string,
   deliveryStore: DeliveryClaimStore,
 ): Promise<GitHubReconciliationTrigger> {
-  const project = requireManagedProjectPolicy(repositoryHint);
+  const project = requireManagedProjectPolicy(webhook.repository);
 
   const claim = await deliveryStore.claim({
     deliveryId: webhook.deliveryId,
