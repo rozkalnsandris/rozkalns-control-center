@@ -75,11 +75,11 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety contracts have progressed through issues #8, #10, #12 and current issue #15. Live GitHub App/Cloudflare rollout remains gated.
+**Status:** CURRENT — source-only safety contracts have progressed through issues #8, #10, #12, #15 and current issue #17. Live GitHub App/Cloudflare rollout remains gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #15. RPi5 automation remains in Phase 3 — CV pull-deploy migration with the generic-maintenance Compose / `cvbot` health prerequisite still incomplete before later controller activation work.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #17. RPi5 automation remains in Phase 3 — CV pull-deploy migration. The generic-maintenance boundary is now host-proven, but the next incomplete gate is the explicit CV recovery through the existing project-owned manual canary/pull deploy with fresh exact-main CI, healthy `cvbot`, public verification and the pull timer still disabled/inactive.
 
 Therefore source-only interfaces, schemas, crypto/reconciliation/projection/merge-state/policy-evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
@@ -126,7 +126,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] authoritative GitHub CI PASS on the final branch;
 - [x] #12 reviewed and merged through PR #14.
 
-### Source-only branch-policy provenance — issue #15
+### Source-only branch-policy provenance — issue #15 / PR #16
 
 - [x] model branch-policy observations with explicit source provenance;
 - [x] distinguish `UNKNOWN`, `PARTIAL` and `COMPLETE` policy coverage;
@@ -138,8 +138,22 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] reject duplicate source observations, branch/repository mismatch and mixed reconciliation timestamps;
 - [x] derive existing CI/review policy objects only from complete and representable evidence;
 - [x] document that active-rules reads need only Repository `Metadata: read` while classic branch protection needs `Administration: read`;
-- [x] authoritative GitHub CI PASS on the source branch;
-- [ ] #15 final branch reviewed and merged.
+- [x] authoritative GitHub CI PASS on final branch;
+- [x] #15 reviewed and merged through PR #16.
+
+### Source-only classic branch-protection mapper — issue #17
+
+- [x] add fail-closed mapper for consumed classic branch-protection response fields;
+- [x] preserve explicit `checks[].app_id` producer identity;
+- [x] normalize explicit `app_id=-1` as any-App while keeping missing `app_id` source identity unresolved;
+- [x] preserve legacy `contexts` requirements without pretending their producer identity is known;
+- [x] map classic required approval count, stale-review, code-owner and last-push semantics;
+- [x] map required conversation resolution into the existing complex-review feature gate;
+- [x] propagate unresolved required-check source identity through combined policy evidence;
+- [x] keep ambiguous/app-bound/complex policy fail-closed in `deriveProjectionPolicies()`;
+- [x] source-boundary tests prove no live API/auth/mutation path was introduced;
+- [ ] authoritative GitHub CI PASS on final #17 branch;
+- [ ] #17 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -147,6 +161,8 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] exact minimum read permissions and selected repositories only;
 - [ ] live canary proving the exact GraphQL/REST permission set rather than assuming it;
 - [ ] canary `GET /rules/branches/{branch}` with Metadata-read before proposing any `Administration: read` expansion;
+- [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
+- [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
 - [ ] short-lived installation-token boundary;
 - [ ] live GitHub read adapter;
 - [ ] authenticated webhook route using raw-body HMAC validation;
