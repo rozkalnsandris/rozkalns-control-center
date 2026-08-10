@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -30,14 +31,23 @@ function headers(values: Record<string, string>): HeaderReader {
   return { get: (name) => normalized.get(name.toLowerCase()) ?? null };
 }
 
+function signature(payload: string, secret: string): string {
+  return `sha256=${createHmac("sha256", secret).update(payload).digest("hex")}`;
+}
+
 const githubVector = {
   secret: "It's a Secret to Everybody",
   payload: "Hello, World!",
   signature: "sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17",
 };
 
+const repositoryWebhook = {
+  secret: "repository-webhook-secret",
+  payload: JSON.stringify({ repository: { full_name: "rozkalnsandris/hermes-deals" } }),
+};
+
 const validWebhookHeaders = headers({
-  "x-hub-signature-256": githubVector.signature,
+  "x-hub-signature-256": signature(repositoryWebhook.payload, repositoryWebhook.secret),
   "x-github-delivery": "delivery-123",
   "x-github-event": "pull_request",
 });
@@ -81,48 +91,73 @@ test("webhook header parsing fails closed on missing or malformed authentication
   );
 });
 
-test("verified deliveries are claimed once and always require an authoritative reread", async () => {
-  const webhook = await authenticateGitHubWebhook(githubVector.payload, validWebhookHeaders, githubVector.secret);
-  const store = new InMemoryDeliveryClaimStore();
+test("verified webhook repository is derived from the authenticated payload and cannot be swapped afterward", async () => {
+  const webhook = await authenticateGitHubWebhook(
+    repositoryWebhook.payload,
+    validWebhookHeaders,
+    repositoryWebhook.secret,
+  );
+  assert.equal(webhook.repository, "rozkalnsandris/hermes-deals");
 
-  const trigger = await createGitHubReconciliationTrigger(
-    webhook,
-    "rozkalnsandris/hermes-deals",
-    "2026-08-10T10:00:00Z",
-    store,
+  const tamperedPayload = JSON.stringify({ repository: { full_name: "rozkalnsandris/hermes-tech" } });
+  await assert.rejects(
+    () => authenticateGitHubWebhook(tamperedPayload, validWebhookHeaders, repositoryWebhook.secret),
+    InvalidWebhookError,
   );
 
+  const missingRepositoryPayload = JSON.stringify({ action: "opened" });
+  await assert.rejects(
+    () =>
+      authenticateGitHubWebhook(
+        missingRepositoryPayload,
+        headers({
+          "x-hub-signature-256": signature(missingRepositoryPayload, repositoryWebhook.secret),
+          "x-github-delivery": "delivery-missing-repo",
+          "x-github-event": "pull_request",
+        }),
+        repositoryWebhook.secret,
+      ),
+    InvalidWebhookError,
+  );
+});
+
+test("verified deliveries are claimed once and always require an authoritative reread", async () => {
+  const webhook = await authenticateGitHubWebhook(
+    repositoryWebhook.payload,
+    validWebhookHeaders,
+    repositoryWebhook.secret,
+  );
+  const store = new InMemoryDeliveryClaimStore();
+
+  const trigger = await createGitHubReconciliationTrigger(webhook, "2026-08-10T10:00:00Z", store);
+
   assert.equal(trigger.projectId, "hermes-deals");
+  assert.equal(trigger.repository, "rozkalnsandris/hermes-deals");
   assert.equal(trigger.authoritativeReadRequired, true);
 
   await assert.rejects(
-    () =>
-      createGitHubReconciliationTrigger(
-        webhook,
-        "rozkalnsandris/hermes-deals",
-        "2026-08-10T10:00:01Z",
-        store,
-      ),
+    () => createGitHubReconciliationTrigger(webhook, "2026-08-10T10:00:01Z", store),
     DuplicateDeliveryError,
   );
 
+  const unknownPayload = JSON.stringify({ repository: { full_name: "someone/unknown" } });
   const secondWebhook = await authenticateGitHubWebhook(
-    githubVector.payload,
+    unknownPayload,
     headers({
-      "x-hub-signature-256": githubVector.signature,
+      "x-hub-signature-256": signature(unknownPayload, repositoryWebhook.secret),
       "x-github-delivery": "delivery-unknown-repo",
       "x-github-event": "pull_request",
     }),
-    githubVector.secret,
+    repositoryWebhook.secret,
   );
 
   await assert.rejects(
-    () => createGitHubReconciliationTrigger(secondWebhook, "someone/unknown", "2026-08-10T10:00:02Z", store),
+    () => createGitHubReconciliationTrigger(secondWebhook, "2026-08-10T10:00:02Z", store),
     RepositoryNotAllowedError,
   );
 });
 
-test("authoritative PR snapshot binds merge, check and workflow evidence to the observed head SHA", async () => {
+test("authoritative PR snapshot binds merge, check, commit-status and workflow evidence to the observed head SHA", async () => {
   const headSha = "1".repeat(40);
   const mainSha = "2".repeat(40);
 
@@ -166,7 +201,10 @@ test("authoritative PR snapshot binds merge, check and workflow evidence to the 
       return [{ id: "review-1", state: "APPROVED", actor: "reviewer", submittedAt: "2026-08-10T09:59:00Z" }];
     },
     async listCheckRuns() {
-      return [{ id: "check-1", name: "CI", status: "completed", conclusion: "success", headSha, detailsUrl: null }];
+      return [{ id: "check-1", name: "CI", status: "completed", conclusion: "success", headSha, appId: 15368, detailsUrl: null }];
+    },
+    async listCommitStatuses() {
+      return [{ id: "status-1", context: "legacy-ci", state: "success", headSha, targetUrl: null, createdAt: "2026-08-10T09:58:00Z" }];
     },
     async listWorkflowRuns() {
       return [{ id: "run-1", name: "CI", status: "completed", conclusion: "success", headSha, htmlUrl: "https://github.com/example/run" }];
@@ -186,18 +224,20 @@ test("authoritative PR snapshot binds merge, check and workflow evidence to the 
   assert.equal(snapshot.mergeState.mergeStateStatus, "CLEAN");
   assert.equal(snapshot.mainSha, mainSha);
   assert.equal(snapshot.checkRuns[0]?.headSha, headSha);
+  assert.equal(snapshot.checkRuns[0]?.appId, 15368);
+  assert.equal(snapshot.commitStatuses[0]?.headSha, headSha);
 
-  const staleProvider: SourceControlReadProvider = {
+  const staleCheckProvider: SourceControlReadProvider = {
     ...provider,
     async listCheckRuns() {
-      return [{ id: "check-stale", name: "CI", status: "completed", conclusion: "success", headSha: "3".repeat(40), detailsUrl: null }];
+      return [{ id: "check-stale", name: "CI", status: "completed", conclusion: "success", headSha: "3".repeat(40), appId: null, detailsUrl: null }];
     },
   };
 
   await assert.rejects(
     () =>
       readAuthoritativePullRequestSnapshot(
-        staleProvider,
+        staleCheckProvider,
         "rozkalnsandris/hermes-deals",
         42,
         "2026-08-10T10:02:00Z",
@@ -205,12 +245,30 @@ test("authoritative PR snapshot binds merge, check and workflow evidence to the 
     /does not match the observed pull-request head SHA/,
   );
 
+  const staleStatusProvider: SourceControlReadProvider = {
+    ...provider,
+    async listCommitStatuses() {
+      return [{ id: "status-stale", context: "legacy-ci", state: "success", headSha: "4".repeat(40), targetUrl: null, createdAt: "2026-08-10T09:58:00Z" }];
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      readAuthoritativePullRequestSnapshot(
+        staleStatusProvider,
+        "rozkalnsandris/hermes-deals",
+        42,
+        "2026-08-10T10:02:30Z",
+      ),
+    /Commit-status evidence does not match the observed pull-request head SHA/,
+  );
+
   const staleMergeProvider: SourceControlReadProvider = {
     ...provider,
     async getPullRequestMergeState() {
       return {
         pullNumber: 42,
-        headSha: "4".repeat(40),
+        headSha: "5".repeat(40),
         mergeable: "MERGEABLE",
         mergeStateStatus: "CLEAN",
         draft: false,
