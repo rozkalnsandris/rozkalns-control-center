@@ -1,4 +1,4 @@
-import type { ControlFixtureSet } from "./control-model";
+import type { ControlFixtureSet } from "./control-model.js";
 
 const SHA_A = "1111111111111111111111111111111111111111";
 const SHA_B = "2222222222222222222222222222222222222222";
