@@ -1,0 +1,76 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #f5f5f5;
+  background: #0b0d10;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.card {
+  width: min(100%, 680px);
+  padding: 28px;
+  border: 1px solid #2b3038;
+  border-radius: 20px;
+  background: #14171c;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #aeb6c2;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 8vw, 3.5rem);
+  letter-spacing: -0.04em;
+}
+
+.summary {
+  margin: 16px 0 24px;
+  color: #c8ced7;
+  line-height: 1.6;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.status-grid div {
+  padding: 14px;
+  border-radius: 14px;
+  background: #0f1216;
+}
+
+.status-grid dt {
+  color: #9099a6;
+  font-size: 0.78rem;
+}
+
+.status-grid dd {
+  margin: 6px 0 0;
+  font-weight: 650;
+}
