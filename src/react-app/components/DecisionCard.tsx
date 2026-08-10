@@ -33,6 +33,10 @@ function toneForDeploy(deploy: DecisionReadModel["deployImpact"]) {
   return "warning" as const;
 }
 
+function humanize(value: string) {
+  return value.replace(/_/g, " ");
+}
+
 function shortSha(sha: string | null) {
   return sha ? sha.slice(0, 8) : "—";
 }
@@ -57,7 +61,7 @@ export function DecisionCard({ item, project, onMockAction }: DecisionCardProps)
       <div className="decision-card__topline">
         <span className="project-kicker">{project.displayName}</span>
         <StatusPill
-          label={item.workflowState.replaceAll("_", " ")}
+          label={humanize(item.workflowState)}
           tone={item.workflowState === "CI_FAILED" ? "danger" : item.workflowState === "NEEDS_ANDRIS" ? "warning" : "info"}
         />
       </div>
@@ -80,8 +84,8 @@ export function DecisionCard({ item, project, onMockAction }: DecisionCardProps)
 
       <div className="signal-row" aria-label="Decision evidence">
         <StatusPill label={`CI ${item.ci}`} tone={toneForCi(item.ci)} />
-        <StatusPill label={`Review ${item.review.replaceAll("_", " ")}`} tone={toneForReview(item.review)} />
-        <StatusPill label={item.deployImpact.replaceAll("_", " ")} tone={toneForDeploy(item.deployImpact)} />
+        <StatusPill label={`Review ${humanize(item.review)}`} tone={toneForReview(item.review)} />
+        <StatusPill label={humanize(item.deployImpact)} tone={toneForDeploy(item.deployImpact)} />
       </div>
 
       <dl className="evidence-grid">
