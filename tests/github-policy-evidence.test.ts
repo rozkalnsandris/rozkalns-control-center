@@ -142,11 +142,14 @@ test("complete simple evidence derives the existing projection policies conserva
   assert.equal(evidence.coverage, "COMPLETE");
   const derived = deriveProjectionPolicies(evidence);
   assert.deepEqual(derived.blockedReasons, []);
-  assert.deepEqual(derived.ciPolicy, { requiredCheckNames: ["validate"], requiredWorkflowNames: [] });
+  assert.deepEqual(derived.ciPolicy, {
+    requiredChecks: [{ context: "validate", integrationId: null }],
+    requiredWorkflowNames: [],
+  });
   assert.deepEqual(derived.reviewPolicy, { requiredApprovals: 1 });
 });
 
-test("source-bound required checks cannot be reduced to a name-only CI policy", () => {
+test("source-bound required checks preserve GitHub App identity in CI policy", () => {
   const rulesetObservation = mapGitHubActiveBranchRules(
     [
       {
@@ -171,12 +174,15 @@ test("source-bound required checks cannot be reduced to a name-only CI policy", 
   );
   const derived = deriveProjectionPolicies(evidence);
 
-  assert.equal(derived.ciPolicy, undefined);
-  assert.equal(derived.reviewPolicy, undefined);
-  assert.deepEqual(derived.blockedReasons, ["REQUIRED_CHECK_SOURCE_IDENTITY_NOT_MODELED"]);
+  assert.deepEqual(derived.blockedReasons, []);
+  assert.deepEqual(derived.ciPolicy, {
+    requiredChecks: [{ context: "validate", integrationId: 15368 }],
+    requiredWorkflowNames: [],
+  });
+  assert.deepEqual(derived.reviewPolicy, { requiredApprovals: 1 });
 });
 
-test("unresolved required-check source identity also blocks policy derivation", () => {
+test("unresolved required-check source identity still blocks policy derivation", () => {
   const rulesetObservation = mapGitHubActiveBranchRules([], REPOSITORY, BRANCH, OBSERVED_AT);
   const evidence = combineBranchPolicyObservations(
     [rulesetObservation, classicObservation({ hasUnresolvedRequiredCheckSourceIdentity: true })],

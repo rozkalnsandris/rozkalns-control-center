@@ -5,7 +5,9 @@ import { mapGitHubGraphqlPullRequestMergeState } from "../src/shared/github-grap
 import {
   keepExactHeadCheckRuns,
   keepExactHeadWorkflowRuns,
+  keepLatestExactHeadCommitStatuses,
   mapGitHubCheckRun,
+  mapGitHubCommitStatus,
   mapGitHubIssue,
   mapGitHubPullRequest,
   mapGitHubPullRequestReview,
@@ -20,6 +22,7 @@ import {
 import type {
   ChangeRequestReadSnapshot,
   CheckRunRead,
+  CommitStatusRead,
   PullRequestMergeStateRead,
   PullRequestReviewRead,
   WorkflowRunRead,
@@ -37,7 +40,20 @@ function check(overrides: Partial<CheckRunRead> = {}): CheckRunRead {
     status: "completed",
     conclusion: "success",
     headSha: HEAD,
+    appId: null,
     detailsUrl: null,
+    ...overrides,
+  };
+}
+
+function commitStatus(overrides: Partial<CommitStatusRead> = {}): CommitStatusRead {
+  return {
+    id: "4",
+    context: "validate",
+    state: "success",
+    headSha: HEAD,
+    targetUrl: null,
+    createdAt: "2026-08-10T12:10:00Z",
     ...overrides,
   };
 }
@@ -96,6 +112,7 @@ function snapshot(overrides: Partial<ChangeRequestReadSnapshot> = {}): ChangeReq
     mergeState: mergeState(),
     reviews: [review()],
     checkRuns: [check()],
+    commitStatuses: [],
     workflowRuns: [workflow()],
     authoritativeRead: true,
     ...overrides,
@@ -109,7 +126,10 @@ const projectionContext = {
     state: "open" as const,
     htmlUrl: "https://github.com/rozkalnsandris/hermes-tech/issues/10",
   },
-  ciPolicy: { requiredCheckNames: ["validate"], requiredWorkflowNames: ["CI"] },
+  ciPolicy: {
+    requiredChecks: [{ context: "validate", integrationId: null }],
+    requiredWorkflowNames: ["CI"],
+  },
   reviewPolicy: { requiredApprovals: 1 },
 };
 
@@ -180,16 +200,31 @@ test("GraphQL merge-state mapper accepts documented values and fails closed on u
   );
 });
 
-test("check mapper supports current pending-like statuses and fails closed on unknown values", () => {
+test("check mapper preserves producer App identity and pending-like status", () => {
   const mapped = mapGitHubCheckRun({
     id: 1,
     name: "validate",
     status: "waiting",
     conclusion: null,
     head_sha: HEAD,
+    app: { id: 15368 },
     details_url: null,
   });
   assert.equal(mapped.status, "waiting");
+  assert.equal(mapped.appId, 15368);
+
+  assert.equal(
+    mapGitHubCheckRun({
+      id: 2,
+      name: "validate",
+      status: "completed",
+      conclusion: "success",
+      head_sha: HEAD,
+      app: null,
+      details_url: null,
+    }).appId,
+    null,
+  );
 
   assert.throws(
     () =>
@@ -199,7 +234,49 @@ test("check mapper supports current pending-like statuses and fails closed on un
         status: "brand_new_status",
         conclusion: null,
         head_sha: HEAD,
+        app: { id: 15368 },
         details_url: null,
+      }),
+    /unsupported value/,
+  );
+
+  assert.throws(
+    () =>
+      mapGitHubCheckRun({
+        id: 1,
+        name: "validate",
+        status: "completed",
+        conclusion: "success",
+        head_sha: HEAD,
+        app: { id: 0 },
+        details_url: null,
+      }),
+    /positive integer/,
+  );
+});
+
+test("commit-status mapper accepts documented states and rejects malformed state", () => {
+  assert.deepEqual(
+    mapGitHubCommitStatus({
+      id: 4,
+      context: "ci/legacy",
+      state: "pending",
+      sha: HEAD,
+      target_url: null,
+      created_at: "2026-08-10T12:00:00Z",
+    }),
+    commitStatus({ id: "4", context: "ci/legacy", state: "pending", createdAt: "2026-08-10T12:00:00Z" }),
+  );
+
+  assert.throws(
+    () =>
+      mapGitHubCommitStatus({
+        id: 4,
+        context: "ci/legacy",
+        state: "neutral",
+        sha: HEAD,
+        target_url: null,
+        created_at: "2026-08-10T12:00:00Z",
       }),
     /unsupported value/,
   );
@@ -220,16 +297,28 @@ test("workflow mapper fails closed on malformed critical fields", () => {
   );
 });
 
-test("exact-head helpers exclude evidence from a different PR head", () => {
+test("exact-head helpers exclude stale evidence and commit statuses use latest case-insensitive context", () => {
   const checks = keepExactHeadCheckRuns(
     [
-      { id: 1, name: "validate", status: "completed", conclusion: "success", head_sha: HEAD, details_url: null },
-      { id: 2, name: "validate", status: "completed", conclusion: "success", head_sha: OTHER_HEAD, details_url: null },
+      { id: 1, name: "validate", status: "completed", conclusion: "success", head_sha: HEAD, app: null, details_url: null },
+      { id: 2, name: "validate", status: "completed", conclusion: "success", head_sha: OTHER_HEAD, app: null, details_url: null },
     ],
     HEAD,
   );
   assert.equal(checks.length, 1);
   assert.equal(checks[0]?.headSha, HEAD);
+
+  const statuses = keepLatestExactHeadCommitStatuses(
+    [
+      { id: 10, context: "Validate", state: "success", sha: HEAD, target_url: null, created_at: "2026-08-10T12:10:00Z" },
+      { id: 9, context: "validate", state: "failure", sha: HEAD, target_url: null, created_at: "2026-08-10T12:09:00Z" },
+      { id: 8, context: "security", state: "success", sha: OTHER_HEAD, target_url: null, created_at: "2026-08-10T12:08:00Z" },
+    ],
+    HEAD,
+  );
+  assert.equal(statuses.length, 1);
+  assert.equal(statuses[0]?.context, "Validate");
+  assert.equal(statuses[0]?.state, "success");
 
   const runs = keepExactHeadWorkflowRuns(
     [
@@ -243,38 +332,68 @@ test("exact-head helpers exclude evidence from a different PR head", () => {
 });
 
 test("CI aggregation never invents PASS without explicit complete policy evidence", () => {
-  assert.equal(aggregateCiState([], []), "WAITING");
+  assert.equal(aggregateCiState([], [], []), "WAITING");
   assert.equal(
-    aggregateCiState([check()], [workflow()], { requiredCheckNames: [], requiredWorkflowNames: [] }),
+    aggregateCiState([check()], [], [workflow()], { requiredChecks: [], requiredWorkflowNames: [] }),
     "WAITING",
   );
   assert.equal(
-    aggregateCiState([check({ status: "in_progress", conclusion: null })], [], {
-      requiredCheckNames: ["validate"],
+    aggregateCiState([check({ status: "in_progress", conclusion: null })], [], [], {
+      requiredChecks: [{ context: "validate", integrationId: null }],
       requiredWorkflowNames: [],
     }),
     "RUNNING",
   );
   assert.equal(
-    aggregateCiState([check({ conclusion: "failure" })], [], {
-      requiredCheckNames: ["validate"],
+    aggregateCiState([check({ conclusion: "failure" })], [], [], {
+      requiredChecks: [{ context: "validate", integrationId: null }],
       requiredWorkflowNames: [],
     }),
     "FAIL",
   );
   assert.equal(
-    aggregateCiState([check({ conclusion: "cancelled" })], [], {
-      requiredCheckNames: ["validate"],
+    aggregateCiState([check({ conclusion: "cancelled" })], [], [], {
+      requiredChecks: [{ context: "validate", integrationId: null }],
       requiredWorkflowNames: [],
     }),
     "WAITING",
   );
   assert.equal(
-    aggregateCiState([check()], [workflow()], {
-      requiredCheckNames: ["validate"],
+    aggregateCiState([check()], [], [workflow()], {
+      requiredChecks: [{ context: "validate", integrationId: null }],
       requiredWorkflowNames: ["CI"],
     }),
     "PASS",
+  );
+});
+
+test("neutral and skipped completed Checks satisfy GitHub required-status semantics", () => {
+  const policy = { requiredChecks: [{ context: "validate", integrationId: null }], requiredWorkflowNames: [] };
+  assert.equal(aggregateCiState([check({ conclusion: "neutral" })], [], [], policy), "PASS");
+  assert.equal(aggregateCiState([check({ conclusion: "skipped" })], [], [], policy), "PASS");
+});
+
+test("commit status can satisfy a required context and mixed Check/status evidence must both pass", () => {
+  const policy = { requiredChecks: [{ context: "VALIDATE", integrationId: null }], requiredWorkflowNames: [] };
+
+  assert.equal(aggregateCiState([], [commitStatus()], [], policy), "PASS");
+  assert.equal(aggregateCiState([], [commitStatus({ state: "pending" })], [], policy), "RUNNING");
+  assert.equal(aggregateCiState([], [commitStatus({ state: "error" })], [], policy), "FAIL");
+  assert.equal(aggregateCiState([check()], [commitStatus()], [], policy), "PASS");
+  assert.equal(aggregateCiState([check()], [commitStatus({ state: "failure" })], [], policy), "FAIL");
+});
+
+test("App-bound required checks accept only matching Check producer identity", () => {
+  const policy = { requiredChecks: [{ context: "validate", integrationId: 15368 }], requiredWorkflowNames: [] };
+
+  assert.equal(aggregateCiState([check({ appId: 15368 })], [], [], policy), "PASS");
+  assert.equal(aggregateCiState([check({ appId: 999 })], [], [], policy), "WAITING");
+  assert.equal(aggregateCiState([check({ appId: null })], [], [], policy), "WAITING");
+  assert.equal(aggregateCiState([], [commitStatus()], [], policy), "WAITING");
+  assert.equal(aggregateCiState([check({ appId: 15368 })], [commitStatus()], [], policy), "WAITING");
+  assert.equal(
+    aggregateCiState([check({ appId: 15368 })], [commitStatus({ state: "failure" })], [], policy),
+    "FAIL",
   );
 });
 
@@ -348,6 +467,15 @@ test("projection rejects stale-head evidence even if statuses look green", () =>
         projectionContext,
       ),
     /different pull-request head SHA/,
+  );
+
+  assert.throws(
+    () =>
+      projectAuthoritativeSnapshotToDecision(
+        snapshot({ commitStatuses: [commitStatus({ headSha: OTHER_HEAD })] }),
+        projectionContext,
+      ),
+    /commit-status evidence from a different pull-request head SHA/,
   );
 
   assert.throws(

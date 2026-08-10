@@ -75,13 +75,13 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety contracts have progressed through issues #8, #10, #12, #15 and current issue #17. Live GitHub App/Cloudflare rollout remains gated.
+**Status:** CURRENT — source-only safety/correctness contracts have progressed through issues #8, #10, #12, #15, #17 and current issue #19 / PR #20. Live GitHub App/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #17. RPi5 automation remains in Phase 3 — CV pull-deploy migration. The generic-maintenance boundary is now host-proven, but the next incomplete gate is the explicit CV recovery through the existing project-owned manual canary/pull deploy with fresh exact-main CI, healthy `cvbot`, public verification and the pull timer still disabled/inactive.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #19. RPi5 automation remains in Phase 3 — CV pull-deploy migration. CV recovery is complete; its first incomplete gate is now the cross-repository #140 evidence-directory contract (`rozkalns-cv-auto-deploy-*` controller producer vs `rozkalns-cv-main-deploy-*` CV root-wrapper allow-list), which must be fixed and regression-proven before reviewed controller installation/execution.
 
-Therefore source-only interfaces, schemas, crypto/reconciliation/projection/merge-state/policy-evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
+Therefore source-only interfaces, schemas, crypto/reconciliation/projection/merge-state/policy/evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
@@ -132,16 +132,16 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] distinguish `UNKNOWN`, `PARTIAL` and `COMPLETE` policy coverage;
 - [x] map active GitHub ruleset `required_status_checks` and pull-request review requirements from consumed documented fields;
 - [x] deduplicate required check contexts and combine multiple active rules conservatively;
-- [x] preserve required-check `integration_id` and fail closed because current check evidence does not yet verify producer identity;
+- [x] preserve required-check `integration_id` in policy evidence;
 - [x] record complex review semantics that cannot safely collapse to approval count alone;
 - [x] ruleset-only evidence remains partial while classic branch protection is unverified;
 - [x] reject duplicate source observations, branch/repository mismatch and mixed reconciliation timestamps;
-- [x] derive existing CI/review policy objects only from complete and representable evidence;
+- [x] derive CI/review policy objects only from complete and representable evidence;
 - [x] document that active-rules reads need only Repository `Metadata: read` while classic branch protection needs `Administration: read`;
 - [x] authoritative GitHub CI PASS on final branch;
 - [x] #15 reviewed and merged through PR #16.
 
-### Source-only classic branch-protection mapper — issue #17
+### Source-only classic branch-protection mapper — issue #17 / PR #18
 
 - [x] add fail-closed mapper for consumed classic branch-protection response fields;
 - [x] preserve explicit `checks[].app_id` producer identity;
@@ -150,10 +150,29 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] map classic required approval count, stale-review, code-owner and last-push semantics;
 - [x] map required conversation resolution into the existing complex-review feature gate;
 - [x] propagate unresolved required-check source identity through combined policy evidence;
-- [x] keep ambiguous/app-bound/complex policy fail-closed in `deriveProjectionPolicies()`;
+- [x] keep ambiguous/complex policy fail-closed in `deriveProjectionPolicies()`;
 - [x] source-boundary tests prove no live API/auth/mutation path was introduced;
-- [x] authoritative GitHub CI PASS on source branch;
-- [ ] #17 final branch reviewed and merged.
+- [x] authoritative GitHub CI PASS on final branch;
+- [x] #17 reviewed and merged through PR #18 as `19e4e89d66bfba9218a36e5e19628ce7866c40ec`.
+
+### Source-only status/producer/webhook correctness — issue #19 / PR #20
+
+- [x] add provider-neutral commit-status evidence bound to the exact PR head SHA;
+- [x] add fail-closed GitHub commit-status mapper for `success`, `failure`, `error`, `pending`;
+- [x] deterministically keep the newest effective status for each case-insensitive context;
+- [x] preserve Check Run `app.id` producer identity;
+- [x] treat completed Check Run `success`, `neutral` and `skipped` as passing GitHub required-status evidence;
+- [x] evaluate same required context across Check Runs and commit statuses conservatively;
+- [x] carry explicit required App/integration ID into CI policy and reject wrong/unknown producer evidence;
+- [x] bind commit-status evidence to the exact observed PR head SHA in authoritative reads and projection;
+- [x] derive reconciliation repository identity from the HMAC-verified webhook payload instead of an independent caller hint;
+- [x] regression tests cover latest status selection, case-insensitive contexts, mixed Check/status evidence, App mismatch/unknown producer, stale heads and verified webhook repo binding;
+- [x] source-boundary tests prove no live GitHub transport/auth/mutation path was introduced;
+- [x] first authoritative GitHub CI run #41 PASS on source/test implementation;
+- [x] README/read-policy docs reconciled with current source contracts;
+- [x] canonical master #1 reconciled with current Phase 2 status;
+- [x] authoritative GitHub CI PASS after code/docs reconciliation — run #46;
+- [ ] #19 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -161,6 +180,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] exact minimum read permissions and selected repositories only;
 - [ ] live canary proving the exact GraphQL/REST permission set rather than assuming it;
 - [ ] canary `GET /rules/branches/{branch}` with Metadata-read before proposing any `Administration: read` expansion;
+- [ ] add/canary Repository `Commit statuses: read` only if actual managed repositories require commit-status evidence;
 - [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
 - [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
 - [ ] short-lived installation-token boundary;

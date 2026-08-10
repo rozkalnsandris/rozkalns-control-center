@@ -1,4 +1,5 @@
 const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 const signaturePattern = /^sha256=([0-9a-f]{64})$/i;
 const headerValuePattern = /^[A-Za-z0-9._:/+-]{1,200}$/;
 
@@ -13,6 +14,7 @@ const verifiedWebhookMarker: unique symbol = Symbol("verified-github-webhook");
 export interface VerifiedGitHubWebhook {
   deliveryId: string;
   eventName: string;
+  repository: string;
   readonly [verifiedWebhookMarker]: true;
 }
 
@@ -56,6 +58,35 @@ function hexToArrayBuffer(hex: string): ArrayBuffer {
 
 function payloadArrayBuffer(payload: string | Uint8Array): ArrayBuffer {
   return copyToArrayBuffer(typeof payload === "string" ? encoder.encode(payload) : payload);
+}
+
+function payloadText(payload: string | Uint8Array): string {
+  return typeof payload === "string" ? payload : decoder.decode(payload);
+}
+
+function repositoryFromVerifiedPayload(payload: string | Uint8Array): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadText(payload));
+  } catch {
+    throw new InvalidWebhookError("Verified GitHub webhook payload must be valid JSON");
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new InvalidWebhookError("Verified GitHub webhook payload must be an object");
+  }
+
+  const repository = (parsed as Record<string, unknown>).repository;
+  if (typeof repository !== "object" || repository === null || Array.isArray(repository)) {
+    throw new InvalidWebhookError("Verified GitHub webhook payload is missing repository identity");
+  }
+
+  const fullName = (repository as Record<string, unknown>).full_name;
+  if (typeof fullName !== "string" || fullName.trim().length === 0) {
+    throw new InvalidWebhookError("Verified GitHub webhook repository.full_name must be a non-empty string");
+  }
+
+  return fullName;
 }
 
 export function readGitHubWebhookHeaders(headers: HeaderReader): GitHubWebhookHeaders {
@@ -109,6 +140,7 @@ export async function authenticateGitHubWebhook(
   return {
     deliveryId: parsed.deliveryId,
     eventName: parsed.eventName,
+    repository: repositoryFromVerifiedPayload(payload),
     [verifiedWebhookMarker]: true,
   };
 }
