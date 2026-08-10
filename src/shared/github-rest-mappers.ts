@@ -2,6 +2,8 @@ import type {
   CheckConclusion,
   CheckRunRead,
   CheckRunStatus,
+  CommitStatusRead,
+  CommitStatusState,
   IssueRead,
   PullRequestRead,
   PullRequestReviewRead,
@@ -46,6 +48,12 @@ function integerField(value: unknown, field: string): number {
   return value;
 }
 
+function positiveIntegerField(value: unknown, field: string): number {
+  const result = integerField(value, field);
+  if (result === 0) throw new GitHubPayloadError(`${field} must be a positive integer`);
+  return result;
+}
+
 function booleanField(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw new GitHubPayloadError(`${field} must be a boolean`);
   return value;
@@ -71,7 +79,14 @@ const checkConclusions = [
   "stale",
   "startup_failure",
 ] as const;
+const commitStatusStates = ["error", "failure", "pending", "success"] as const;
 const workflowStatuses = ["queued", "in_progress", "completed", "waiting", "requested", "pending"] as const;
+
+function checkRunAppId(input: JsonRecord): number | null {
+  if (!("app" in input) || input.app === null) return null;
+  const app = record(input.app, "check_run.app");
+  return positiveIntegerField(app.id, "check_run.app.id");
+}
 
 export function mapGitHubRepository(payload: unknown): RepositoryRef {
   const input = record(payload, "repository");
@@ -130,7 +145,20 @@ export function mapGitHubCheckRun(payload: unknown): CheckRunRead {
     status,
     conclusion,
     headSha: stringField(input.head_sha, "check_run.head_sha"),
+    appId: checkRunAppId(input),
     detailsUrl: nullableString(input.details_url, "check_run.details_url"),
+  };
+}
+
+export function mapGitHubCommitStatus(payload: unknown): CommitStatusRead {
+  const input = record(payload, "commit_status");
+  return {
+    id: String(integerField(input.id, "commit_status.id")),
+    context: stringField(input.context, "commit_status.context"),
+    state: oneOf(input.state, commitStatusStates, "commit_status.state") as CommitStatusState,
+    headSha: stringField(input.sha, "commit_status.sha"),
+    targetUrl: nullableString(input.target_url, "commit_status.target_url"),
+    createdAt: stringField(input.created_at, "commit_status.created_at"),
   };
 }
 
@@ -158,6 +186,23 @@ export function mapGitHubIssue(payload: unknown): IssueRead {
 
 export function keepExactHeadCheckRuns(payloads: readonly unknown[], expectedHeadSha: string): CheckRunRead[] {
   return payloads.map(mapGitHubCheckRun).filter((item) => item.headSha === expectedHeadSha);
+}
+
+export function keepLatestExactHeadCommitStatuses(
+  payloadsNewestFirst: readonly unknown[],
+  expectedHeadSha: string,
+): CommitStatusRead[] {
+  const latestByContext = new Map<string, CommitStatusRead>();
+
+  for (const payload of payloadsNewestFirst) {
+    const status = mapGitHubCommitStatus(payload);
+    if (status.headSha !== expectedHeadSha) continue;
+
+    const key = status.context.toLowerCase();
+    if (!latestByContext.has(key)) latestByContext.set(key, status);
+  }
+
+  return [...latestByContext.values()];
 }
 
 export function keepExactHeadWorkflowRuns(payloads: readonly unknown[], expectedHeadSha: string): WorkflowRunRead[] {
