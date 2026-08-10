@@ -1,15 +1,18 @@
 name: Refresh Phase 0 toolchain
 
 on:
-  push:
-    branches: [bootstrap/phase-0-runtime-ci]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   refresh:
-    if: github.repository == 'rozkalnsandris/rozkalns-control-center'
+    if: >-
+      github.repository == 'rozkalnsandris/rozkalns-control-center' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'bootstrap/phase-0-runtime-ci'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
