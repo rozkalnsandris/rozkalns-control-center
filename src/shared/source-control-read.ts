@@ -15,6 +15,16 @@ export type CheckConclusion =
   | null;
 export type CheckRunStatus = "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
 export type WorkflowRunStatus = "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
+export type PullRequestMergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+export type PullRequestMergeStateStatus =
+  | "BEHIND"
+  | "BLOCKED"
+  | "CLEAN"
+  | "DIRTY"
+  | "DRAFT"
+  | "HAS_HOOKS"
+  | "UNKNOWN"
+  | "UNSTABLE";
 
 export interface RepositoryRef {
   repository: string;
@@ -32,6 +42,14 @@ export interface PullRequestRead {
   headSha: string;
   changedFiles: number;
   htmlUrl: string;
+}
+
+export interface PullRequestMergeStateRead {
+  pullNumber: number;
+  headSha: string;
+  mergeable: PullRequestMergeability;
+  mergeStateStatus: PullRequestMergeStateStatus;
+  draft: boolean;
 }
 
 export interface PullRequestReviewRead {
@@ -72,6 +90,7 @@ export interface SourceControlReadProvider {
   listOpenIssues(repository: string): Promise<IssueRead[]>;
   listOpenPullRequests(repository: string): Promise<PullRequestRead[]>;
   getPullRequest(repository: string, pullNumber: number): Promise<PullRequestRead>;
+  getPullRequestMergeState(repository: string, pullNumber: number): Promise<PullRequestMergeStateRead>;
   listPullRequestReviews(repository: string, pullNumber: number): Promise<PullRequestReviewRead[]>;
   listCheckRuns(repository: string, headSha: string): Promise<CheckRunRead[]>;
   listWorkflowRuns(repository: string, headSha: string): Promise<WorkflowRunRead[]>;
@@ -83,6 +102,7 @@ export interface ChangeRequestReadSnapshot {
   defaultBranch: string;
   mainSha: string;
   pullRequest: PullRequestRead;
+  mergeState: PullRequestMergeStateRead;
   reviews: readonly PullRequestReviewRead[];
   checkRuns: readonly CheckRunRead[];
   workflowRuns: readonly WorkflowRunRead[];
@@ -107,12 +127,23 @@ export async function readAuthoritativePullRequestSnapshot(
     throw new Error("Source-control provider returned a different pull request than requested");
   }
 
-  const [mainSha, reviews, checkRuns, workflowRuns] = await Promise.all([
+  const [mainSha, mergeState, reviews, checkRuns, workflowRuns] = await Promise.all([
     provider.getDefaultBranchHead(repository, repositoryRead.defaultBranch),
+    provider.getPullRequestMergeState(repository, pullNumber),
     provider.listPullRequestReviews(repository, pullNumber),
     provider.listCheckRuns(repository, pullRequest.headSha),
     provider.listWorkflowRuns(repository, pullRequest.headSha),
   ]);
+
+  if (mergeState.pullNumber !== pullRequest.number) {
+    throw new Error("Merge-state evidence does not match the observed pull request number");
+  }
+  if (mergeState.headSha !== pullRequest.headSha) {
+    throw new Error("Merge-state evidence does not match the observed pull-request head SHA");
+  }
+  if (mergeState.draft !== pullRequest.draft) {
+    throw new Error("Merge-state evidence disagrees with the observed pull-request draft state");
+  }
 
   for (const check of checkRuns) {
     if (check.headSha !== pullRequest.headSha) {
@@ -132,6 +163,7 @@ export async function readAuthoritativePullRequestSnapshot(
     defaultBranch: repositoryRead.defaultBranch,
     mainSha,
     pullRequest,
+    mergeState,
     reviews,
     checkRuns,
     workflowRuns,

@@ -75,13 +75,13 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only contracts are advancing through issue #10 / PR #11. Live GitHub App/Cloudflare rollout remains gated.
+**Status:** CURRENT — source-only safety contracts have progressed through issues #8, #10 and current issue #12. Live GitHub App/Cloudflare rollout remains gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #10. RPi5 automation remains in Phase 3 — CV pull-deploy migration with the generic-maintenance Compose / `cvbot` health prerequisite still incomplete before later controller activation work.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #12. RPi5 automation remains in Phase 3 — CV pull-deploy migration with the generic-maintenance Compose / `cvbot` health prerequisite still incomplete before later controller activation work.
 
-Therefore source-only interfaces, schemas, pure crypto/reconciliation/projection code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
+Therefore source-only interfaces, schemas, crypto/reconciliation/projection/merge-state code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
@@ -109,20 +109,34 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] deploy impact remains `UNKNOWN` unless supplied by a separate trusted projection;
 - [x] read-only projection exposes `OPEN_PR` only, never Merge;
 - [x] fixture/live structural parity and stale-head regression tests;
-- [x] source-only boundary tests include the new mapper/projection modules;
-- [x] GitHub CI PASS on the initial #10 projection head;
-- [ ] #10 final branch reviewed and merged.
+- [x] source-only boundary tests include the mapper/projection modules;
+- [x] authoritative GitHub CI PASS on the final branch;
+- [x] #10 reviewed and merged through PR #11.
+
+### Source-only authoritative merge-state gate — issue #12 / PR #14
+
+- [x] exact-head provider contract includes a separate pull-request merge-state read;
+- [x] fail-closed mapper for the documented GitHub GraphQL merge-state fields consumed by Control;
+- [x] merge-state evidence is bound to the same PR number, exact head SHA and draft state as the PR snapshot;
+- [x] only `MERGEABLE/CLEAN` may satisfy the merge-state readiness gate;
+- [x] `BEHIND`, `BLOCKED`, `DIRTY`, `DRAFT`, `HAS_HOOKS`, `UNKNOWN`, `UNSTABLE` remain non-ready;
+- [x] unknown future merge-state enum values fail closed;
+- [x] source-only boundary includes the GraphQL mapper and still proves no transport/auth/mutation path;
+- [x] Repository `Administration: read` is deliberately not added merely to read branch protection;
+- [x] initial authoritative GitHub CI PASS on the source branch;
+- [ ] #12 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
 - [ ] dedicated `Rozkalns Control` GitHub App;
 - [ ] exact minimum read permissions and selected repositories only;
+- [ ] live canary proving the exact GraphQL/REST permission set rather than assuming it;
 - [ ] short-lived installation-token boundary;
 - [ ] live GitHub read adapter;
 - [ ] authenticated webhook route using raw-body HMAC validation;
 - [ ] durable delivery deduplication;
 - [ ] Queue + DLQ reconciliation;
-- [ ] live issues/PR/review/CI projections;
+- [ ] live issues/PR/review/CI/merge-state projections;
 - [ ] fixture/live adapter parity tests against real read-only snapshots;
 - [ ] observable reconciliation/DLQ failures.
 

@@ -122,7 +122,7 @@ test("verified deliveries are claimed once and always require an authoritative r
   );
 });
 
-test("authoritative PR snapshot binds checks and workflows to the observed head SHA", async () => {
+test("authoritative PR snapshot binds merge, check and workflow evidence to the observed head SHA", async () => {
   const headSha = "1".repeat(40);
   const mainSha = "2".repeat(40);
 
@@ -153,6 +153,15 @@ test("authoritative PR snapshot binds checks and workflows to the observed head 
         htmlUrl: "https://github.com/rozkalnsandris/hermes-deals/pull/42",
       };
     },
+    async getPullRequestMergeState() {
+      return {
+        pullNumber: 42,
+        headSha,
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        draft: false,
+      };
+    },
     async listPullRequestReviews() {
       return [{ id: "review-1", state: "APPROVED", actor: "reviewer", submittedAt: "2026-08-10T09:59:00Z" }];
     },
@@ -173,6 +182,8 @@ test("authoritative PR snapshot binds checks and workflows to the observed head 
 
   assert.equal(snapshot.authoritativeRead, true);
   assert.equal(snapshot.pullRequest.headSha, headSha);
+  assert.equal(snapshot.mergeState.headSha, headSha);
+  assert.equal(snapshot.mergeState.mergeStateStatus, "CLEAN");
   assert.equal(snapshot.mainSha, mainSha);
   assert.equal(snapshot.checkRuns[0]?.headSha, headSha);
 
@@ -192,5 +203,29 @@ test("authoritative PR snapshot binds checks and workflows to the observed head 
         "2026-08-10T10:02:00Z",
       ),
     /does not match the observed pull-request head SHA/,
+  );
+
+  const staleMergeProvider: SourceControlReadProvider = {
+    ...provider,
+    async getPullRequestMergeState() {
+      return {
+        pullNumber: 42,
+        headSha: "4".repeat(40),
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        draft: false,
+      };
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      readAuthoritativePullRequestSnapshot(
+        staleMergeProvider,
+        "rozkalnsandris/hermes-deals",
+        42,
+        "2026-08-10T10:03:00Z",
+      ),
+    /Merge-state evidence does not match the observed pull-request head SHA/,
   );
 });
