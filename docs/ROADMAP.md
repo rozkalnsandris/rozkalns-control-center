@@ -138,7 +138,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] reject duplicate source observations, branch/repository mismatch and mixed reconciliation timestamps;
 - [x] derive existing CI/review policy objects only from complete and representable evidence;
 - [x] document that active-rules reads need only Repository `Metadata: read` while classic branch protection needs `Administration: read`;
-- [ ] authoritative GitHub CI PASS on final #15 branch;
+- [x] authoritative GitHub CI PASS on the source branch;
 - [ ] #15 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
