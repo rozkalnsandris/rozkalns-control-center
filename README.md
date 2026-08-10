@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 1 mobile-first read-only UI. PR #7 completes the fixture-based UX gate; after it merges, Phase 2 live read-only GitHub integration is next only after its prerequisite reconciliation. No production deployment is authorized.
+> **Status:** Phase 2 live read-only GitHub integration — source-only preflight is in progress. No live GitHub App, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
 
 The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
 
@@ -52,9 +52,9 @@ The first useful release is intentionally focused on approvals and visibility ra
 
 **Merge authorization is not deploy authorization.**
 
-## Current Phase 1 UI
+## Phase 1 UI baseline
 
-Phase 1 intentionally uses deterministic fixture data rather than live GitHub state. Its purpose is to prove the phone UX before adding integration permissions.
+Phase 1 proved the phone UX with deterministic fixture data before adding integration permissions.
 
 The fixture dashboard contains:
 
@@ -71,14 +71,34 @@ Mock actions change only local React notice state. They do not call GitHub, Clou
 
 Accessibility/mobile baseline:
 
+- Samsung Galaxy A55-class compact portrait layout is first-class without device sniffing or physical-pixel hardcoding;
 - semantic landmarks/headings;
 - visible keyboard focus;
 - skip-to-content navigation;
 - status meaning in text, not color alone;
 - primary actions at least 52 CSS px high;
+- safe-area/dynamic-viewport handling;
 - mobile-first single-column layout with wider-screen enhancement.
 
-See [`docs/PHASE1_UI_NOTES.md`](docs/PHASE1_UI_NOTES.md) for the explicit Phase 1 verification contract.
+See [`docs/PHASE1_UI_NOTES.md`](docs/PHASE1_UI_NOTES.md).
+
+## Current Phase 2 source preflight
+
+Phase 2 replaces fixture state with trustworthy live GitHub projections, but the first implementation step is deliberately source-only.
+
+Current source contracts cover:
+
+- configuration-driven managed-repository allow-list;
+- provider-neutral GitHub read boundary with no mutation methods;
+- exact-head PR/check/workflow evidence binding;
+- fail-closed GitHub webhook header/HMAC validation;
+- delivery-ID deduplication abstraction;
+- reconciliation triggers that require a fresh authoritative GitHub read;
+- documented minimum future GitHub App permissions per planned endpoint.
+
+There are still **no live GitHub API calls, credentials, GitHub App installation, D1/Queue/Workflow bindings or production deploy path** in the current repository.
+
+See [`docs/PHASE2_GITHUB_READ_CONTRACT.md`](docs/PHASE2_GITHUB_READ_CONTRACT.md).
 
 ## Bootstrap runtime
 
@@ -133,6 +153,7 @@ The initial design targets Cloudflare Free-compatible components where practical
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — threats and required mitigations;
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — phase gates and exit criteria;
 - [`docs/PHASE1_UI_NOTES.md`](docs/PHASE1_UI_NOTES.md) — Phase 1 read-only/mobile verification contract;
+- [`docs/PHASE2_GITHUB_READ_CONTRACT.md`](docs/PHASE2_GITHUB_READ_CONTRACT.md) — Phase 2 source-only GitHub read/reconciliation contract;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
 
 ## Development rule

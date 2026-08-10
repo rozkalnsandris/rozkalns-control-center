@@ -33,8 +33,6 @@ Goal: create a safe, understandable codebase before any live integration.
 
 ### Exit gate
 
-Phase 0 exits only when:
-
 - [x] contracts are merged and non-contradictory;
 - [x] application skeleton builds/tests in authoritative GitHub CI;
 - [x] repository has a deterministic contribution workflow;
@@ -44,7 +42,7 @@ Phase 0 exits only when:
 
 Goal: prove the Android-first UX before live GitHub writes.
 
-**Status:** complete on merge of PR #7. Implementation evidence is issue #6 / PR #7; accessibility and fixture safety contract is `docs/PHASE1_UI_NOTES.md`; final GitHub CI must be green on the exact merge candidate head.
+**Status:** complete on merge of PR #7. Implementation evidence is issue #6 / PR #7; accessibility and fixture safety contract is `docs/PHASE1_UI_NOTES.md`.
 
 ### Deliverables
 
@@ -54,7 +52,8 @@ Goal: prove the Android-first UX before live GitHub writes.
 - [x] decision card layout;
 - [x] working/waiting/failed and merge-ready states;
 - [x] responsive/mobile-first layout;
-- [x] accessibility contract checks for touch targets, visible focus, skip navigation and text-based status meaning;
+- [x] Samsung Galaxy A55-class compact portrait contract without device sniffing/physical-pixel hardcoding;
+- [x] accessibility checks for touch targets, visible focus, skip navigation and text-based status meaning;
 - [x] explicit fixture-mode safety so mock actions cannot be mistaken for live mutations.
 
 ### Must not do
@@ -65,41 +64,64 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 ### Exit gate
 
-- [x] a phone-first layout surfaces `Needs Andris` before secondary states;
-- [x] a mocked PR decision includes enough CI/review/SHA/deploy evidence to understand why a human is needed;
+- [x] phone-first layout surfaces `Needs Andris` before secondary states;
+- [x] mocked PR decisions include enough CI/review/SHA/deploy evidence to understand why a human is needed;
 - [x] primary mock controls meet the Android-oriented >=48px touch-target goal;
 - [x] status meaning is not color-only and keyboard focus remains visible;
-- [x] fixture/model and UI-contract tests are part of normal CI;
+- [x] fixture/model/UI/compact-phone tests are part of normal CI;
 - [x] no live GitHub/production write path was introduced.
-
-**Next after PR #7 merges:** Phase 2 — live read-only GitHub integration. Before starting Phase 2, reconcile master issue #1's current-phase marker and the active `RPi5_main` automation phase. Do not create or broaden GitHub App permissions until that prerequisite is explicitly satisfied.
 
 ## Phase 2 — live read-only GitHub integration
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-Prerequisite: reconcile this integration with the active `RPi5_main` automation phase.
+**Status:** CURRENT — source-only preflight in issue #8. Live GitHub App/Cloudflare rollout remains gated.
 
-### Deliverables
+### Sequencing prerequisite
 
-- dedicated `Rozkalns Control` GitHub App;
-- minimum read permissions and selected repos only;
-- GitHub webhook raw-body HMAC validation;
-- delivery deduplication;
-- Queue + DLQ reconciliation;
-- live issues/PR/review/CI projections;
-- source-of-truth re-resolution patterns.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #8. RPi5 automation remains in Phase 3 — CV pull-deploy migration with incomplete maintenance/CV-health/controller gates.
+
+Therefore source-only interfaces, schemas, pure crypto/reconciliation code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
+
+Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
+
+### Source-only preflight deliverables — issue #8
+
+- [x] configuration-driven managed-repository allow-list source model;
+- [x] provider-neutral source-control read interface with no mutation methods;
+- [x] exact-head PR/check/workflow evidence binding;
+- [x] raw GitHub webhook header/HMAC verification source contract;
+- [x] delivery-claim/deduplication persistence interface with deterministic in-memory test implementation;
+- [x] reconciliation trigger requiring authoritative GitHub reread;
+- [x] planned REST endpoint → minimum GitHub App permission documentation;
+- [x] focused tests for allow-list, HMAC vector, missing/malformed auth metadata, duplicate delivery and stale SHA evidence;
+- [x] authoritative GitHub CI PASS on the source-preflight branch after the Web Crypto compatibility fix;
+- [ ] #8 reviewed and merged.
+
+### Later Phase 2 live deliverables — separately gated
+
+- [ ] dedicated `Rozkalns Control` GitHub App;
+- [ ] exact minimum read permissions and selected repositories only;
+- [ ] short-lived installation-token boundary;
+- [ ] live GitHub read adapter;
+- [ ] authenticated webhook route using raw-body HMAC validation;
+- [ ] durable delivery deduplication;
+- [ ] Queue + DLQ reconciliation;
+- [ ] live issues/PR/review/CI projections;
+- [ ] fixture/live adapter parity tests;
+- [ ] observable reconciliation/DLQ failures.
 
 ### Must not do
 
 - no GitHub source writes;
 - no Merge button mutation yet;
 - no RPi5 mutation;
+- no production deployment implied by integration work;
 - no AI execution.
 
 ### Exit gate
 
-Live dashboard state matches GitHub deterministically, invalid/replayed events fail safely, and event loss is visible through DLQ/error state.
+Live dashboard state matches GitHub deterministically, invalid/replayed events fail safely, and event loss is visible through DLQ/error state while no GitHub write permission/path exists.
 
 ## Phase 3 — human decision actions
 
