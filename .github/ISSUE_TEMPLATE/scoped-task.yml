@@ -1,0 +1,77 @@
+name: Scoped implementation task
+description: Create a task aligned with the current Rozkalns Control master phase.
+title: "[Phase ?] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read master issue #1 and `AGENTS.md` before defining implementation scope.
+
+  - type: input
+    id: master_phase
+    attributes:
+      label: Master phase
+      description: Current phase from master issue #1.
+      placeholder: "Phase 0"
+    validations:
+      required: true
+
+  - type: input
+    id: exit_criterion
+    attributes:
+      label: Exit criterion / goal
+      description: Exact master/roadmap criterion this task advances.
+    validations:
+      required: true
+
+  - type: textarea
+    id: trigger
+    attributes:
+      label: Trigger / evidence
+      description: What proves this task is needed now?
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope
+      description: Smallest coherent implementation scope.
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Explicit non-goals
+      description: Important adjacent work this task must not perform.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Deterministic checks that close this task.
+    validations:
+      required: true
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Security / permission / deploy impact
+      description: State whether auth, GitHub permissions, Cloudflare production, RPi5, DB, secrets or deployment are affected.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Contract checks
+      options:
+        - label: I re-read master issue #1.
+          required: true
+        - label: This task does not silently expand GitHub App permissions.
+          required: true
+        - label: Merge authorization is not being treated as deploy authorization.
+          required: true
