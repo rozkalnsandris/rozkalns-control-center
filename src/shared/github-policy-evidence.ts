@@ -281,9 +281,6 @@ export function deriveProjectionPolicies(evidence: BranchPolicyEvidence): Projec
     blockedReasons.push("REQUIRED_CHECK_SOURCE_IDENTITY_UNKNOWN");
   }
 
-  const sourceBoundChecks = evidence.requiredStatusChecks.filter((check) => check.integrationId !== null);
-  if (sourceBoundChecks.length > 0) blockedReasons.push("REQUIRED_CHECK_SOURCE_IDENTITY_NOT_MODELED");
-
   const reviewFeatures = evidence.reviewFeatures;
   if (reviewFeatures.dismissStaleReviewsOnPush) blockedReasons.push("DISMISS_STALE_REVIEWS_NOT_MODELED");
   if (reviewFeatures.requireCodeOwnerReview) blockedReasons.push("CODE_OWNER_REVIEW_NOT_MODELED");
@@ -295,7 +292,10 @@ export function deriveProjectionPolicies(evidence: BranchPolicyEvidence): Projec
 
   return {
     ciPolicy: {
-      requiredCheckNames: evidence.requiredStatusChecks.map((check) => check.context),
+      requiredChecks: evidence.requiredStatusChecks.map((check) => ({
+        context: check.context,
+        integrationId: check.integrationId,
+      })),
       requiredWorkflowNames: [],
     },
     reviewPolicy: { requiredApprovals: evidence.requiredApprovals },
