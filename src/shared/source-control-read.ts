@@ -11,7 +11,10 @@ export type CheckConclusion =
   | "timed_out"
   | "action_required"
   | "stale"
+  | "startup_failure"
   | null;
+export type CheckRunStatus = "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
+export type WorkflowRunStatus = "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
 
 export interface RepositoryRef {
   repository: string;
@@ -41,7 +44,7 @@ export interface PullRequestReviewRead {
 export interface CheckRunRead {
   id: string;
   name: string;
-  status: "queued" | "in_progress" | "completed";
+  status: CheckRunStatus;
   conclusion: CheckConclusion;
   headSha: string;
   detailsUrl: string | null;
@@ -50,7 +53,7 @@ export interface CheckRunRead {
 export interface WorkflowRunRead {
   id: string;
   name: string;
-  status: "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
+  status: WorkflowRunStatus;
   conclusion: string | null;
   headSha: string;
   htmlUrl: string;

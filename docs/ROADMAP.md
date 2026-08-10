@@ -75,17 +75,17 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only preflight in issue #8. Live GitHub App/Cloudflare rollout remains gated.
+**Status:** CURRENT — source-only contracts are advancing through issue #10 / PR #11. Live GitHub App/Cloudflare rollout remains gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #8. RPi5 automation remains in Phase 3 — CV pull-deploy migration with incomplete maintenance/CV-health/controller gates.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #10. RPi5 automation remains in Phase 3 — CV pull-deploy migration with the generic-maintenance Compose / `cvbot` health prerequisite still incomplete before later controller activation work.
 
-Therefore source-only interfaces, schemas, pure crypto/reconciliation code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
+Therefore source-only interfaces, schemas, pure crypto/reconciliation/projection code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
-### Source-only preflight deliverables — issue #8
+### Source-only read/webhook preflight — issue #8 / PR #9
 
 - [x] configuration-driven managed-repository allow-list source model;
 - [x] provider-neutral source-control read interface with no mutation methods;
@@ -95,8 +95,23 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] reconciliation trigger requiring authoritative GitHub reread;
 - [x] planned REST endpoint → minimum GitHub App permission documentation;
 - [x] focused tests for allow-list, HMAC vector, missing/malformed auth metadata, duplicate delivery and stale SHA evidence;
-- [x] authoritative GitHub CI PASS on the source-preflight branch after the Web Crypto compatibility fix;
-- [ ] #8 reviewed and merged.
+- [x] authoritative GitHub CI PASS after the Web Crypto compatibility fix;
+- [x] #8 reviewed and merged through PR #9.
+
+### Source-only projection/parity — issue #10 / PR #11
+
+- [x] fail-closed mappers for only the documented GitHub REST fields currently consumed;
+- [x] current pending-like check-run statuses represented without treating them as success;
+- [x] exact-head check/workflow filtering and projection reassertion;
+- [x] conservative required-CI aggregation; missing/ambiguous policy/evidence never becomes PASS;
+- [x] conservative latest-effective-review aggregation; missing reviewer policy never becomes PASS;
+- [x] authoritative snapshot projection into the existing Phase 1 `DecisionReadModel` contract;
+- [x] deploy impact remains `UNKNOWN` unless supplied by a separate trusted projection;
+- [x] read-only projection exposes `OPEN_PR` only, never Merge;
+- [x] fixture/live structural parity and stale-head regression tests;
+- [x] source-only boundary tests include the new mapper/projection modules;
+- [x] GitHub CI PASS on the initial #10 projection head;
+- [ ] #10 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -108,7 +123,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] durable delivery deduplication;
 - [ ] Queue + DLQ reconciliation;
 - [ ] live issues/PR/review/CI projections;
-- [ ] fixture/live adapter parity tests;
+- [ ] fixture/live adapter parity tests against real read-only snapshots;
 - [ ] observable reconciliation/DLQ failures.
 
 ### Must not do
