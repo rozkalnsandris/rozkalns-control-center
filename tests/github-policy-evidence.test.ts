@@ -260,7 +260,7 @@ test("conflicting check source identities and malformed consumed rules fail clos
   );
 });
 
-test("evidence combiner rejects duplicate sources and branch/repository mismatches", () => {
+test("evidence combiner rejects duplicate, mismatched and mixed-time observations", () => {
   const rulesetObservation = mapGitHubActiveBranchRules([], REPOSITORY, BRANCH, OBSERVED_AT);
 
   assert.throws(
@@ -288,5 +288,16 @@ test("evidence combiner rejects duplicate sources and branch/repository mismatch
   assert.throws(
     () => combineBranchPolicyObservations([rulesetObservation], REPOSITORY, "release", OBSERVED_AT),
     /branch mismatch/,
+  );
+
+  assert.throws(
+    () =>
+      combineBranchPolicyObservations(
+        [rulesetObservation, classicObservation({ observedAt: "2026-08-10T15:56:00Z" })],
+        REPOSITORY,
+        BRANCH,
+        OBSERVED_AT,
+      ),
+    /timestamp mismatch/,
   );
 });
