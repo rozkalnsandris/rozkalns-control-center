@@ -152,7 +152,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] propagate unresolved required-check source identity through combined policy evidence;
 - [x] keep ambiguous/app-bound/complex policy fail-closed in `deriveProjectionPolicies()`;
 - [x] source-boundary tests prove no live API/auth/mutation path was introduced;
-- [ ] authoritative GitHub CI PASS on final #17 branch;
+- [x] authoritative GitHub CI PASS on source branch;
 - [ ] #17 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
