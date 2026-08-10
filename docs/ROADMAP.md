@@ -75,13 +75,13 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety contracts have progressed through issues #8, #10 and current issue #12. Live GitHub App/Cloudflare rollout remains gated.
+**Status:** CURRENT — source-only safety contracts have progressed through issues #8, #10, #12 and current issue #15. Live GitHub App/Cloudflare rollout remains gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #12. RPi5 automation remains in Phase 3 — CV pull-deploy migration with the generic-maintenance Compose / `cvbot` health prerequisite still incomplete before later controller activation work.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before #15. RPi5 automation remains in Phase 3 — CV pull-deploy migration with the generic-maintenance Compose / `cvbot` health prerequisite still incomplete before later controller activation work.
 
-Therefore source-only interfaces, schemas, crypto/reconciliation/projection/merge-state code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
+Therefore source-only interfaces, schemas, crypto/reconciliation/projection/merge-state/policy-evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
@@ -123,14 +123,30 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] unknown future merge-state enum values fail closed;
 - [x] source-only boundary includes the GraphQL mapper and still proves no transport/auth/mutation path;
 - [x] Repository `Administration: read` is deliberately not added merely to read branch protection;
-- [x] initial authoritative GitHub CI PASS on the source branch;
-- [ ] #12 final branch reviewed and merged.
+- [x] authoritative GitHub CI PASS on the final branch;
+- [x] #12 reviewed and merged through PR #14.
+
+### Source-only branch-policy provenance — issue #15
+
+- [x] model branch-policy observations with explicit source provenance;
+- [x] distinguish `UNKNOWN`, `PARTIAL` and `COMPLETE` policy coverage;
+- [x] map active GitHub ruleset `required_status_checks` and pull-request review requirements from consumed documented fields;
+- [x] deduplicate required check contexts and combine multiple active rules conservatively;
+- [x] preserve required-check `integration_id` and fail closed because current check evidence does not yet verify producer identity;
+- [x] record complex review semantics that cannot safely collapse to approval count alone;
+- [x] ruleset-only evidence remains partial while classic branch protection is unverified;
+- [x] reject duplicate source observations, branch/repository mismatch and mixed reconciliation timestamps;
+- [x] derive existing CI/review policy objects only from complete and representable evidence;
+- [x] document that active-rules reads need only Repository `Metadata: read` while classic branch protection needs `Administration: read`;
+- [x] authoritative GitHub CI PASS on the source branch;
+- [ ] #15 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
 - [ ] dedicated `Rozkalns Control` GitHub App;
 - [ ] exact minimum read permissions and selected repositories only;
 - [ ] live canary proving the exact GraphQL/REST permission set rather than assuming it;
+- [ ] canary `GET /rules/branches/{branch}` with Metadata-read before proposing any `Administration: read` expansion;
 - [ ] short-lived installation-token boundary;
 - [ ] live GitHub read adapter;
 - [ ] authenticated webhook route using raw-body HMAC validation;
