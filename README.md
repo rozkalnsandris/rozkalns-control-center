@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 2 live read-only GitHub integration — source-only correctness hardening is in progress through issue #19 / PR #20. No live GitHub App, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
+> **Status:** Phase 2 live read-only GitHub integration — source-only durability preflight is in progress through issue #21 / PR #22. No live GitHub App, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
 
 The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
 
@@ -102,13 +102,16 @@ Current source contracts now cover:
 - classic branch-protection `app_id`, approval and complex-review semantics;
 - fail-closed webhook HMAC verification where repository identity is derived from the same authenticated payload;
 - delivery-ID deduplication abstraction and reconciliation triggers requiring a fresh authoritative GitHub read;
+- versioned minimal reconciliation Queue-message contract with unknown-field rejection;
+- explicit durable delivery lifecycle and terminal `DEAD_LETTERED` state;
+- source-controlled initial D1 migration with `delivery_id` primary-key idempotency and no secret/payload columns;
 - documented future endpoint → minimum GitHub App permission requirements, including `Commit statuses: read` only when live status reads are actually introduced.
 
 Phase 2 application projection still exposes only `OPEN_PR`; it does **not** expose a live Merge mutation.
 
 There are still **no live GitHub API calls, credentials, dedicated Control GitHub App installation, D1/Queue/Workflow bindings or production deploy path** in the current repository.
 
-The current `RPi5_main` automation program remains in Phase 3. Its first incomplete gate is the cross-repository CV controller evidence-directory contract, so Control live rollout remains separately gated.
+The current `RPi5_main` automation program remains in Phase 3. CV recovery and the cross-repository evidence-directory contract are complete. Its first incomplete gate is host installation/proof of the reviewed #140 controller/readiness artifacts with the recurring timer still disabled/inactive, so Control live rollout remains separately gated and requires a fresh sequencing reconciliation at the exact rollout step.
 
 See:
 
@@ -116,6 +119,7 @@ See:
 - [`docs/PHASE2_GITHUB_PROJECTION_CONTRACT.md`](docs/PHASE2_GITHUB_PROJECTION_CONTRACT.md)
 - [`docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md`](docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md)
 - [`docs/PHASE2_GITHUB_POLICY_EVIDENCE.md`](docs/PHASE2_GITHUB_POLICY_EVIDENCE.md)
+- [`docs/PHASE2_RECONCILIATION_DURABILITY.md`](docs/PHASE2_RECONCILIATION_DURABILITY.md)
 
 ## Bootstrap runtime
 
@@ -174,6 +178,7 @@ The initial design targets Cloudflare Free-compatible components where practical
 - [`docs/PHASE2_GITHUB_PROJECTION_CONTRACT.md`](docs/PHASE2_GITHUB_PROJECTION_CONTRACT.md) — authoritative projection/CI/review parity contract;
 - [`docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md`](docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md) — exact-head GitHub merge-state readiness contract;
 - [`docs/PHASE2_GITHUB_POLICY_EVIDENCE.md`](docs/PHASE2_GITHUB_POLICY_EVIDENCE.md) — ruleset/classic policy provenance contract;
+- [`docs/PHASE2_RECONCILIATION_DURABILITY.md`](docs/PHASE2_RECONCILIATION_DURABILITY.md) — delivery/D1/Queue/DLQ source-only durability contract;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
 
 ## Development rule
