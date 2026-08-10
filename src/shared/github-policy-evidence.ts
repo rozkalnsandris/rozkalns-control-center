@@ -236,6 +236,9 @@ export function combineBranchPolicyObservations(
       throw new Error("Branch policy observation repository mismatch");
     }
     if (observation.branch !== branch) throw new Error("Branch policy observation branch mismatch");
+    if (observation.observedAt !== observedAt) {
+      throw new Error("Branch policy observation timestamp mismatch");
+    }
     if (sourceSet.has(observation.source)) {
       throw new Error(`Duplicate branch policy observation source ${observation.source}`);
     }
