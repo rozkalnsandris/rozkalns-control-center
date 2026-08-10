@@ -7,16 +7,17 @@ async function source(path: string) {
 }
 
 test("Phase 2 read contracts contain no live GitHub transport or mutation methods", async () => {
-  const [provider, webhook, reconciliation, restMappers, graphqlMappers, projection] = await Promise.all([
+  const [provider, webhook, reconciliation, restMappers, graphqlMappers, projection, policyEvidence] = await Promise.all([
     source("src/shared/source-control-read.ts"),
     source("src/shared/github-webhook.ts"),
     source("src/shared/github-reconciliation.ts"),
     source("src/shared/github-rest-mappers.ts"),
     source("src/shared/github-graphql-mappers.ts"),
     source("src/shared/github-projection.ts"),
+    source("src/shared/github-policy-evidence.ts"),
   ]);
 
-  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}`;
+  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${policyEvidence}`;
 
   assert.equal(combined.includes("api.github.com"), false);
   assert.equal(combined.includes("Authorization:"), false);
@@ -50,4 +51,14 @@ test("Phase 2 projection fails closed when policy or authoritative merge evidenc
   assert.match(projection, /mergeState\.mergeable === "MERGEABLE"/);
   assert.match(projection, /mergeState\.mergeStateStatus === "CLEAN"/);
   assert.match(projection, /deployImpact:\s*context\.deployImpact \?\? "UNKNOWN"/);
+});
+
+test("Phase 2 branch-policy evidence cannot fabricate complete policy from one GitHub source", async () => {
+  const policyEvidence = await source("src/shared/github-policy-evidence.ts");
+
+  assert.match(policyEvidence, /GITHUB_ACTIVE_RULES/);
+  assert.match(policyEvidence, /GITHUB_CLASSIC_BRANCH_PROTECTION/);
+  assert.match(policyEvidence, /BRANCH_POLICY_COVERAGE_INCOMPLETE/);
+  assert.match(policyEvidence, /REQUIRED_CHECK_SOURCE_IDENTITY_NOT_MODELED/);
+  assert.match(policyEvidence, /CODE_OWNER_REVIEW_NOT_MODELED/);
 });
