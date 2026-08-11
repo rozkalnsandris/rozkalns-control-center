@@ -7,19 +7,31 @@ async function source(path: string) {
 }
 
 test("Phase 2 read contracts contain no live GitHub transport or mutation methods", async () => {
-  const [provider, webhook, reconciliation, restMappers, graphqlMappers, projection, policyEvidence, classicProtection] =
-    await Promise.all([
-      source("src/shared/source-control-read.ts"),
-      source("src/shared/github-webhook.ts"),
-      source("src/shared/github-reconciliation.ts"),
-      source("src/shared/github-rest-mappers.ts"),
-      source("src/shared/github-graphql-mappers.ts"),
-      source("src/shared/github-projection.ts"),
-      source("src/shared/github-policy-evidence.ts"),
-      source("src/shared/github-classic-protection-mapper.ts"),
-    ]);
+  const [
+    provider,
+    webhook,
+    reconciliation,
+    restMappers,
+    graphqlMappers,
+    projection,
+    policyEvidence,
+    classicProtection,
+    reconciliationQueue,
+    reconciliationDurability,
+  ] = await Promise.all([
+    source("src/shared/source-control-read.ts"),
+    source("src/shared/github-webhook.ts"),
+    source("src/shared/github-reconciliation.ts"),
+    source("src/shared/github-rest-mappers.ts"),
+    source("src/shared/github-graphql-mappers.ts"),
+    source("src/shared/github-projection.ts"),
+    source("src/shared/github-policy-evidence.ts"),
+    source("src/shared/github-classic-protection-mapper.ts"),
+    source("src/shared/reconciliation-queue.ts"),
+    source("src/shared/reconciliation-durability.ts"),
+  ]);
 
-  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${policyEvidence}\n${classicProtection}`;
+  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${policyEvidence}\n${classicProtection}\n${reconciliationQueue}\n${reconciliationDurability}`;
 
   assert.equal(combined.includes("api.github.com"), false);
   assert.equal(combined.includes("Authorization:"), false);
@@ -88,4 +100,24 @@ test("classic protection mapper is pure source mapping and keeps producer identi
   assert.match(classicProtection, /sourceIdentityKnown/);
   assert.match(classicProtection, /required_conversation_resolution/);
   assert.equal(classicProtection.includes("Administration:"), false);
+});
+
+test("durability contracts add no live D1 or Queue binding or network side effect", async () => {
+  const [queueContract, durabilityContract, wrangler, migration] = await Promise.all([
+    source("src/shared/reconciliation-queue.ts"),
+    source("src/shared/reconciliation-durability.ts"),
+    source("wrangler.jsonc"),
+    source("migrations/0001_reconciliation_core.sql"),
+  ]);
+
+  const sourceContracts = `${queueContract}\n${durabilityContract}`;
+  assert.equal(sourceContracts.includes("fetch("), false);
+  assert.equal(sourceContracts.includes("D1Database"), false);
+  assert.doesNotMatch(sourceContracts, /\bQueue\s*</);
+  assert.doesNotMatch(sourceContracts, /\benv\./);
+
+  assert.doesNotMatch(wrangler, /"d1_databases"/);
+  assert.doesNotMatch(wrangler, /"queues"/);
+  assert.match(migration, /delivery_id TEXT PRIMARY KEY NOT NULL/);
+  assert.doesNotMatch(migration, /^\s*(?:token|secret|private_key|webhook_payload|payload_body)\s+/im);
 });

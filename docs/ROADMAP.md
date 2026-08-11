@@ -75,13 +75,13 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness contracts have progressed through issues #8, #10, #12, #15, #17 and current issue #19 / PR #20. Live GitHub App/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability contracts have progressed through issues #8, #10, #12, #15, #17, #19 and current issue #21 / PR #22. Live GitHub App/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #19. RPi5 automation remains in Phase 3 — CV pull-deploy migration. CV recovery is complete; its first incomplete gate is now the cross-repository #140 evidence-directory contract (`rozkalns-cv-auto-deploy-*` controller producer vs `rozkalns-cv-main-deploy-*` CV root-wrapper allow-list), which must be fixed and regression-proven before reviewed controller installation/execution.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #21. RPi5 automation remains in Phase 3 — CV pull-deploy migration. CV recovery and the cross-repository #140 evidence-directory contract are complete. The first incomplete gate is host installation/proof of the reviewed #140 controller/readiness artifacts with the recurring timer still disabled/inactive, after exact-source/CI/artifact revalidation.
 
-Therefore source-only interfaces, schemas, crypto/reconciliation/projection/merge-state/policy/evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings or RPi5 integration require a fresh reconciliation at the exact rollout step.
+Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings/resources or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
@@ -168,11 +168,23 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] derive reconciliation repository identity from the HMAC-verified webhook payload instead of an independent caller hint;
 - [x] regression tests cover latest status selection, case-insensitive contexts, mixed Check/status evidence, App mismatch/unknown producer, stale heads and verified webhook repo binding;
 - [x] source-boundary tests prove no live GitHub transport/auth/mutation path was introduced;
-- [x] first authoritative GitHub CI run #41 PASS on source/test implementation;
-- [x] README/read-policy docs reconciled with current source contracts;
-- [x] canonical master #1 reconciled with current Phase 2 status;
-- [x] authoritative GitHub CI PASS after code/docs reconciliation — run #46;
-- [ ] #19 final branch reviewed and merged.
+- [x] authoritative GitHub CI PASS after code/docs reconciliation;
+- [x] #19 reviewed and merged through PR #20 as `9e56fc5cab4f61bcd3ee48df7a4c8865fc6d058b`.
+
+### Source-only reconciliation durability — issue #21 / PR #22
+
+- [x] add versioned minimal `GITHUB_RECONCILIATION` Queue-message contract;
+- [x] reject unknown Queue schema versions/kinds/fields and non-authoritative messages;
+- [x] bind message repository/project identity to the managed-project allow-list;
+- [x] define explicit durable delivery lifecycle `RECEIVED -> ENQUEUED -> PROCESSING -> SUCCEEDED/RETRY_PENDING/DEAD_LETTERED`;
+- [x] make success/dead-letter terminal and require sanitized error codes for retry/dead-letter transitions;
+- [x] add source-controlled `migrations/0001_reconciliation_core.sql` with `delivery_id` primary-key idempotency;
+- [x] persist attempt/timestamp/state/error-code observability without webhook body, tokens, secrets or private keys;
+- [x] source-boundary proves no D1/Queue binding, handler, `fetch()` transport or `env.*` access exists;
+- [x] first authoritative GitHub CI run #49 PASS on source/tests implementation;
+- [x] document durability, DLQ observability and current RPi sequencing contract;
+- [x] authoritative GitHub CI PASS after docs reconciliation — run #52;
+- [ ] #21 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -186,11 +198,12 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] short-lived installation-token boundary;
 - [ ] live GitHub read adapter;
 - [ ] authenticated webhook route using raw-body HMAC validation;
-- [ ] durable delivery deduplication;
-- [ ] Queue + DLQ reconciliation;
+- [ ] create/bind D1 and apply reviewed source-controlled migrations;
+- [ ] create/bind Queue + DLQ and implement producer/consumer handlers;
+- [ ] atomic durable delivery claim/transition persistence;
 - [ ] live issues/PR/review/CI/merge-state projections;
 - [ ] fixture/live adapter parity tests against real read-only snapshots;
-- [ ] observable reconciliation/DLQ failures.
+- [ ] observable reconciliation/DLQ failures in the live UI/state projection.
 
 ### Must not do
 
@@ -202,7 +215,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
 ### Exit gate
 
-Live dashboard state matches GitHub deterministically, invalid/replayed events fail safely, and event loss is visible through DLQ/error state while no GitHub write permission/path exists.
+Live dashboard state matches GitHub deterministically, invalid/replayed events fail safely, and event loss is visible through durable/DLQ error state while no GitHub write permission/path exists.
 
 ## Phase 3 — human decision actions
 
@@ -232,7 +245,7 @@ A real PR can be safely decided from phone; stale approvals are rejected; action
 
 ## Phase 4 — notifications + deterministic continuation
 
-Goal: reduce user interaction to meaningful gates.
+Goal: reduce normal interaction to meaningful gates.
 
 ### Deliverables
 
