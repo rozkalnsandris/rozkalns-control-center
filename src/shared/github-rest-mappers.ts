@@ -1,3 +1,8 @@
+import {
+  selectLatestEffectiveCheckRuns,
+  selectLatestEffectiveCommitStatuses,
+  selectLatestEffectiveWorkflowRuns,
+} from "./github-evidence-selection.js";
 import type {
   CheckConclusion,
   CheckRunRead,
@@ -41,6 +46,17 @@ function nullableString(value: unknown, field: string): string | null {
   return stringField(value, field);
 }
 
+function timestampField(value: unknown, field: string): string {
+  const result = stringField(value, field);
+  if (!Number.isFinite(Date.parse(result))) throw new GitHubPayloadError(`${field} must be an ISO timestamp`);
+  return result;
+}
+
+function optionalNullableTimestamp(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null;
+  return timestampField(value, field);
+}
+
 function integerField(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     throw new GitHubPayloadError(`${field} must be a non-negative integer`);
@@ -52,6 +68,11 @@ function positiveIntegerField(value: unknown, field: string): number {
   const result = integerField(value, field);
   if (result === 0) throw new GitHubPayloadError(`${field} must be a positive integer`);
   return result;
+}
+
+function optionalPositiveInteger(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null;
+  return positiveIntegerField(value, field);
 }
 
 function booleanField(value: unknown, field: string): boolean {
@@ -146,6 +167,8 @@ export function mapGitHubCheckRun(payload: unknown): CheckRunRead {
     conclusion,
     headSha: stringField(input.head_sha, "check_run.head_sha"),
     appId: checkRunAppId(input),
+    startedAt: optionalNullableTimestamp(input.started_at, "check_run.started_at"),
+    completedAt: optionalNullableTimestamp(input.completed_at, "check_run.completed_at"),
     detailsUrl: nullableString(input.details_url, "check_run.details_url"),
   };
 }
@@ -158,18 +181,25 @@ export function mapGitHubCommitStatus(payload: unknown): CommitStatusRead {
     state: oneOf(input.state, commitStatusStates, "commit_status.state") as CommitStatusState,
     headSha: stringField(input.sha, "commit_status.sha"),
     targetUrl: nullableString(input.target_url, "commit_status.target_url"),
-    createdAt: stringField(input.created_at, "commit_status.created_at"),
+    createdAt: timestampField(input.created_at, "commit_status.created_at"),
   };
 }
 
 export function mapGitHubWorkflowRun(payload: unknown): WorkflowRunRead {
   const input = record(payload, "workflow_run");
+  const workflowId = optionalPositiveInteger(input.workflow_id, "workflow_run.workflow_id");
   return {
     id: String(integerField(input.id, "workflow_run.id")),
+    workflowId: workflowId === null ? null : String(workflowId),
+    runNumber: optionalPositiveInteger(input.run_number, "workflow_run.run_number"),
+    runAttempt: optionalPositiveInteger(input.run_attempt, "workflow_run.run_attempt"),
     name: stringField(input.name, "workflow_run.name"),
     status: oneOf(input.status, workflowStatuses, "workflow_run.status") as WorkflowRunStatus,
     conclusion: nullableString(input.conclusion, "workflow_run.conclusion"),
     headSha: stringField(input.head_sha, "workflow_run.head_sha"),
+    createdAt: optionalNullableTimestamp(input.created_at, "workflow_run.created_at"),
+    updatedAt: optionalNullableTimestamp(input.updated_at, "workflow_run.updated_at"),
+    runStartedAt: optionalNullableTimestamp(input.run_started_at, "workflow_run.run_started_at"),
     htmlUrl: stringField(input.html_url, "workflow_run.html_url"),
   };
 }
@@ -184,27 +214,23 @@ export function mapGitHubIssue(payload: unknown): IssueRead {
   };
 }
 
-export function keepExactHeadCheckRuns(payloads: readonly unknown[], expectedHeadSha: string): CheckRunRead[] {
-  return payloads.map(mapGitHubCheckRun).filter((item) => item.headSha === expectedHeadSha);
+export function keepLatestExactHeadCheckRuns(payloads: readonly unknown[], expectedHeadSha: string): CheckRunRead[] {
+  const exactHead = payloads.map(mapGitHubCheckRun).filter((item) => item.headSha === expectedHeadSha);
+  return selectLatestEffectiveCheckRuns(exactHead);
 }
 
 export function keepLatestExactHeadCommitStatuses(
-  payloadsNewestFirst: readonly unknown[],
+  payloads: readonly unknown[],
   expectedHeadSha: string,
 ): CommitStatusRead[] {
-  const latestByContext = new Map<string, CommitStatusRead>();
-
-  for (const payload of payloadsNewestFirst) {
-    const status = mapGitHubCommitStatus(payload);
-    if (status.headSha !== expectedHeadSha) continue;
-
-    const key = status.context.toLowerCase();
-    if (!latestByContext.has(key)) latestByContext.set(key, status);
-  }
-
-  return [...latestByContext.values()];
+  const exactHead = payloads.map(mapGitHubCommitStatus).filter((item) => item.headSha === expectedHeadSha);
+  return selectLatestEffectiveCommitStatuses(exactHead);
 }
 
-export function keepExactHeadWorkflowRuns(payloads: readonly unknown[], expectedHeadSha: string): WorkflowRunRead[] {
-  return payloads.map(mapGitHubWorkflowRun).filter((item) => item.headSha === expectedHeadSha);
+export function keepLatestExactHeadWorkflowRuns(payloads: readonly unknown[], expectedHeadSha: string): WorkflowRunRead[] {
+  const exactHead = payloads.map(mapGitHubWorkflowRun).filter((item) => item.headSha === expectedHeadSha);
+  return selectLatestEffectiveWorkflowRuns(exactHead);
 }
+
+export const keepExactHeadCheckRuns = keepLatestExactHeadCheckRuns;
+export const keepExactHeadWorkflowRuns = keepLatestExactHeadWorkflowRuns;

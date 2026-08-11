@@ -67,6 +67,8 @@ export interface CheckRunRead {
   conclusion: CheckConclusion;
   headSha: string;
   appId: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
   detailsUrl: string | null;
 }
 
@@ -81,10 +83,16 @@ export interface CommitStatusRead {
 
 export interface WorkflowRunRead {
   id: string;
+  workflowId?: string | null;
+  runNumber?: number | null;
+  runAttempt?: number | null;
   name: string;
   status: WorkflowRunStatus;
   conclusion: string | null;
   headSha: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  runStartedAt?: string | null;
   htmlUrl: string;
 }
 

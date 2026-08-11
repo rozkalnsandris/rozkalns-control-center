@@ -14,6 +14,7 @@ test("Phase 2 read contracts contain no live GitHub transport or mutation method
     restMappers,
     graphqlMappers,
     projection,
+    evidenceSelection,
     policyEvidence,
     classicProtection,
     reconciliationQueue,
@@ -26,6 +27,7 @@ test("Phase 2 read contracts contain no live GitHub transport or mutation method
     source("src/shared/github-rest-mappers.ts"),
     source("src/shared/github-graphql-mappers.ts"),
     source("src/shared/github-projection.ts"),
+    source("src/shared/github-evidence-selection.ts"),
     source("src/shared/github-policy-evidence.ts"),
     source("src/shared/github-classic-protection-mapper.ts"),
     source("src/shared/reconciliation-queue.ts"),
@@ -33,7 +35,7 @@ test("Phase 2 read contracts contain no live GitHub transport or mutation method
     source("src/integrations/github/app-installation-read-contract.ts"),
   ]);
 
-  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${policyEvidence}\n${classicProtection}\n${reconciliationQueue}\n${reconciliationDurability}\n${appAuthContract}`;
+  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${evidenceSelection}\n${policyEvidence}\n${classicProtection}\n${reconciliationQueue}\n${reconciliationDurability}\n${appAuthContract}`;
 
   assert.equal(combined.includes("api.github.com"), false);
   assert.equal(combined.includes("Authorization:"), false);
@@ -45,10 +47,11 @@ test("Phase 2 read contracts contain no live GitHub transport or mutation method
 });
 
 test("Phase 2 reconciliation model makes authoritative reread and exact-head status evidence explicit", async () => {
-  const [provider, reconciliation, projection] = await Promise.all([
+  const [provider, reconciliation, projection, evidenceSelection] = await Promise.all([
     source("src/shared/source-control-read.ts"),
     source("src/shared/github-reconciliation.ts"),
     source("src/shared/github-projection.ts"),
+    source("src/shared/github-evidence-selection.ts"),
   ]);
 
   assert.match(provider, /authoritativeRead:\s*true/);
@@ -59,8 +62,11 @@ test("Phase 2 reconciliation model makes authoritative reread and exact-head sta
   assert.match(reconciliation, /requireManagedProjectPolicy\(webhook\.repository\)/);
   assert.doesNotMatch(reconciliation, /repositoryHint/);
   assert.match(projection, /Only authoritative source-control snapshots may be projected/);
-  assert.match(projection, /commitStatuses/);
+  assert.match(projection, /selectLatestEffectiveCheckRuns/);
+  assert.match(projection, /selectLatestEffectiveWorkflowRuns/);
   assert.match(projection, /allowedActions:\s*\["OPEN_PR"\]/);
+  assert.match(evidenceSelection, /maximalByProvableOrder/);
+  assert.match(evidenceSelection, /workflowId == null/);
 });
 
 test("verified webhook boundary owns repository identity after HMAC verification", async () => {
