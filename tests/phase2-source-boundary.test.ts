@@ -64,6 +64,29 @@ test("dedicated GitHub integration transport owns the Phase 2 REST network bound
   assert.doesNotMatch(worker, /rest-read-transport|api\.github\.com/);
 });
 
+test("dedicated GitHub App session owns JWT, token exchange and Authorization primitives", async () => {
+  const [session, worker, wrangler] = await Promise.all([
+    source("src/integrations/github/app-installation-session.ts"),
+    source("src/worker/index.ts"),
+    source("wrangler.jsonc"),
+  ]);
+
+  assert.match(session, /GITHUB_APP_JWT_ALGORITHM = "RS256"/);
+  assert.match(session, /GITHUB_APP_JWT_CLOCK_SKEW_SECONDS = 60/);
+  assert.match(session, /GITHUB_APP_JWT_FUTURE_LIFETIME_SECONDS = 9 \* 60/);
+  assert.match(session, /\/app\/installations\/\$\{installationId\}\/access_tokens/);
+  assert.match(session, /method: "POST"/);
+  assert.match(session, /Authorization: `Bearer \$\{appJwt\}`/);
+  assert.match(session, /Authorization: `Bearer \$\{rawCredential\}`/);
+  assert.match(session, /repositories: scope\.repositories\.map\(repositoryName\)/);
+  assert.match(session, /permissions: \{ \.\.\.scope\.permissions \}/);
+  assert.doesNotMatch(session, /ghs_/);
+  assert.doesNotMatch(session, /token\.startsWith|token\.length/);
+  assert.doesNotMatch(session, /BEGIN (?:RSA )?PRIVATE KEY/);
+  assert.doesNotMatch(worker, /app-installation-session|Authorization|Bearer|api\.github\.com/);
+  assert.doesNotMatch(wrangler, /"secrets"|"vars"/);
+});
+
 test("Phase 2 reconciliation model makes authoritative reread and exact-head status evidence explicit", async () => {
   const [provider, reconciliation, projection, evidenceSelection] = await Promise.all([
     source("src/shared/source-control-read.ts"),
