@@ -52,8 +52,8 @@ function timestampField(value: unknown, field: string): string {
   return result;
 }
 
-function nullableTimestamp(value: unknown, field: string): string | null {
-  if (value === null) return null;
+function optionalNullableTimestamp(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null;
   return timestampField(value, field);
 }
 
@@ -68,6 +68,11 @@ function positiveIntegerField(value: unknown, field: string): number {
   const result = integerField(value, field);
   if (result === 0) throw new GitHubPayloadError(`${field} must be a positive integer`);
   return result;
+}
+
+function optionalPositiveInteger(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null;
+  return positiveIntegerField(value, field);
 }
 
 function booleanField(value: unknown, field: string): boolean {
@@ -162,8 +167,8 @@ export function mapGitHubCheckRun(payload: unknown): CheckRunRead {
     conclusion,
     headSha: stringField(input.head_sha, "check_run.head_sha"),
     appId: checkRunAppId(input),
-    startedAt: nullableTimestamp(input.started_at, "check_run.started_at"),
-    completedAt: nullableTimestamp(input.completed_at, "check_run.completed_at"),
+    startedAt: optionalNullableTimestamp(input.started_at, "check_run.started_at"),
+    completedAt: optionalNullableTimestamp(input.completed_at, "check_run.completed_at"),
     detailsUrl: nullableString(input.details_url, "check_run.details_url"),
   };
 }
@@ -182,18 +187,19 @@ export function mapGitHubCommitStatus(payload: unknown): CommitStatusRead {
 
 export function mapGitHubWorkflowRun(payload: unknown): WorkflowRunRead {
   const input = record(payload, "workflow_run");
+  const workflowId = optionalPositiveInteger(input.workflow_id, "workflow_run.workflow_id");
   return {
     id: String(integerField(input.id, "workflow_run.id")),
-    workflowId: String(positiveIntegerField(input.workflow_id, "workflow_run.workflow_id")),
-    runNumber: positiveIntegerField(input.run_number, "workflow_run.run_number"),
-    runAttempt: positiveIntegerField(input.run_attempt, "workflow_run.run_attempt"),
+    workflowId: workflowId === null ? null : String(workflowId),
+    runNumber: optionalPositiveInteger(input.run_number, "workflow_run.run_number"),
+    runAttempt: optionalPositiveInteger(input.run_attempt, "workflow_run.run_attempt"),
     name: stringField(input.name, "workflow_run.name"),
     status: oneOf(input.status, workflowStatuses, "workflow_run.status") as WorkflowRunStatus,
     conclusion: nullableString(input.conclusion, "workflow_run.conclusion"),
     headSha: stringField(input.head_sha, "workflow_run.head_sha"),
-    createdAt: timestampField(input.created_at, "workflow_run.created_at"),
-    updatedAt: timestampField(input.updated_at, "workflow_run.updated_at"),
-    runStartedAt: nullableTimestamp(input.run_started_at, "workflow_run.run_started_at"),
+    createdAt: optionalNullableTimestamp(input.created_at, "workflow_run.created_at"),
+    updatedAt: optionalNullableTimestamp(input.updated_at, "workflow_run.updated_at"),
+    runStartedAt: optionalNullableTimestamp(input.run_started_at, "workflow_run.run_started_at"),
     htmlUrl: stringField(input.html_url, "workflow_run.html_url"),
   };
 }
@@ -225,3 +231,6 @@ export function keepLatestExactHeadWorkflowRuns(payloads: readonly unknown[], ex
   const exactHead = payloads.map(mapGitHubWorkflowRun).filter((item) => item.headSha === expectedHeadSha);
   return selectLatestEffectiveWorkflowRuns(exactHead);
 }
+
+export const keepExactHeadCheckRuns = keepLatestExactHeadCheckRuns;
+export const keepExactHeadWorkflowRuns = keepLatestExactHeadWorkflowRuns;
