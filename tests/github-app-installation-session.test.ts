@@ -119,13 +119,23 @@ test("builds bounded RS256 JWT claims and explicitly narrows token scope", async
 });
 
 test("keeps installation credential opaque across format and length changes", async () => {
-  for (const rawCredential of ["x", "future-format_without-a-known-prefix_1234567890"]) {
+  for (const rawCredential of [
+    "opaque-format-one-credential-value",
+    "future-format_without-a-known-prefix_1234567890",
+  ]) {
     const provider = createGitHubAppInstallationSessionProvider({
       identity: { clientId: "control-client" },
       signer: signer(),
       fetchRequest: async () => jsonResponse(tokenPayload({ token: rawCredential })),
     });
     const session = await provider(scope(), observedAt);
+    assert.deepEqual(Object.keys(session.credentialLease).sort(), [
+      "expiresAt",
+      "installationId",
+      "issuedAt",
+      "permissions",
+      "repositories",
+    ]);
     assert.equal(JSON.stringify(session.credentialLease).includes(rawCredential), false);
   }
 });
