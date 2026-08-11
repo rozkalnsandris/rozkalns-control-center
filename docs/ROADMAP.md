@@ -75,13 +75,13 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/transport/session/rollout contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23, #26, #28, #30, #32 and current issue #34 / PR #36. Live GitHub App/credential/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23, #26, #28, #30, #32, #34 and current issue #37 / PR #39. Live GitHub App/credential/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md`, completed issue #163 and open issue #140 were re-read during issue #34 on 2026-08-11. RPi5 automation remains in Phase 3 — CV pull-deploy migration. Issue #163 is complete: the classifier/control-plane and production baselines are reconciled to exact `rozkalns-cv/main=4a0069a97022841da07a687a197ea8cfacc56cd6`.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md`, completed issue #163 and open issue #140 were re-read during current Phase 2 work on 2026-08-11. RPi5 automation remains in Phase 3 — CV pull-deploy migration. Issue #163 is complete: the classifier/control-plane and production baselines are reconciled to exact `rozkalns-cv/main=4a0069a97022841da07a687a197ea8cfacc56cd6`.
 
-The current first incomplete RPi5 gate now belongs to #140: wait for a genuinely newer exact-current-main CV delta after that baseline, require fresh exact-current-main CI, require the complete production-to-target range to classify `AUTO_DEPLOY_SAFE` with `CONTROL_PLANE_CHANGED=false`, and only then separately review/authorize exactly one one-shot controller execution canary while the recurring timer remains disabled/inactive.
+The current first incomplete RPi5 gate belongs to #140: wait for a genuinely newer exact-current-main CV delta after that baseline, require fresh exact-current-main CI, require the complete production-to-target range to classify `AUTO_DEPLOY_SAFE` with `CONTROL_PLANE_CHANGED=false`, and only then separately review/authorize exactly one one-shot controller execution canary while the recurring timer remains disabled/inactive.
 
 Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth/transport/session/rollout-plan code, tests and docs may proceed, but real GitHub App installation/permission changes, real credential minting, Cloudflare secret/bindings/resources or RPi5 integration require a separate owner authorization and fresh sequencing reconciliation at the exact rollout step.
 
@@ -298,8 +298,28 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] CI #93 failed closed at TypeScript on literal tuple-length narrowing; the runtime integrity check was preserved with a widened interface view;
 - [x] corrected source/test exact-head CI #94 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
 - [x] add focused rollout-plan documentation and reconcile README/ROADMAP with #33 merged baseline, completed RPi5 #163 and current RPi5 #140 gate;
+- [x] exact final-head GitHub CI PASS after docs reconciliation — run #97;
+- [x] #34 reviewed and merged through PR #36 as `44f557518e298e57488aac9d3a8df7184f8d9d99`.
+
+### Source-only bounded GitHub GraphQL merge-state transport — issue #37 / PR #39
+
+- [x] start the branch from exact post-PR-#36 `main=44f557518e298e57488aac9d3a8df7184f8d9d99`;
+- [x] fix the endpoint to `https://api.github.com/graphql` and expose only one named pull-request merge-state query;
+- [x] pass dynamic repository owner/name and positive pull number only as GraphQL variables;
+- [x] limit selected fields to `number`, `headRefOid`, `mergeable`, `mergeStateStatus`, `isDraft`;
+- [x] require managed repository scope plus `pull_requests: read` before credential acquisition;
+- [x] keep arbitrary GraphQL documents, introspection and mutation operations unrepresentable;
+- [x] reuse the #32 private credential-acquisition path while keeping REST GET and GraphQL POST sessions as separate narrow interfaces;
+- [x] keep raw installation credentials internal to the integration session closure;
+- [x] reject any GraphQL `errors` envelope even when partial data is present;
+- [x] map only the validated pull-request node through the existing #12 fail-closed mapper and require exact returned PR number;
+- [x] parse sanitized GraphQL rate-limit headers and recognize HTTP-200 primary/secondary rate-limit evidence without an automatic retry loop;
+- [x] fail closed on missing repository/PR, malformed response/header/content, auth/permission, transport and unexpected-status outcomes;
+- [x] source-boundary tests prove Worker/shared code has no GraphQL endpoint/auth/mutation path and REST transport remains GET-only;
+- [x] source/test exact-head CI #99 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
+- [x] add focused GraphQL transport documentation and reconcile README/ROADMAP with #36 merged baseline and current RPi5 #140 gate;
 - [ ] exact final-head GitHub CI PASS after docs reconciliation;
-- [ ] #34 final branch reviewed and merged.
+- [ ] #37 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -312,7 +332,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
 - [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
 - [ ] add an approved Cloudflare secret/private-key signer binding and prove real short-lived installation-token minting through a narrowly scoped canary;
-- [ ] wire the reviewed bounded REST transport/session to an approved authoritative read-only reconciliation path;
+- [ ] wire the reviewed bounded REST + GraphQL transports/sessions to an approved authoritative read-only reconciliation path;
 - [ ] authenticated webhook route using raw-body HMAC validation;
 - [ ] create/bind D1 and apply reviewed source-controlled migrations;
 - [ ] create/bind Queue + DLQ and implement producer/consumer handlers;
