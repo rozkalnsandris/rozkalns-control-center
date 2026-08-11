@@ -75,13 +75,15 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/transport/session contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23, #26, #28, #30 and current issue #32 / PR #33. Live GitHub App/credential/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/transport/session/rollout contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23, #26, #28, #30, #32 and current issue #34 / PR #36. Live GitHub App/credential/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` and open issue #163 were re-read during issue #32 on 2026-08-11. RPi5 automation remains in Phase 3 — CV pull-deploy migration. Its first incomplete sequence is issue #163: separately authorize/install/prove only the exact current CV classifier/control-plane baseline while production remains unchanged, then separately authorize the existing manual production-canary boundary to reconcile production to exact current CV main. Only after that baseline is green may a genuinely newer exact-current-main CV delta independently classified `AUTO_DEPLOY_SAFE` be used for the separately authorized controller execution canary.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md`, completed issue #163 and open issue #140 were re-read during issue #34 on 2026-08-11. RPi5 automation remains in Phase 3 — CV pull-deploy migration. Issue #163 is complete: the classifier/control-plane and production baselines are reconciled to exact `rozkalns-cv/main=4a0069a97022841da07a687a197ea8cfacc56cd6`.
 
-Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth/transport/session code, tests and docs may proceed, but live GitHub App installation/permission changes, real credential minting, Cloudflare secret/bindings/resources or RPi5 integration require a fresh reconciliation at the exact rollout step.
+The current first incomplete RPi5 gate now belongs to #140: wait for a genuinely newer exact-current-main CV delta after that baseline, require fresh exact-current-main CI, require the complete production-to-target range to classify `AUTO_DEPLOY_SAFE` with `CONTROL_PLANE_CHANGED=false`, and only then separately review/authorize exactly one one-shot controller execution canary while the recurring timer remains disabled/inactive.
+
+Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth/transport/session/rollout-plan code, tests and docs may proceed, but real GitHub App installation/permission changes, real credential minting, Cloudflare secret/bindings/resources or RPi5 integration require a separate owner authorization and fresh sequencing reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
@@ -276,14 +278,34 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] CI #86 passed policy/audit/typecheck/lint and exposed only a test TypeScript nullability issue;
 - [x] CI #87 passed policy/audit/typecheck/lint and exposed only an opaque-token test false positive;
 - [x] corrected source/test exact-head CI #88 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
-- [x] add focused GitHub App session documentation and reconcile README/ROADMAP with #31 merged baseline and current RPi5 #163 gate;
+- [x] add focused GitHub App session documentation and reconcile README/ROADMAP with #31 merged baseline and then-current RPi5 #163 gate;
+- [x] exact final-head GitHub CI PASS after docs reconciliation — run #91;
+- [x] #32 reviewed and merged through PR #33 as `5e6e4dbcc59207691bc2bae2c88e1c9b82d57f4f`.
+
+### Source-only GitHub App rollout/canary plan — issue #34 / PR #36
+
+- [x] start the branch from exact post-PR-#33 `main=5e6e4dbcc59207691bc2bae2c88e1c9b82d57f4f`;
+- [x] fix the future App identity to `Rozkalns Control` and repository-selection mode to selected repositories;
+- [x] derive the exact selected repository set from enabled `githubReadEnabled` managed-project policy instead of duplicating a second allow-list;
+- [x] prove the six intended repositories are selected and `rozkalnsandris/hermes-email-skill` remains excluded;
+- [x] begin with a Metadata-only stage covering repository metadata and active branch-rules canaries;
+- [x] define cumulative read-only stages for Contents, Issues, Pull requests, Checks and Actions;
+- [x] keep the planned GraphQL merge-state canary explicit under the Pull requests stage without adding a live GraphQL transport;
+- [x] make `statuses: read` conditional on explicit `LEGACY_COMMIT_STATUS_REQUIRED` repository evidence;
+- [x] keep `administration` and all write access unrepresentable by the rollout source contract;
+- [x] build exact-stage installation scopes through the existing fail-closed `parseGitHubInstallationReadScope()` contract;
+- [x] source-boundary tests prove the rollout manifest contains no GitHub HTTP/auth/secret/Worker mutation path;
+- [x] CI #93 failed closed at TypeScript on literal tuple-length narrowing; the runtime integrity check was preserved with a widened interface view;
+- [x] corrected source/test exact-head CI #94 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
+- [x] add focused rollout-plan documentation and reconcile README/ROADMAP with #33 merged baseline, completed RPi5 #163 and current RPi5 #140 gate;
 - [ ] exact final-head GitHub CI PASS after docs reconciliation;
-- [ ] #32 final branch reviewed and merged.
+- [ ] #34 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
 - [ ] dedicated `Rozkalns Control` GitHub App;
 - [ ] exact minimum read permissions and selected repositories only;
+- [ ] execute the reviewed rollout plan only one separately approved permission stage at a time;
 - [ ] live canary proving the exact GraphQL/REST permission set rather than assuming it;
 - [ ] canary `GET /rules/branches/{branch}` with Metadata-read before proposing any `Administration: read` expansion;
 - [ ] add/canary Repository `Commit statuses: read` only if actual managed repositories require commit-status evidence;
