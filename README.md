@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 2 live read-only GitHub integration — source-only GitHub App installation-auth/read-transport hardening is in progress through issue #26 / PR #27. No live GitHub App, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
+> **Status:** Phase 2 live read-only GitHub integration — source-only latest-effective CI evidence hardening is in progress through issue #28 / PR #29. No live GitHub App, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
 
 The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
 
@@ -95,7 +95,9 @@ Current source contracts now cover:
 - conservative CI aggregation across required Checks and commit statuses;
 - GitHub required-Check semantics for `success`, `neutral` and `skipped`;
 - Check Run producer GitHub App identity for App-bound required checks;
+- latest-provable Check Run selection per case-insensitive context + producer App, with ambiguous ordering kept conservative;
 - latest effective commit-status selection per case-insensitive context;
+- latest-provable workflow-run selection per workflow identity/run number/attempt, with missing identity never silently collapsed;
 - latest-effective review aggregation with explicit policy requirements;
 - exact-head `MERGEABLE/CLEAN` readiness gate;
 - branch-policy provenance across active rulesets and classic branch protection;
