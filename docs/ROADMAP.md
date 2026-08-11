@@ -75,13 +75,13 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23, #26 and current issue #28 / PR #29. Live GitHub App/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/transport contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23, #26, #28 and current issue #30 / PR #31. Live GitHub App/credential/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #28 on 2026-08-11. RPi5 automation remains in Phase 3 — CV pull-deploy migration. The reviewed #140 controller/readiness host-install proof is complete. The first incomplete gate is one separately authorized one-shot `AUTO_DEPLOY_SAFE` execution canary against a genuine newer exact-current-main CV delta; classifier issue #151 must also be reconciled before recurring timer activation.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read during issue #30 on 2026-08-11. RPi5 automation remains in Phase 3 — CV pull-deploy migration. Its first incomplete sequence is issue #163: separately authorize/install/prove only the exact current CV classifier/control-plane baseline while production remains unchanged, then separately authorize the existing manual production-canary boundary to reconcile production to exact current CV main. Only after that baseline is green may a genuinely newer exact-current-main CV delta independently classified `AUTO_DEPLOY_SAFE` be used for the separately authorized controller execution canary.
 
-Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth code, tests and docs may proceed, but live GitHub App installation/permission changes, credential minting, Cloudflare production bindings/resources or RPi5 integration require a fresh reconciliation at the exact rollout step.
+Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth/transport code, tests and docs may proceed, but live GitHub App installation/permission changes, credential minting, Cloudflare production bindings/resources or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
@@ -233,7 +233,29 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] first authoritative GitHub CI run #71 PASS on source/tests implementation;
 - [x] reconcile README, projection contract and ROADMAP with #27 merged baseline and #28 evidence semantics;
 - [x] authoritative GitHub CI PASS after docs reconciliation — run #74;
-- [ ] #28 final branch reviewed and merged.
+- [x] exact final-head GitHub CI PASS — run #75;
+- [x] #28 reviewed and merged through PR #29 as `d414a34e04ffff36b904a4ab1562cc0025f5df71`.
+
+### Source-only bounded GitHub REST read transport — issue #30 / PR #31
+
+- [x] start the branch from exact post-PR-#29 `main=d414a34e04ffff36b904a4ab1562cc0025f5df71`;
+- [x] keep the concrete transport under the dedicated `src/integrations/github` boundary;
+- [x] use a fixed `https://api.github.com` origin with GET-only, integration-owned media type/API version and manual redirect handling;
+- [x] revalidate managed repository, approved read permission and sanitized credential lease before transport;
+- [x] follow only validated same-origin/same-repository `Link` `rel="next"` evidence sequentially;
+- [x] reject off-origin/cross-repository/traversal pagination, duplicate/malformed next links and pagination cycles;
+- [x] enforce a local request budget with a source-controlled hard cap;
+- [x] preserve endpoint-specific response pages instead of generically merging payload shapes;
+- [x] parse only sanitized `x-ratelimit-*` evidence and expose retry-not-before timing without an automatic retry loop;
+- [x] distinguish rate-limited, unauthorized, forbidden, not-found, malformed, boundary/budget and unexpected-status outcomes fail closed;
+- [x] keep credential-provider/network details out of public error strings and raw credential material out of source/tests/docs;
+- [x] keep `src/worker/index.ts` disconnected from the transport; no live GitHub request route exists;
+- [x] deterministic fake-session regressions cover one/multiple pages, absent Link, hostile links, cycles/budget, auth statuses, primary/secondary limits, malformed headers/content and transport failures;
+- [x] first CI attempt #77 failed closed at TypeScript because the generic transport method parameters needed explicit annotations;
+- [x] corrected source/test exact-head CI #78 PASS with policy, runtime audit, typecheck, typed lint, unit tests, build and Wrangler dry-run green;
+- [x] add focused transport documentation and reconcile README/ROADMAP with the merged #29 baseline and current RPi5 #163 sequencing gate;
+- [ ] exact final-head GitHub CI PASS after docs reconciliation;
+- [ ] #30 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -245,7 +267,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
 - [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
 - [ ] live short-lived installation-token minting and secret-runtime boundary;
-- [ ] live GitHub read adapter with bounded pagination/rate-limit semantics;
+- [ ] wire the reviewed bounded REST transport to an approved live credential provider and authoritative read-only reconciliation path;
 - [ ] authenticated webhook route using raw-body HMAC validation;
 - [ ] create/bind D1 and apply reviewed source-controlled migrations;
 - [ ] create/bind Queue + DLQ and implement producer/consumer handlers;
@@ -338,21 +360,3 @@ Control Center accurately explains production readiness/drift while all mutation
 ## Final optional phase — AI/agent runtime
 
 Only after the approval/control product is proven valuable.
-
-Possible scope:
-
-- provider-neutral agent interface;
-- OpenAI/Codex and/or Claude adapter;
-- optional Cloudflare AI Gateway;
-- isolated sandbox execution;
-- hard budget controls;
-- bounded source-edit/PR automation;
-- provider switching without UI redesign.
-
-Requirements before enabling:
-
-- updated threat model;
-- explicit cost ceilings;
-- isolated execution design;
-- no production credentials in agent runtime;
-- new permissions reviewed independently.
