@@ -75,13 +75,13 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout/coverage contracts are complete through issue #40 / PR #41; current issue #42 / PR #43 adds the concrete source-only authoritative GitHub read-provider adapter. Live GitHub App/credential/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout/coverage/provider contracts are complete through issue #42 / PR #43; current issue #44 / PR #46 adds the Metadata-only active branch-rules reader while keeping policy coverage deliberately partial. Live GitHub App/credential/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md`, completed issue #163 and open issue #140 were re-read during current Phase 2 work on 2026-08-11. RPi5 automation remains in Phase 3 — CV pull-deploy migration. Issue #163 is complete: the classifier/control-plane and production baselines are reconciled to exact `rozkalns-cv/main=4a0069a97022841da07a687a197ea8cfacc56cd6`.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md`, completed issue #163 and open issue #140 were re-read during current Phase 2 work on 2026-08-12. RPi5 automation remains in Phase 3 — CV pull-deploy migration. Issue #163 is complete and the last proven CV production baseline remains exact `4a0069a97022841da07a687a197ea8cfacc56cd6`.
 
-The current first incomplete RPi5 gate belongs to #140: wait for a genuinely newer exact-current-main CV delta after that baseline, require fresh exact-current-main CI, require the complete production-to-target range to classify `AUTO_DEPLOY_SAFE` with `CONTROL_PLANE_CHANGED=false`, and only then separately review/authorize exactly one one-shot controller execution canary while the recurring timer remains disabled/inactive.
+Current exact CV main is newer at `cfe2bd0c3d557dc30f441eec7b511d26b71cb0d6`, with exact-main CI #626 / run `31537249617` successful, but the complete production→current-main range is documentation-only and classifies `NO_DEPLOY`. It is therefore not an `AUTO_DEPLOY_SAFE` one-shot canary candidate. The current first incomplete #140 gate remains: wait for a later genuine exact-current-main target whose complete production-to-target range classifies `AUTO_DEPLOY_SAFE` with `CONTROL_PLANE_CHANGED=false`, then separately review/authorize exactly one one-shot controller canary while the recurring timer remains disabled/inactive.
 
 Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth/transport/session/rollout-plan/provider code, tests and docs may proceed, but real GitHub App installation/permission changes, real credential minting, Cloudflare secret/bindings/resources or RPi5 integration require a separate owner authorization and fresh sequencing reconciliation at the exact rollout step.
 
@@ -360,8 +360,25 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] correct only the test helper declaration; production provider code remains unchanged;
 - [x] corrected source/test exact-head CI #111 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
 - [x] add focused provider documentation and reconcile README/ROADMAP with #41 merged baseline and current RPi5 #140 gate;
+- [x] exact final-head GitHub CI PASS after docs reconciliation — run #114;
+- [x] #42 reviewed and merged through PR #43 as `2d5d629179fd39b53e97c0b9b013f3e9fe383cc9`.
+
+### Source-only Metadata active branch-rules reader — issue #44 / PR #46
+
+- [x] start the branch from exact post-PR-#43 `main=2d5d629179fd39b53e97c0b9b013f3e9fe383cc9`;
+- [x] add a concrete reader over the existing bounded REST transport with one explicit observation time;
+- [x] bind the fixed `/repos/{repo}/rules/branches/{encodedBranch}?per_page=100` endpoint to Repository `Metadata: read`;
+- [x] path-segment encode branch names while preserving the original normalized branch identity;
+- [x] flatten paginated array pages before mapping through `mapGitHubActiveBranchRules()`;
+- [x] preserve required status-check context/integration identity and simple review requirements through the existing mapper;
+- [x] combine only `GITHUB_ACTIVE_RULES` evidence so coverage remains explicitly `PARTIAL`;
+- [x] prove `deriveProjectionPolicies()` remains blocked with `BRANCH_POLICY_COVERAGE_INCOMPLETE` without classic evidence;
+- [x] fail closed on missing Metadata permission before transport execution and on invalid repository/time/branch or malformed page/rule evidence;
+- [x] source-boundary proves no classic `/protection` request, `administration` permission, live auth/HTTP primitive, Worker wiring or mutation path;
+- [x] source/test exact-head CI #116 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
+- [x] add focused active-rules reader documentation and reconcile README/ROADMAP with #43 merged baseline and current RPi5 #140 `NO_DEPLOY` gate;
 - [ ] exact final-head GitHub CI PASS after docs reconciliation;
-- [ ] #42 final branch reviewed and merged.
+- [ ] #44 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
