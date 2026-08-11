@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 2 live read-only GitHub integration — the authoritative GitHub read-provider adapter is merged through issue #42 / PR #43, and current issue #44 / PR #46 adds the source-only Metadata active-branch-rules reader. No live GitHub App, permission mutation, credential minting, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
+> **Status:** Phase 2 live read-only GitHub integration — the Metadata active-branch-rules reader is merged through issue #44 / PR #46, and current issue #47 / PR #48 adds the source-only fail-closed authoritative reconciliation composition. No live GitHub App, permission mutation, credential minting, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
 
 The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
 
@@ -120,11 +120,12 @@ Current source contracts now cover:
 - explicit authoritative snapshot commit-status coverage: `OBSERVED` means the source was actually read; `NOT_REQUESTED` skips the endpoint and remains fail-closed for required status-check contexts;
 - concrete source-only authoritative GitHub provider adapter that composes only the bounded REST and fixed GraphQL transports, binds fixed endpoint→permission pairs, excludes PR entries returned by the Issues API, requests Check rerun evidence with `filter=all`, and reuses one explicit observation time per provider/snapshot;
 - source-only active branch-rules reader fixed to `/rules/branches/{branch}` with `Metadata: read`, pagination flattening and one observation time; its combined policy evidence remains explicitly `PARTIAL` until classic branch protection is separately authorized and observed;
+- source-only authoritative reconciliation composition that joins the normalized PR snapshot and branch-policy evidence at one observation time, returns typed `BLOCKED` for incomplete/unrepresentable policy, and creates a `DecisionReadModel` only for complete representable policy;
 - documented future endpoint → minimum GitHub App permission requirements.
 
 Phase 2 application projection still exposes only `OPEN_PR`; it does **not** expose a live Merge mutation.
 
-There are still **no live GitHub API calls from Worker routes, real credentials, dedicated Control GitHub App installation, Cloudflare secret binding, D1/Queue/Workflow bindings or production deploy path** in the current repository. REST/GraphQL credential sessions, transports, the concrete provider and the active branch-rules reader remain disconnected from `src/worker/index.ts` and use deterministic source/test dependencies only.
+There are still **no live GitHub API calls from Worker routes, real credentials, dedicated Control GitHub App installation, Cloudflare secret binding, D1/Queue/Workflow bindings or production deploy path** in the current repository. REST/GraphQL credential sessions, transports, the concrete provider, active branch-rules reader and authoritative reconciliation composition remain disconnected from `src/worker/index.ts` and use deterministic source/test dependencies only.
 
 `RPi5_main#163` is complete. The current RPi5 Phase 3 first incomplete gate remains issue #140. Current CV main is newer than the last proven production baseline, but the complete production→current-main range is `NO_DEPLOY`, so it is not an `AUTO_DEPLOY_SAFE` one-shot canary candidate. A later genuine AUTO-safe full range still requires fresh exact-main CI and a separately authorized one-shot canary while the recurring timer remains disabled. This does not authorize Control live rollout; a real GitHub App/permission/credential step still requires a separate owner gate and fresh sequencing reconciliation.
 
@@ -144,6 +145,7 @@ See:
 - [`docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md`](docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md)
 - [`docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md`](docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md)
 - [`docs/PHASE2_GITHUB_ACTIVE_BRANCH_RULES_READER.md`](docs/PHASE2_GITHUB_ACTIVE_BRANCH_RULES_READER.md)
+- [`docs/PHASE2_AUTHORITATIVE_RECONCILIATION_COMPOSITION.md`](docs/PHASE2_AUTHORITATIVE_RECONCILIATION_COMPOSITION.md)
 
 ## Bootstrap runtime
 
@@ -212,6 +214,7 @@ The initial design targets Cloudflare Free-compatible components where practical
 - [`docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md`](docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md) — observed-vs-unrequested commit-status evidence and fail-closed CI semantics;
 - [`docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md`](docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md) — source-only concrete GitHub provider composition, endpoint/permission binding and observation-time contract;
 - [`docs/PHASE2_GITHUB_ACTIVE_BRANCH_RULES_READER.md`](docs/PHASE2_GITHUB_ACTIVE_BRANCH_RULES_READER.md) — Metadata-only active-rules read path and deliberately partial policy-coverage contract;
+- [`docs/PHASE2_AUTHORITATIVE_RECONCILIATION_COMPOSITION.md`](docs/PHASE2_AUTHORITATIVE_RECONCILIATION_COMPOSITION.md) — provider-neutral fail-closed composition from authoritative snapshot + policy evidence to blocked/projected decision result;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
 
 ## Development rule
