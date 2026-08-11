@@ -197,7 +197,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] second typed-lint attempt proved the rule active but exposed only 58 `node:test` registration calls, leading to the narrower production-source scope instead of suppressions;
 - [x] authoritative GitHub CI run #59 PASS after source scoping, with typed lint, unit tests, build and Wrangler dry-run green;
 - [x] document runtime Promise handling and async-safety rationale;
-- [ ] final authoritative GitHub CI PASS after docs reconciliation;
+- [x] final authoritative GitHub CI PASS after docs reconciliation — run #62;
 - [ ] #23 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
