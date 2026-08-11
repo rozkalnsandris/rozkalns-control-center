@@ -116,6 +116,7 @@ function snapshot(overrides: Partial<ChangeRequestReadSnapshot> = {}): ChangeReq
     workflowRuns: [workflow()],
     authoritativeRead: true,
     ...overrides,
+    commitStatusCoverage: overrides.commitStatusCoverage ?? "OBSERVED",
   };
 }
 
