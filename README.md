@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 2 live read-only GitHub integration — source-only bounded GraphQL pull-request merge-state transport/session is in progress through issue #37 / PR #39. No live GitHub App, permission mutation, credential minting, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
+> **Status:** Phase 2 live read-only GitHub integration — source-only authoritative GitHub read-provider adapter is in progress through issue #42 / PR #43. No live GitHub App, permission mutation, credential minting, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
 
 The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
 
@@ -117,11 +117,13 @@ Current source contracts now cover:
 - strict GraphQL partial-data/error handling plus sanitized HTTP-200 primary/secondary rate-limit evidence with no automatic retry loop;
 - machine-readable staged GitHub App rollout plan derived from managed-project policy, beginning with Metadata-only repository/rules canaries and expanding read permissions one stage at a time;
 - conditional `Commit statuses: read` activation only when repository evidence proves legacy status reads are required, while `Administration: read` remains outside the rollout source contract;
+- explicit authoritative snapshot commit-status coverage: `OBSERVED` means the source was actually read; `NOT_REQUESTED` skips the endpoint and remains fail-closed for required status-check contexts;
+- concrete source-only authoritative GitHub provider adapter that composes only the bounded REST and fixed GraphQL transports, binds fixed endpoint→permission pairs, excludes PR entries returned by the Issues API, requests Check rerun evidence with `filter=all`, and reuses one explicit observation time per provider/snapshot;
 - documented future endpoint → minimum GitHub App permission requirements.
 
 Phase 2 application projection still exposes only `OPEN_PR`; it does **not** expose a live Merge mutation.
 
-There are still **no live GitHub API calls from Worker routes, real credentials, dedicated Control GitHub App installation, Cloudflare secret binding, D1/Queue/Workflow bindings or production deploy path** in the current repository. REST/GraphQL credential sessions and transports remain disconnected from `src/worker/index.ts` and use deterministic source/test dependencies only.
+There are still **no live GitHub API calls from Worker routes, real credentials, dedicated Control GitHub App installation, Cloudflare secret binding, D1/Queue/Workflow bindings or production deploy path** in the current repository. REST/GraphQL credential sessions, transports and the concrete provider remain disconnected from `src/worker/index.ts` and use deterministic source/test dependencies only.
 
 `RPi5_main#163` is complete. The current RPi5 Phase 3 first incomplete gate is issue #140: wait for a genuinely newer exact-current-main CV delta that independently classifies `AUTO_DEPLOY_SAFE` with `CONTROL_PLANE_CHANGED=false`, then separately review/authorize exactly one one-shot controller canary while the recurring timer remains disabled. This does not authorize Control live rollout; a real GitHub App/permission/credential step still requires a separate owner gate and fresh sequencing reconciliation.
 
@@ -138,6 +140,8 @@ See:
 - [`docs/PHASE2_GITHUB_APP_SESSION.md`](docs/PHASE2_GITHUB_APP_SESSION.md)
 - [`docs/PHASE2_GITHUB_APP_ROLLOUT_PLAN.md`](docs/PHASE2_GITHUB_APP_ROLLOUT_PLAN.md)
 - [`docs/PHASE2_GITHUB_GRAPHQL_MERGE_STATE_TRANSPORT.md`](docs/PHASE2_GITHUB_GRAPHQL_MERGE_STATE_TRANSPORT.md)
+- [`docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md`](docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md)
+- [`docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md`](docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md)
 
 ## Bootstrap runtime
 
@@ -203,6 +207,8 @@ The initial design targets Cloudflare Free-compatible components where practical
 - [`docs/PHASE2_GITHUB_APP_SESSION.md`](docs/PHASE2_GITHUB_APP_SESSION.md) — source-only JWT, installation-token exchange and authorized-session boundary;
 - [`docs/PHASE2_GITHUB_APP_ROLLOUT_PLAN.md`](docs/PHASE2_GITHUB_APP_ROLLOUT_PLAN.md) — exact selected-repository and staged read-permission/canary rollout contract;
 - [`docs/PHASE2_GITHUB_GRAPHQL_MERGE_STATE_TRANSPORT.md`](docs/PHASE2_GITHUB_GRAPHQL_MERGE_STATE_TRANSPORT.md) — bounded fixed-query GraphQL merge-state transport/session contract;
+- [`docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md`](docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md) — observed-vs-unrequested commit-status evidence and fail-closed CI semantics;
+- [`docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md`](docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md) — source-only concrete GitHub provider composition, endpoint/permission binding and observation-time contract;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
 
 ## Development rule

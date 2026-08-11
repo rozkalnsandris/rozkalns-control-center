@@ -75,7 +75,7 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout contracts are complete through issue #37 / PR #39; current issue #40 / PR #41 hardens conditional commit-status evidence coverage before the concrete provider adapter. Live GitHub App/credential/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout/coverage contracts are complete through issue #40 / PR #41; current issue #42 / PR #43 adds the concrete source-only authoritative GitHub read-provider adapter. Live GitHub App/credential/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
@@ -83,7 +83,7 @@ The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md`, completed 
 
 The current first incomplete RPi5 gate belongs to #140: wait for a genuinely newer exact-current-main CV delta after that baseline, require fresh exact-current-main CI, require the complete production-to-target range to classify `AUTO_DEPLOY_SAFE` with `CONTROL_PLANE_CHANGED=false`, and only then separately review/authorize exactly one one-shot controller execution canary while the recurring timer remains disabled/inactive.
 
-Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth/transport/session/rollout-plan code, tests and docs may proceed, but real GitHub App installation/permission changes, real credential minting, Cloudflare secret/bindings/resources or RPi5 integration require a separate owner authorization and fresh sequencing reconciliation at the exact rollout step.
+Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth/transport/session/rollout-plan/provider code, tests and docs may proceed, but real GitHub App installation/permission changes, real credential minting, Cloudflare secret/bindings/resources or RPi5 integration require a separate owner authorization and fresh sequencing reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
@@ -337,8 +337,31 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] correct that fixture to explicit `OBSERVED` without weakening production types;
 - [x] corrected source/test exact-head CI #105 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
 - [x] add focused coverage documentation and reconcile ROADMAP with #39 merged baseline and current RPi5 #140 gate;
+- [x] exact final-head GitHub CI PASS after docs reconciliation — run #108;
+- [x] #40 reviewed and merged through PR #41 as `6ea69414850f4e8796f4494be3d9a043623888d1`.
+
+### Source-only authoritative GitHub read provider — issue #42 / PR #43
+
+- [x] start the branch from exact post-PR-#41 `main=6ea69414850f4e8796f4494be3d9a043623888d1`;
+- [x] implement the existing provider-neutral `SourceControlReadProvider` with no write methods;
+- [x] compose only the already-reviewed bounded REST transport and fixed GraphQL merge-state transport;
+- [x] bind one explicit observation time to every REST/GraphQL call made by the provider and composed snapshot helper;
+- [x] bind fixed repository-scoped endpoint paths to explicit minimum Phase 2 read permissions;
+- [x] exclude Issues API entries carrying the `pull_request` marker from normalized open issues;
+- [x] fail closed on repository/branch/PR identity mismatch and malformed collection/wrapper shapes;
+- [x] request Check Runs with `filter=all&per_page=100` so rerun evidence is not hidden by the endpoint default;
+- [x] filter Checks, commit statuses and workflow runs through existing exact-head/latest-effective evidence selectors;
+- [x] filter workflow runs by exact `head_sha` in the REST request;
+- [x] keep commit-status reads conditional: `NOT_REQUESTED` skips the provider status method through the merged #40 contract;
+- [x] add `readGitHubAuthoritativePullRequestSnapshot(...)` as a narrow composition helper over the generic authoritative snapshot reader;
+- [x] keep Worker, Wrangler and credential/session primitives outside the provider source boundary;
+- [x] deterministic fake-transport tests cover endpoint/permission binding, Issues-vs-PR filtering, exact-head evidence, malformed responses, one observation time and status skipping;
+- [x] CI #110 passed policy/audit/typecheck/lint and failed closed only because a local test case table was declared `readonly` before `.push()`;
+- [x] correct only the test helper declaration; production provider code remains unchanged;
+- [x] corrected source/test exact-head CI #111 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
+- [x] add focused provider documentation and reconcile README/ROADMAP with #41 merged baseline and current RPi5 #140 gate;
 - [ ] exact final-head GitHub CI PASS after docs reconciliation;
-- [ ] #40 final branch reviewed and merged.
+- [ ] #42 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -351,7 +374,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
 - [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
 - [ ] add an approved Cloudflare secret/private-key signer binding and prove real short-lived installation-token minting through a narrowly scoped canary;
-- [ ] wire the reviewed bounded REST + GraphQL transports/sessions to an approved authoritative read-only reconciliation path;
+- [ ] wire the reviewed source-only provider + bounded REST/GraphQL transports/sessions to an approved live authoritative read-only reconciliation path;
 - [ ] authenticated webhook route using raw-body HMAC validation;
 - [ ] create/bind D1 and apply reviewed source-controlled migrations;
 - [ ] create/bind Queue + DLQ and implement producer/consumer handlers;
