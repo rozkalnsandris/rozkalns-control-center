@@ -1,7 +1,7 @@
 import type { CheckRunRead, CommitStatusRead, WorkflowRunRead } from "./source-control-read.js";
 
-function timestampMs(value: string | null): number | null {
-  if (value === null) return null;
+function timestampMs(value: string | null | undefined): number | null {
+  if (value == null) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -50,9 +50,17 @@ export function selectLatestEffectiveCommitStatuses(statuses: readonly CommitSta
 }
 
 function isWorkflowRunProvablyNewer(left: WorkflowRunRead, right: WorkflowRunRead): boolean {
-  if (left.workflowId !== right.workflowId) return false;
-  if (left.runNumber !== right.runNumber) return left.runNumber > right.runNumber;
-  if (left.runAttempt !== right.runAttempt) return left.runAttempt > right.runAttempt;
+  if (left.workflowId == null || right.workflowId == null || left.workflowId !== right.workflowId) return false;
+
+  if (left.runNumber != null && right.runNumber != null && left.runNumber !== right.runNumber) {
+    return left.runNumber > right.runNumber;
+  }
+  if (left.runNumber !== right.runNumber) return false;
+
+  if (left.runAttempt != null && right.runAttempt != null && left.runAttempt !== right.runAttempt) {
+    return left.runAttempt > right.runAttempt;
+  }
+  if (left.runAttempt !== right.runAttempt) return false;
 
   const leftUpdated = timestampMs(left.updatedAt);
   const rightUpdated = timestampMs(right.updatedAt);
@@ -64,6 +72,6 @@ function isWorkflowRunProvablyNewer(left: WorkflowRunRead, right: WorkflowRunRea
 }
 
 export function selectLatestEffectiveWorkflowRuns(workflowRuns: readonly WorkflowRunRead[]): WorkflowRunRead[] {
-  const groups = groupBy(workflowRuns, (run) => run.workflowId);
+  const groups = groupBy(workflowRuns, (run) => run.workflowId ?? `unknown:${run.id}`);
   return [...groups.values()].flatMap((group) => maximalByProvableOrder(group, isWorkflowRunProvablyNewer));
 }
