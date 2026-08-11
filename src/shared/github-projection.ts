@@ -5,6 +5,11 @@ import type {
   ReviewState as UiReviewState,
   WorkflowState,
 } from "./control-model.js";
+import {
+  selectLatestEffectiveCheckRuns,
+  selectLatestEffectiveCommitStatuses,
+  selectLatestEffectiveWorkflowRuns,
+} from "./github-evidence-selection.js";
 import { requireManagedProjectPolicy } from "./project-policy.js";
 import type {
   ChangeRequestReadSnapshot,
@@ -109,14 +114,17 @@ export function aggregateCiState(
 ): CiState {
   if (!policy) return "WAITING";
 
+  const effectiveCheckRuns = selectLatestEffectiveCheckRuns(checkRuns);
+  const effectiveCommitStatuses = selectLatestEffectiveCommitStatuses(commitStatuses);
+  const effectiveWorkflowRuns = selectLatestEffectiveWorkflowRuns(workflowRuns);
   const states: EvidenceState[] = [];
 
   for (const required of policy.requiredChecks) {
-    states.push(...evaluateRequiredCheck(checkRuns, commitStatuses, required));
+    states.push(...evaluateRequiredCheck(effectiveCheckRuns, effectiveCommitStatuses, required));
   }
 
   for (const requiredName of policy.requiredWorkflowNames) {
-    const matches = workflowRuns.filter((item) => item.name === requiredName);
+    const matches = effectiveWorkflowRuns.filter((item) => item.name === requiredName);
     if (matches.length === 0) {
       states.push("waiting");
       continue;
