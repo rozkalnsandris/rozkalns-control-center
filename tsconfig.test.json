@@ -10,5 +10,5 @@
     "outDir": ".tmp-tests",
     "noEmit": false
   },
-  "include": ["src/shared/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/shared/**/*.ts", "src/integrations/**/*.ts", "tests/**/*.ts"]
 }
