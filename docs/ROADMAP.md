@@ -75,7 +75,7 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23, #26, #28, #30, #32, #34 and current issue #37 / PR #39. Live GitHub App/credential/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout contracts are complete through issue #37 / PR #39; current issue #40 / PR #41 hardens conditional commit-status evidence coverage before the concrete provider adapter. Live GitHub App/credential/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
@@ -318,8 +318,27 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] source-boundary tests prove Worker/shared code has no GraphQL endpoint/auth/mutation path and REST transport remains GET-only;
 - [x] source/test exact-head CI #99 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
 - [x] add focused GraphQL transport documentation and reconcile README/ROADMAP with #36 merged baseline and current RPi5 #140 gate;
+- [x] exact final-head GitHub CI PASS after docs reconciliation — run #102;
+- [x] #37 reviewed and merged through PR #39 as `d1854293fe4fdc3ba42fad48d0908627c4941bf9`.
+
+### Source-only conditional commit-status evidence coverage — issue #40 / PR #41
+
+- [x] start the branch from exact post-PR-#39 `main=d1854293fe4fdc3ba42fad48d0908627c4941bf9`;
+- [x] distinguish `OBSERVED` from `NOT_REQUESTED` commit-status evidence in authoritative snapshots;
+- [x] keep existing callers defaulted to `OBSERVED` so the new contract cannot silently weaken current reads;
+- [x] make explicit `NOT_REQUESTED` skip `listCommitStatuses()` and return an empty, unobserved status array;
+- [x] prevent a successful Check from producing CI `PASS` for a required status-check context while commit statuses were not requested;
+- [x] preserve observed Check `FAIL` and `RUNNING` precedence when the status source is unrequested;
+- [x] allow workflow-only policy to evaluate independently when no required status-check contexts exist;
+- [x] reject contradictory `NOT_REQUESTED` snapshots that contain commit-status evidence;
+- [x] preserve exact-head validation for all commit statuses that are present;
+- [x] add deterministic provider-call, aggregation, projection and source-boundary regressions;
+- [x] CI #104 failed closed only because an existing projection test fixture did not declare the new required coverage field;
+- [x] correct that fixture to explicit `OBSERVED` without weakening production types;
+- [x] corrected source/test exact-head CI #105 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
+- [x] add focused coverage documentation and reconcile ROADMAP with #39 merged baseline and current RPi5 #140 gate;
 - [ ] exact final-head GitHub CI PASS after docs reconciliation;
-- [ ] #37 final branch reviewed and merged.
+- [ ] #40 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
