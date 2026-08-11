@@ -7,6 +7,16 @@ import {
   type GitHubInstallationReadScope,
 } from "./app-installation-read-contract.js";
 import {
+  GITHUB_GRAPHQL_ACCEPT,
+  GITHUB_GRAPHQL_CONTENT_TYPE,
+  GITHUB_GRAPHQL_ENDPOINT,
+  GITHUB_GRAPHQL_MERGE_STATE_OPERATION,
+  GITHUB_GRAPHQL_MERGE_STATE_QUERY,
+  type GitHubAuthorizedGraphqlMergeStateQuery,
+  type GitHubInstallationAuthorizedGraphqlQuerySession,
+  type GitHubInstallationAuthorizedGraphqlQuerySessionProvider,
+} from "./graphql-merge-state-transport.js";
+import {
   GITHUB_REST_ACCEPT,
   GITHUB_REST_ORIGIN,
   type GitHubAuthorizedRestGet,
@@ -31,7 +41,9 @@ export type GitHubAppSessionFailureCode =
   | "TOKEN_SCOPE_MISMATCH"
   | "TOKEN_UNUSABLE"
   | "READ_REQUEST_INVALID"
-  | "READ_TRANSPORT_FAILED";
+  | "READ_TRANSPORT_FAILED"
+  | "GRAPHQL_REQUEST_INVALID"
+  | "GRAPHQL_TRANSPORT_FAILED";
 
 const failureMessages: Readonly<Record<GitHubAppSessionFailureCode, string>> = {
   INVALID_APP_IDENTITY: "GitHub App identity failed validation",
@@ -47,6 +59,8 @@ const failureMessages: Readonly<Record<GitHubAppSessionFailureCode, string>> = {
   TOKEN_UNUSABLE: "GitHub App installation token lease is unusable",
   READ_REQUEST_INVALID: "GitHub App authorized read request failed validation",
   READ_TRANSPORT_FAILED: "GitHub App authorized read transport failed",
+  GRAPHQL_REQUEST_INVALID: "GitHub App authorized GraphQL request failed validation",
+  GRAPHQL_TRANSPORT_FAILED: "GitHub App authorized GraphQL transport failed",
 };
 
 export class GitHubAppSessionError extends Error {
@@ -65,15 +79,12 @@ export interface GitHubAppIdentity {
   readonly clientId: string;
 }
 
-/**
- * The signer owns access to private-key material outside this contract.
- * Callers provide only a signing input and receive signature bytes.
- */
+/** The signer owns access to private-key material outside this contract. */
 export interface GitHubAppJwtSigner {
   signRs256(signingInput: Uint8Array): Promise<Uint8Array>;
 }
 
-/** Low-level dependency injection for deterministic tests. The module owns every Request it passes here. */
+/** Low-level dependency injection for deterministic tests. The module owns every Request passed here. */
 export type GitHubAppCredentialFetch = (request: Request) => Promise<Response>;
 
 export interface GitHubAppInstallationSessionDependencies {
@@ -87,6 +98,12 @@ interface GitHubInstallationTokenResponseShape {
   readonly expiresAt: string;
   readonly repositories: readonly string[];
   readonly permissions: unknown;
+}
+
+interface AcquiredInstallationCredential {
+  readonly scope: GitHubInstallationReadScope;
+  readonly lease: GitHubCredentialLeaseEvidence;
+  readonly rawCredential: string;
 }
 
 function hasControlCharacters(value: string): boolean {
@@ -142,7 +159,6 @@ async function createGitHubAppJwt(
   if (!(signature instanceof Uint8Array) || signature.byteLength === 0) {
     throw new GitHubAppSessionError("SIGNING_FAILED");
   }
-
   return `${signingInput}.${base64UrlEncodeBytes(signature)}`;
 }
 
@@ -176,7 +192,6 @@ function parseRepositoryEvidence(value: unknown): readonly string[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new GitHubAppSessionError("TOKEN_MALFORMED_RESPONSE");
   }
-
   return value.map((candidate) => {
     const record = requireRecord(candidate);
     if (typeof record.full_name !== "string" || record.full_name.trim() === "") {
@@ -239,6 +254,24 @@ async function parseTokenResponse(response: Response): Promise<GitHubInstallatio
   }
 }
 
+function sameScope(
+  requested: GitHubInstallationReadScope,
+  returned: GitHubInstallationReadScope,
+): boolean {
+  const requestedRepositories = new Set(requested.repositories.map((repository) => repository.toLowerCase()));
+  const returnedRepositories = new Set(returned.repositories.map((repository) => repository.toLowerCase()));
+  if (
+    requestedRepositories.size !== returnedRepositories.size ||
+    ![...requestedRepositories].every((repository) => returnedRepositories.has(repository))
+  ) {
+    return false;
+  }
+
+  const requestedPermissions = Object.entries(requested.permissions).sort(([left], [right]) => left.localeCompare(right));
+  const returnedPermissions = Object.entries(returned.permissions).sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify(requestedPermissions) === JSON.stringify(returnedPermissions);
+}
+
 function leaseFromTokenResponse(
   scope: GitHubInstallationReadScope,
   payload: GitHubInstallationTokenResponseShape,
@@ -254,19 +287,7 @@ function leaseFromTokenResponse(
   } catch {
     throw new GitHubAppSessionError("TOKEN_SCOPE_MISMATCH");
   }
-
-  const requestedRepositories = new Set(scope.repositories.map((repository) => repository.toLowerCase()));
-  const responseRepositories = new Set(responseScope.repositories.map((repository) => repository.toLowerCase()));
-  const repositoryScopeMatches =
-    requestedRepositories.size === responseRepositories.size &&
-    [...requestedRepositories].every((repository) => responseRepositories.has(repository));
-
-  const requestedPermissions = Object.entries(scope.permissions).sort(([left], [right]) => left.localeCompare(right));
-  const responsePermissions = Object.entries(responseScope.permissions).sort(([left], [right]) => left.localeCompare(right));
-  const permissionScopeMatches = JSON.stringify(requestedPermissions) === JSON.stringify(responsePermissions);
-  if (!repositoryScopeMatches || !permissionScopeMatches) {
-    throw new GitHubAppSessionError("TOKEN_SCOPE_MISMATCH");
-  }
+  if (!sameScope(scope, responseScope)) throw new GitHubAppSessionError("TOKEN_SCOPE_MISMATCH");
 
   try {
     return parseGitHubCredentialLeaseEvidence({
@@ -279,6 +300,50 @@ function leaseFromTokenResponse(
   } catch {
     throw new GitHubAppSessionError("TOKEN_UNUSABLE");
   }
+}
+
+async function acquireInstallationCredential(
+  dependencies: GitHubAppInstallationSessionDependencies,
+  clientId: string,
+  scopeInput: GitHubInstallationReadScope,
+  observedAt: string,
+): Promise<AcquiredInstallationCredential> {
+  let scope: GitHubInstallationReadScope;
+  try {
+    scope = parseGitHubInstallationReadScope(scopeInput);
+  } catch {
+    throw new GitHubAppSessionError("TOKEN_SCOPE_MISMATCH");
+  }
+  const observation = parseObservedAt(observedAt);
+  const appJwt = await createGitHubAppJwt(clientId, observation.milliseconds, dependencies.signer);
+
+  let response: Response;
+  try {
+    response = await dependencies.fetchRequest(
+      new Request(tokenEndpoint(scope.installationId), {
+        method: "POST",
+        headers: {
+          Accept: GITHUB_REST_ACCEPT,
+          Authorization: `Bearer ${appJwt}`,
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": GITHUB_REST_API_VERSION,
+        },
+        body: tokenRequestBody(scope),
+        redirect: "manual",
+      }),
+    );
+  } catch {
+    throw new GitHubAppSessionError("TOKEN_EXCHANGE_FAILED");
+  }
+
+  const payload = await parseTokenResponse(response);
+  const lease = leaseFromTokenResponse(scope, payload, observation.iso);
+  try {
+    assertGitHubCredentialLeaseUsable(lease, scope, observation.iso);
+  } catch {
+    throw new GitHubAppSessionError("TOKEN_UNUSABLE");
+  }
+  return { scope, lease, rawCredential: payload.rawCredential };
 }
 
 function assertAuthorizedReadRequest(request: GitHubAuthorizedRestGet, scope: GitHubInstallationReadScope): URL {
@@ -323,9 +388,8 @@ function createAuthorizedReadSession(
     credentialLease: lease,
     async execute(request: GitHubAuthorizedRestGet): Promise<Response> {
       const url = assertAuthorizedReadRequest(request, scope);
-      let response: Response;
       try {
-        response = await fetchRequest(
+        return await fetchRequest(
           new Request(url.href, {
             method: "GET",
             headers: {
@@ -339,7 +403,84 @@ function createAuthorizedReadSession(
       } catch {
         throw new GitHubAppSessionError("READ_TRANSPORT_FAILED");
       }
-      return response;
+    },
+  };
+}
+
+function assertExactGraphqlVariableKeys(variables: GitHubAuthorizedGraphqlMergeStateQuery["variables"]): void {
+  const keys = Object.keys(variables).sort();
+  if (JSON.stringify(keys) !== JSON.stringify(["name", "number", "owner"])) {
+    throw new GitHubAppSessionError("GRAPHQL_REQUEST_INVALID");
+  }
+}
+
+function assertAuthorizedGraphqlRequest(
+  request: GitHubAuthorizedGraphqlMergeStateQuery,
+  scope: GitHubInstallationReadScope,
+): void {
+  if (
+    request.method !== "POST" ||
+    request.url !== GITHUB_GRAPHQL_ENDPOINT ||
+    request.accept !== GITHUB_GRAPHQL_ACCEPT ||
+    request.contentType !== GITHUB_GRAPHQL_CONTENT_TYPE ||
+    request.operationName !== GITHUB_GRAPHQL_MERGE_STATE_OPERATION ||
+    request.query !== GITHUB_GRAPHQL_MERGE_STATE_QUERY ||
+    request.redirect !== "manual"
+  ) {
+    throw new GitHubAppSessionError("GRAPHQL_REQUEST_INVALID");
+  }
+
+  assertExactGraphqlVariableKeys(request.variables);
+  if (
+    typeof request.variables.owner !== "string" ||
+    request.variables.owner === "" ||
+    typeof request.variables.name !== "string" ||
+    request.variables.name === "" ||
+    !Number.isSafeInteger(request.variables.number) ||
+    request.variables.number <= 0
+  ) {
+    throw new GitHubAppSessionError("GRAPHQL_REQUEST_INVALID");
+  }
+
+  const repository = `${request.variables.owner}/${request.variables.name}`.toLowerCase();
+  if (
+    scope.permissions.pull_requests !== "read" ||
+    !scope.repositories.some((candidate) => candidate.toLowerCase() === repository)
+  ) {
+    throw new GitHubAppSessionError("GRAPHQL_REQUEST_INVALID");
+  }
+}
+
+function createAuthorizedGraphqlSession(
+  scope: GitHubInstallationReadScope,
+  lease: GitHubCredentialLeaseEvidence,
+  rawCredential: string,
+  fetchRequest: GitHubAppCredentialFetch,
+): GitHubInstallationAuthorizedGraphqlQuerySession {
+  return {
+    credentialLease: lease,
+    async execute(request: GitHubAuthorizedGraphqlMergeStateQuery): Promise<Response> {
+      assertAuthorizedGraphqlRequest(request, scope);
+      try {
+        return await fetchRequest(
+          new Request(GITHUB_GRAPHQL_ENDPOINT, {
+            method: "POST",
+            headers: {
+              Accept: GITHUB_GRAPHQL_ACCEPT,
+              Authorization: `Bearer ${rawCredential}`,
+              "Content-Type": GITHUB_GRAPHQL_CONTENT_TYPE,
+            },
+            body: JSON.stringify({
+              operationName: GITHUB_GRAPHQL_MERGE_STATE_OPERATION,
+              query: GITHUB_GRAPHQL_MERGE_STATE_QUERY,
+              variables: request.variables,
+            }),
+            redirect: "manual",
+          }),
+        );
+      } catch {
+        throw new GitHubAppSessionError("GRAPHQL_TRANSPORT_FAILED");
+      }
     },
   };
 }
@@ -348,44 +489,28 @@ export function createGitHubAppInstallationSessionProvider(
   dependencies: GitHubAppInstallationSessionDependencies,
 ): GitHubInstallationAuthorizedReadSessionProvider {
   const clientId = normalizeClientId(dependencies.identity.clientId);
-
   return async (scopeInput: GitHubInstallationReadScope, observedAt: string) => {
-    let scope: GitHubInstallationReadScope;
-    try {
-      scope = parseGitHubInstallationReadScope(scopeInput);
-    } catch {
-      throw new GitHubAppSessionError("TOKEN_SCOPE_MISMATCH");
-    }
-    const observation = parseObservedAt(observedAt);
-    const appJwt = await createGitHubAppJwt(clientId, observation.milliseconds, dependencies.signer);
+    const acquired = await acquireInstallationCredential(dependencies, clientId, scopeInput, observedAt);
+    return createAuthorizedReadSession(
+      acquired.scope,
+      acquired.lease,
+      acquired.rawCredential,
+      dependencies.fetchRequest,
+    );
+  };
+}
 
-    let response: Response;
-    try {
-      response = await dependencies.fetchRequest(
-        new Request(tokenEndpoint(scope.installationId), {
-          method: "POST",
-          headers: {
-            Accept: GITHUB_REST_ACCEPT,
-            Authorization: `Bearer ${appJwt}`,
-            "Content-Type": "application/json",
-            "X-GitHub-Api-Version": GITHUB_REST_API_VERSION,
-          },
-          body: tokenRequestBody(scope),
-          redirect: "manual",
-        }),
-      );
-    } catch {
-      throw new GitHubAppSessionError("TOKEN_EXCHANGE_FAILED");
-    }
-
-    const payload = await parseTokenResponse(response);
-    const lease = leaseFromTokenResponse(scope, payload, observation.iso);
-    try {
-      assertGitHubCredentialLeaseUsable(lease, scope, observation.iso);
-    } catch {
-      throw new GitHubAppSessionError("TOKEN_UNUSABLE");
-    }
-
-    return createAuthorizedReadSession(scope, lease, payload.rawCredential, dependencies.fetchRequest);
+export function createGitHubAppInstallationGraphqlSessionProvider(
+  dependencies: GitHubAppInstallationSessionDependencies,
+): GitHubInstallationAuthorizedGraphqlQuerySessionProvider {
+  const clientId = normalizeClientId(dependencies.identity.clientId);
+  return async (scopeInput: GitHubInstallationReadScope, observedAt: string) => {
+    const acquired = await acquireInstallationCredential(dependencies, clientId, scopeInput, observedAt);
+    return createAuthorizedGraphqlSession(
+      acquired.scope,
+      acquired.lease,
+      acquired.rawCredential,
+      dependencies.fetchRequest,
+    );
   };
 }
