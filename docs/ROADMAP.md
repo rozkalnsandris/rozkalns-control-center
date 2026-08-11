@@ -75,11 +75,11 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23 and current issue #26 / PR #27. Live GitHub App/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23, #26 and current issue #28 / PR #29. Live GitHub App/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #26. RPi5 automation remains in Phase 3 — CV pull-deploy migration. The reviewed #140 controller/readiness host-install proof is complete. The first incomplete gate is one separately authorized one-shot `AUTO_DEPLOY_SAFE` execution canary against a genuine newer exact-current-main CV delta; classifier issue #151 must also be reconciled before recurring timer activation.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #28 on 2026-08-11. RPi5 automation remains in Phase 3 — CV pull-deploy migration. The reviewed #140 controller/readiness host-install proof is complete. The first incomplete gate is one separately authorized one-shot `AUTO_DEPLOY_SAFE` execution canary against a genuine newer exact-current-main CV delta; classifier issue #151 must also be reconciled before recurring timer activation.
 
 Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth code, tests and docs may proceed, but live GitHub App installation/permission changes, credential minting, Cloudflare production bindings/resources or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
@@ -214,7 +214,26 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] first authoritative GitHub CI run #65 PASS on source/tests implementation;
 - [x] document the GitHub App auth/read-transport contract and current RPi sequencing boundary;
 - [x] authoritative GitHub CI PASS after docs reconciliation — run #68;
-- [ ] #26 final branch reviewed and merged.
+- [x] exact final-head GitHub CI PASS — run #69;
+- [x] #26 reviewed and merged through PR #27 as `a5f6c0e5a2a42172dc945247d51cb38bd50ce196`.
+
+### Source-only latest-effective CI rerun evidence — issue #28 / PR #29
+
+- [x] add documented optional ordering evidence for Check Runs and workflow runs;
+- [x] validate provided ordering fields while treating missing ordering evidence as ambiguous rather than guessed;
+- [x] select latest provable Check evidence per case-insensitive context + producer App;
+- [x] keep different Check producer Apps separate;
+- [x] normalize commit statuses latest-per-case-insensitive-context inside projection as a second safety layer;
+- [x] select latest provable workflow evidence by known workflow identity, run number, run attempt and documented timestamps;
+- [x] never collapse missing workflow identity merely because display names match;
+- [x] preserve ambiguous/equal/unorderable evidence simultaneously so it can block `PASS`;
+- [x] make `aggregateCiState()` normalize latest-effective evidence even when a future provider supplies duplicates;
+- [x] regression tests cover old-fail/new-success, old-success/new-running, producer separation, workflow reruns, ambiguous ordering and stale heads;
+- [x] source-boundary includes the evidence selector and remains free of live transport/mutation paths;
+- [x] first authoritative GitHub CI run #71 PASS on source/tests implementation;
+- [x] reconcile README, projection contract and ROADMAP with #27 merged baseline and #28 evidence semantics;
+- [ ] authoritative GitHub CI PASS after docs reconciliation;
+- [ ] #28 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -226,7 +245,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
 - [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
 - [ ] live short-lived installation-token minting and secret-runtime boundary;
-- [ ] live GitHub read adapter;
+- [ ] live GitHub read adapter with bounded pagination/rate-limit semantics;
 - [ ] authenticated webhook route using raw-body HMAC validation;
 - [ ] create/bind D1 and apply reviewed source-controlled migrations;
 - [ ] create/bind Queue + DLQ and implement producer/consumer handlers;
