@@ -176,10 +176,11 @@ export function assertPhase2GitHubReadRolloutPlanIntegrity(): void {
     }
     addedPermissions.add(stage.addPermission);
 
-    if (stage.canaries.length === 0) {
+    const canaries: readonly GitHubReadCanaryPlan[] = stage.canaries;
+    if (canaries.length === 0) {
       throw new GitHubReadRolloutPlanError(`GitHub App rollout stage has no canary: ${stage.id}`);
     }
-    for (const canary of stage.canaries) {
+    for (const canary of canaries) {
       if (canary.requiredPermission !== stage.addPermission) {
         throw new GitHubReadRolloutPlanError(`GitHub App canary permission does not match its rollout stage: ${canary.id}`);
       }
