@@ -75,13 +75,13 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async-safety contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21 and current issue #23 / PR #25. Live GitHub App/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21, #23 and current issue #26 / PR #27. Live GitHub App/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #23. RPi5 automation remains in Phase 3 — CV pull-deploy migration. CV recovery and the cross-repository #140 evidence-directory contract are complete. The first incomplete gate is host installation/proof of the reviewed #140 controller/readiness artifacts with the recurring timer still disabled/inactive, after exact-source/CI/artifact revalidation.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #26. RPi5 automation remains in Phase 3 — CV pull-deploy migration. The reviewed #140 controller/readiness host-install proof is complete. The first incomplete gate is one separately authorized one-shot `AUTO_DEPLOY_SAFE` execution canary against a genuine newer exact-current-main CV delta; classifier issue #151 must also be reconciled before recurring timer activation.
 
-Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings/resources or RPi5 integration require a fresh reconciliation at the exact rollout step.
+Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth code, tests and docs may proceed, but live GitHub App installation/permission changes, credential minting, Cloudflare production bindings/resources or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
 Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 
@@ -197,8 +197,24 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] second typed-lint attempt proved the rule active but exposed only 58 `node:test` registration calls, leading to the narrower production-source scope instead of suppressions;
 - [x] authoritative GitHub CI run #59 PASS after source scoping, with typed lint, unit tests, build and Wrangler dry-run green;
 - [x] document runtime Promise handling and async-safety rationale;
-- [x] final authoritative GitHub CI PASS after docs reconciliation — run #62;
-- [ ] #23 final branch reviewed and merged.
+- [x] final authoritative GitHub CI PASS on exact final head — run #63;
+- [x] #23 reviewed and merged through PR #25 as `2030c9c93c0e8e6348c0b5381792eb57964ef391`.
+
+### Source-only GitHub App installation auth/read transport — issue #26 / PR #27
+
+- [x] define selected managed-repository installation read scope with case-insensitive duplicate rejection;
+- [x] allow only the Phase 2 read-permission subset and fail closed on write access;
+- [x] keep `administration` outside the approved source contract pending a separate canary/owner gate;
+- [x] model only sanitized credential lease evidence; raw credential material is absent from domain/business interfaces;
+- [x] enforce short-lived lease lifetime and a minimum remaining-lifetime safety margin;
+- [x] make installation-token format opaque with no prefix/length assumptions;
+- [x] define a repository/permission/version-bound REST read request with no caller-supplied auth header or write method;
+- [x] place future GitHub integration contracts under `src/integrations/github` and include them in Worker/test typechecking;
+- [x] source-boundary tests prove no live GitHub host, HTTP implementation or credential source was introduced;
+- [x] first authoritative GitHub CI run #65 PASS on source/tests implementation;
+- [x] document the GitHub App auth/read-transport contract and current RPi sequencing boundary;
+- [x] authoritative GitHub CI PASS after docs reconciliation — run #68;
+- [ ] #26 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -209,7 +225,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] add/canary Repository `Commit statuses: read` only if actual managed repositories require commit-status evidence;
 - [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
 - [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
-- [ ] short-lived installation-token boundary;
+- [ ] live short-lived installation-token minting and secret-runtime boundary;
 - [ ] live GitHub read adapter;
 - [ ] authenticated webhook route using raw-body HMAC validation;
 - [ ] create/bind D1 and apply reviewed source-controlled migrations;
