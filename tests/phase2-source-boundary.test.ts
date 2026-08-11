@@ -18,6 +18,7 @@ test("Phase 2 read contracts contain no live GitHub transport or mutation method
     classicProtection,
     reconciliationQueue,
     reconciliationDurability,
+    appAuthContract,
   ] = await Promise.all([
     source("src/shared/source-control-read.ts"),
     source("src/shared/github-webhook.ts"),
@@ -29,9 +30,10 @@ test("Phase 2 read contracts contain no live GitHub transport or mutation method
     source("src/shared/github-classic-protection-mapper.ts"),
     source("src/shared/reconciliation-queue.ts"),
     source("src/shared/reconciliation-durability.ts"),
+    source("src/integrations/github/app-installation-read-contract.ts"),
   ]);
 
-  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${policyEvidence}\n${classicProtection}\n${reconciliationQueue}\n${reconciliationDurability}`;
+  const combined = `${provider}\n${webhook}\n${reconciliation}\n${restMappers}\n${graphqlMappers}\n${projection}\n${policyEvidence}\n${classicProtection}\n${reconciliationQueue}\n${reconciliationDurability}\n${appAuthContract}`;
 
   assert.equal(combined.includes("api.github.com"), false);
   assert.equal(combined.includes("Authorization:"), false);
@@ -120,4 +122,18 @@ test("durability contracts add no live D1 or Queue binding or network side effec
   assert.doesNotMatch(wrangler, /"queues"/);
   assert.match(migration, /delivery_id TEXT PRIMARY KEY NOT NULL/);
   assert.doesNotMatch(migration, /^\s*(?:token|secret|private_key|webhook_payload|payload_body)\s+/im);
+});
+
+test("GitHub App read contract keeps credentials opaque and transport source-only", async () => {
+  const contract = await source("src/integrations/github/app-installation-read-contract.ts");
+
+  assert.match(contract, /GITHUB_REST_API_VERSION = "2026-03-10"/);
+  assert.match(contract, /GitHubInstallationReadTransport/);
+  assert.match(contract, /get<T>/);
+  assert.doesNotMatch(contract, /\b(?:post|put|patch|delete)<T>/i);
+  assert.doesNotMatch(contract, /ghs_/);
+  assert.doesNotMatch(contract, /token\.length|token\.startsWith/);
+  assert.doesNotMatch(contract, /Authorization|Bearer/);
+  assert.doesNotMatch(contract, /api\.github\.com|fetch\(/);
+  assert.doesNotMatch(contract, /"administration"/);
 });
