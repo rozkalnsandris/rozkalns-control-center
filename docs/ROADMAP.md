@@ -213,7 +213,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] source-boundary tests prove no live GitHub host, HTTP implementation or credential source was introduced;
 - [x] first authoritative GitHub CI run #65 PASS on source/tests implementation;
 - [x] document the GitHub App auth/read-transport contract and current RPi sequencing boundary;
-- [ ] authoritative GitHub CI PASS after docs reconciliation;
+- [x] authoritative GitHub CI PASS after docs reconciliation — run #68;
 - [ ] #26 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
