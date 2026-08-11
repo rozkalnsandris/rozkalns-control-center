@@ -244,18 +244,9 @@ test("implements the provider-neutral read interface with fixed endpoint and per
   assert.equal((await provider.getPullRequest(repository, 42)).headSha, headSha);
   assert.equal((await provider.getPullRequestMergeState(repository, 42)).mergeStateStatus, "CLEAN");
   assert.equal((await provider.listPullRequestReviews(repository, 42))[0]?.state, "APPROVED");
-
-  const checks = await provider.listCheckRuns(repository, headSha);
-  assert.equal(checks.length, 1);
-  assert.equal(checks[0]?.headSha, headSha);
-
-  const statuses = await provider.listCommitStatuses(repository, headSha);
-  assert.equal(statuses.length, 1);
-  assert.equal(statuses[0]?.headSha, headSha);
-
-  const workflows = await provider.listWorkflowRuns(repository, headSha);
-  assert.equal(workflows.length, 1);
-  assert.equal(workflows[0]?.headSha, headSha);
+  assert.deepEqual((await provider.listCheckRuns(repository, headSha)).map((item) => item.headSha), [headSha]);
+  assert.deepEqual((await provider.listCommitStatuses(repository, headSha)).map((item) => item.headSha), [headSha]);
+  assert.deepEqual((await provider.listWorkflowRuns(repository, headSha)).map((item) => item.headSha), [headSha]);
 
   assert.deepEqual(
     restCalls.map(({ request }) => [request.path, request.requiredPermission]),
@@ -332,7 +323,7 @@ test("missing conditional commit-status permission fails before transport if the
 
 test("fails closed on malformed or mismatched singular and collection payloads", async () => {
   const readScope = scope();
-  const cases: readonly [string, () => Promise<unknown>][] = [];
+  const cases: [string, () => Promise<unknown>][] = [];
 
   const branchMismatch = createGitHubAuthoritativeReadProvider({
     scope: readScope,
