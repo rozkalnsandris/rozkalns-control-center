@@ -89,8 +89,15 @@ interface GitHubInstallationTokenResponseShape {
   readonly permissions: unknown;
 }
 
+function hasControlCharacters(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || code === 127;
+  });
+}
+
 function normalizeClientId(value: unknown): string {
-  if (typeof value !== "string" || value.trim() === "" || value !== value.trim() || /[\u0000-\u001f\u007f]/.test(value)) {
+  if (typeof value !== "string" || value.trim() === "" || value !== value.trim() || hasControlCharacters(value)) {
     throw new GitHubAppSessionError("INVALID_APP_IDENTITY");
   }
   return value;
