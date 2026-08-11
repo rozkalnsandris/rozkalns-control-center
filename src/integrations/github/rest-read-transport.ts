@@ -348,7 +348,11 @@ export function createGitHubRestReadTransport(
   const maxRequests = normalizeMaxRequests(options.maxRequests);
 
   return {
-    async get<T>(scopeInput, requestInput, observedAt): Promise<GitHubReadResult<T>> {
+    async get<T>(
+      scopeInput: GitHubInstallationReadScope,
+      requestInput: GitHubReadRequest,
+      observedAt: string,
+    ): Promise<GitHubReadResult<T>> {
       const observedAtMs = parseObservedAt(observedAt);
 
       let scope: GitHubInstallationReadScope;
