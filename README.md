@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 2 live read-only GitHub integration — source-only durability preflight is in progress through issue #21 / PR #22. No live GitHub App, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
+> **Status:** Phase 2 live read-only GitHub integration — source-only async-safety hardening is in progress through issue #23 / PR #25. No live GitHub App, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
 
 The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
 
@@ -105,6 +105,7 @@ Current source contracts now cover:
 - versioned minimal reconciliation Queue-message contract with unknown-field rejection;
 - explicit durable delivery lifecycle and terminal `DEAD_LETTERED` state;
 - source-controlled initial D1 migration with `delivery_id` primary-key idempotency and no secret/payload columns;
+- type-aware `@typescript-eslint/no-floating-promises` enforcement for production `src/` TypeScript before live async handlers are introduced;
 - documented future endpoint → minimum GitHub App permission requirements, including `Commit statuses: read` only when live status reads are actually introduced.
 
 Phase 2 application projection still exposes only `OPEN_PR`; it does **not** expose a live Merge mutation.
@@ -120,6 +121,7 @@ See:
 - [`docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md`](docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md)
 - [`docs/PHASE2_GITHUB_POLICY_EVIDENCE.md`](docs/PHASE2_GITHUB_POLICY_EVIDENCE.md)
 - [`docs/PHASE2_RECONCILIATION_DURABILITY.md`](docs/PHASE2_RECONCILIATION_DURABILITY.md)
+- [`docs/PHASE2_ASYNC_SAFETY.md`](docs/PHASE2_ASYNC_SAFETY.md)
 
 ## Bootstrap runtime
 
@@ -131,7 +133,7 @@ The executable foundation provides:
 - deterministic `GET /api/health` endpoint;
 - generated Worker types through Wrangler;
 - locked dependencies;
-- read-only GitHub CI for policy checks, runtime dependency audit, typecheck, lint, unit tests, build and Wrangler dry-run.
+- read-only GitHub CI for policy checks, runtime dependency audit, typecheck, typed production-source Promise lint, unit tests, build and Wrangler dry-run.
 
 There is intentionally **no deploy script** and no Cloudflare account, route, Access, D1, Queue, Workflow or GitHub App binding in the current configuration.
 
@@ -179,6 +181,7 @@ The initial design targets Cloudflare Free-compatible components where practical
 - [`docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md`](docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md) — exact-head GitHub merge-state readiness contract;
 - [`docs/PHASE2_GITHUB_POLICY_EVIDENCE.md`](docs/PHASE2_GITHUB_POLICY_EVIDENCE.md) — ruleset/classic policy provenance contract;
 - [`docs/PHASE2_RECONCILIATION_DURABILITY.md`](docs/PHASE2_RECONCILIATION_DURABILITY.md) — delivery/D1/Queue/DLQ source-only durability contract;
+- [`docs/PHASE2_ASYNC_SAFETY.md`](docs/PHASE2_ASYNC_SAFETY.md) — typed production-source Promise handling contract;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
 
 ## Development rule

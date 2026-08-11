@@ -75,11 +75,11 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability contracts have progressed through issues #8, #10, #12, #15, #17, #19 and current issue #21 / PR #22. Live GitHub App/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async-safety contracts have progressed through issues #8, #10, #12, #15, #17, #19, #21 and current issue #23 / PR #25. Live GitHub App/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #21. RPi5 automation remains in Phase 3 — CV pull-deploy migration. CV recovery and the cross-repository #140 evidence-directory contract are complete. The first incomplete gate is host installation/proof of the reviewed #140 controller/readiness artifacts with the recurring timer still disabled/inactive, after exact-source/CI/artifact revalidation.
+The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md` was re-read before issue #23. RPi5 automation remains in Phase 3 — CV pull-deploy migration. CV recovery and the cross-repository #140 evidence-directory contract are complete. The first incomplete gate is host installation/proof of the reviewed #140 controller/readiness artifacts with the recurring timer still disabled/inactive, after exact-source/CI/artifact revalidation.
 
 Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence code, tests and docs may proceed, but live GitHub App installation/permission changes, Cloudflare production bindings/resources or RPi5 integration require a fresh reconciliation at the exact rollout step.
 
@@ -184,7 +184,21 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] first authoritative GitHub CI run #49 PASS on source/tests implementation;
 - [x] document durability, DLQ observability and current RPi sequencing contract;
 - [x] authoritative GitHub CI PASS after docs reconciliation — run #52;
-- [ ] #21 final branch reviewed and merged.
+- [x] #21 reviewed and merged through PR #22 as `47cc58e5815159203e0822de42b3e0a47f442047`.
+
+### Source-only async Promise safety — issue #23 / PR #25
+
+- [x] enable type-aware ESLint Project Service for production `src/**/*.{ts,tsx}`;
+- [x] enforce `@typescript-eslint/no-floating-promises` as an error before live async handlers exist;
+- [x] keep `node:test` registration code outside this production runtime rule rather than adding blanket suppressions;
+- [x] preserve existing non-type-checked recommended lint for tests and JavaScript utility scripts;
+- [x] regression-lock the runtime-source glob, Project Service and floating-Promise rule in `tests/eslint-config.test.ts`;
+- [x] first typed-lint attempt failed closed because tests were outside a Project Service `tsconfig.json`;
+- [x] second typed-lint attempt proved the rule active but exposed only 58 `node:test` registration calls, leading to the narrower production-source scope instead of suppressions;
+- [x] authoritative GitHub CI run #59 PASS after source scoping, with typed lint, unit tests, build and Wrangler dry-run green;
+- [x] document runtime Promise handling and async-safety rationale;
+- [x] final authoritative GitHub CI PASS after docs reconciliation — run #62;
+- [ ] #23 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
