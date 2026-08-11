@@ -15,6 +15,7 @@ export type CheckConclusion =
   | null;
 export type CheckRunStatus = "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
 export type CommitStatusState = "error" | "failure" | "pending" | "success";
+export type CommitStatusEvidenceCoverage = "OBSERVED" | "NOT_REQUESTED";
 export type WorkflowRunStatus = "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
 export type PullRequestMergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 export type PullRequestMergeStateStatus =
@@ -116,6 +117,10 @@ export interface SourceControlReadProvider {
   listWorkflowRuns(repository: string, headSha: string): Promise<WorkflowRunRead[]>;
 }
 
+export interface AuthoritativeReadOptions {
+  readonly commitStatusCoverage?: CommitStatusEvidenceCoverage;
+}
+
 export interface ChangeRequestReadSnapshot {
   repository: string;
   observedAt: string;
@@ -126,8 +131,15 @@ export interface ChangeRequestReadSnapshot {
   reviews: readonly PullRequestReviewRead[];
   checkRuns: readonly CheckRunRead[];
   commitStatuses: readonly CommitStatusRead[];
+  commitStatusCoverage: CommitStatusEvidenceCoverage;
   workflowRuns: readonly WorkflowRunRead[];
   authoritativeRead: true;
+}
+
+function normalizeCommitStatusCoverage(value: CommitStatusEvidenceCoverage | undefined): CommitStatusEvidenceCoverage {
+  if (value === undefined || value === "OBSERVED") return "OBSERVED";
+  if (value === "NOT_REQUESTED") return "NOT_REQUESTED";
+  throw new Error("Unsupported commit-status evidence coverage");
 }
 
 export async function readAuthoritativePullRequestSnapshot(
@@ -135,8 +147,10 @@ export async function readAuthoritativePullRequestSnapshot(
   repository: string,
   pullNumber: number,
   observedAt: string,
+  options: AuthoritativeReadOptions = {},
 ): Promise<ChangeRequestReadSnapshot> {
   requireManagedProjectPolicy(repository);
+  const commitStatusCoverage = normalizeCommitStatusCoverage(options.commitStatusCoverage);
 
   const repositoryRead = await provider.getRepository(repository);
   if (repositoryRead.repository.toLowerCase() !== repository.toLowerCase()) {
@@ -148,12 +162,17 @@ export async function readAuthoritativePullRequestSnapshot(
     throw new Error("Source-control provider returned a different pull request than requested");
   }
 
+  const commitStatusesPromise =
+    commitStatusCoverage === "OBSERVED"
+      ? provider.listCommitStatuses(repository, pullRequest.headSha)
+      : Promise.resolve<CommitStatusRead[]>([]);
+
   const [mainSha, mergeState, reviews, checkRuns, commitStatuses, workflowRuns] = await Promise.all([
     provider.getDefaultBranchHead(repository, repositoryRead.defaultBranch),
     provider.getPullRequestMergeState(repository, pullNumber),
     provider.listPullRequestReviews(repository, pullNumber),
     provider.listCheckRuns(repository, pullRequest.headSha),
-    provider.listCommitStatuses(repository, pullRequest.headSha),
+    commitStatusesPromise,
     provider.listWorkflowRuns(repository, pullRequest.headSha),
   ]);
 
@@ -195,6 +214,7 @@ export async function readAuthoritativePullRequestSnapshot(
     reviews,
     checkRuns,
     commitStatuses,
+    commitStatusCoverage,
     workflowRuns,
     authoritativeRead: true,
   };
