@@ -5,20 +5,11 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  {
-    ignores: [
-      "dist",
-      ".tmp-tests",
-      ".wrangler",
-      ".wrangler-dry-run",
-      "worker-configuration.d.ts",
-      "tests/lint-probes/**",
-    ],
-  },
+  { ignores: ["dist", ".tmp-tests", ".wrangler", ".wrangler-dry-run", "worker-configuration.d.ts"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parserOptions: {
         projectService: true,
