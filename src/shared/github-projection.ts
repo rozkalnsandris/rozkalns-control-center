@@ -14,6 +14,7 @@ import { requireManagedProjectPolicy } from "./project-policy.js";
 import type {
   ChangeRequestReadSnapshot,
   CheckRunRead,
+  CommitStatusEvidenceCoverage,
   CommitStatusRead,
   IssueRead,
   PullRequestMergeStateRead,
@@ -106,13 +107,20 @@ function evaluateRequiredCheck(
   return states;
 }
 
+function normalizeCommitStatusCoverage(value: CommitStatusEvidenceCoverage): CommitStatusEvidenceCoverage {
+  if (value === "OBSERVED" || value === "NOT_REQUESTED") return value;
+  throw new Error("Unsupported commit-status evidence coverage");
+}
+
 export function aggregateCiState(
   checkRuns: readonly CheckRunRead[],
   commitStatuses: readonly CommitStatusRead[],
   workflowRuns: readonly WorkflowRunRead[],
   policy?: CiRequirementPolicy,
+  commitStatusCoverage: CommitStatusEvidenceCoverage = "OBSERVED",
 ): CiState {
   if (!policy) return "WAITING";
+  const coverage = normalizeCommitStatusCoverage(commitStatusCoverage);
 
   const effectiveCheckRuns = selectLatestEffectiveCheckRuns(checkRuns);
   const effectiveCommitStatuses = selectLatestEffectiveCommitStatuses(commitStatuses);
@@ -121,6 +129,7 @@ export function aggregateCiState(
 
   for (const required of policy.requiredChecks) {
     states.push(...evaluateRequiredCheck(effectiveCheckRuns, effectiveCommitStatuses, required));
+    if (coverage === "NOT_REQUESTED") states.push("waiting");
   }
 
   for (const requiredName of policy.requiredWorkflowNames) {
@@ -154,6 +163,10 @@ export function aggregateReviewState(
 
 function assertExactHeadEvidence(snapshot: ChangeRequestReadSnapshot): void {
   const expected = snapshot.pullRequest.headSha;
+  normalizeCommitStatusCoverage(snapshot.commitStatusCoverage);
+  if (snapshot.commitStatusCoverage === "NOT_REQUESTED" && snapshot.commitStatuses.length > 0) {
+    throw new Error("Commit-status evidence cannot be present when its source was not requested");
+  }
   if (snapshot.mergeState.pullNumber !== snapshot.pullRequest.number) {
     throw new Error("Cannot project merge-state evidence from a different pull request");
   }
@@ -219,7 +232,13 @@ export function projectAuthoritativeSnapshotToDecision(
   assertExactHeadEvidence(snapshot);
 
   const project = requireManagedProjectPolicy(snapshot.repository);
-  const ci = aggregateCiState(snapshot.checkRuns, snapshot.commitStatuses, snapshot.workflowRuns, context.ciPolicy);
+  const ci = aggregateCiState(
+    snapshot.checkRuns,
+    snapshot.commitStatuses,
+    snapshot.workflowRuns,
+    context.ciPolicy,
+    snapshot.commitStatusCoverage,
+  );
   const review = aggregateReviewState(snapshot.reviews, context.reviewPolicy);
   const workflowState = deriveWorkflowState(snapshot, ci, review);
 
