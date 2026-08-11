@@ -232,7 +232,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] source-boundary includes the evidence selector and remains free of live transport/mutation paths;
 - [x] first authoritative GitHub CI run #71 PASS on source/tests implementation;
 - [x] reconcile README, projection contract and ROADMAP with #27 merged baseline and #28 evidence semantics;
-- [ ] authoritative GitHub CI PASS after docs reconciliation;
+- [x] authoritative GitHub CI PASS after docs reconciliation — run #74;
 - [ ] #28 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
