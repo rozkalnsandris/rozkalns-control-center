@@ -38,9 +38,19 @@ export interface GitHubReadRequest {
   apiVersion: typeof GITHUB_REST_API_VERSION;
 }
 
+export interface GitHubRateLimitEvidence {
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  resetAt: string | null;
+  resource: string | null;
+}
+
 export interface GitHubReadResult<T> {
-  data: T;
+  pages: readonly T[];
   credentialLease: GitHubCredentialLeaseEvidence;
+  requestCount: number;
+  rateLimit: GitHubRateLimitEvidence | null;
 }
 
 /**

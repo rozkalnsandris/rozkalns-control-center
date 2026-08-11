@@ -6,7 +6,7 @@ async function source(path: string) {
   return readFile(path, "utf8");
 }
 
-test("Phase 2 read contracts contain no live GitHub transport or mutation methods", async () => {
+test("Phase 2 shared/domain read contracts contain no GitHub HTTP transport or mutation methods", async () => {
   const [
     provider,
     webhook,
@@ -44,6 +44,24 @@ test("Phase 2 read contracts contain no live GitHub transport or mutation method
     combined,
     /\b(?:mergePullRequest|createPullRequest|updatePullRequest|requestChanges|rerunWorkflow|writeContents|createIssue|updateIssue)\b/,
   );
+});
+
+test("dedicated GitHub integration transport owns the Phase 2 REST network boundary", async () => {
+  const [transport, worker] = await Promise.all([
+    source("src/integrations/github/rest-read-transport.ts"),
+    source("src/worker/index.ts"),
+  ]);
+
+  assert.match(transport, /GITHUB_REST_ORIGIN = "https:\/\/api\.github\.com"/);
+  assert.match(transport, /GITHUB_REST_ACCEPT = "application\/vnd\.github\+json"/);
+  assert.match(transport, /method: "GET"/);
+  assert.match(transport, /redirect: "manual"/);
+  assert.match(transport, /GITHUB_REST_API_VERSION/);
+  assert.match(transport, /PAGINATION_BUDGET_EXHAUSTED/);
+  assert.match(transport, /RATE_LIMITED/);
+  assert.doesNotMatch(transport, /\b(?:POST|PUT|PATCH|DELETE)\b/);
+  assert.doesNotMatch(transport, /Authorization|Bearer|ghs_/);
+  assert.doesNotMatch(worker, /rest-read-transport|api\.github\.com/);
 });
 
 test("Phase 2 reconciliation model makes authoritative reread and exact-head status evidence explicit", async () => {
@@ -136,6 +154,7 @@ test("GitHub App read contract keeps credentials opaque and transport source-onl
   assert.match(contract, /GITHUB_REST_API_VERSION = "2026-03-10"/);
   assert.match(contract, /GitHubInstallationReadTransport/);
   assert.match(contract, /get<T>/);
+  assert.match(contract, /pages:\s*readonly T\[\]/);
   assert.doesNotMatch(contract, /\b(?:post|put|patch|delete)<T>/i);
   assert.doesNotMatch(contract, /ghs_/);
   assert.doesNotMatch(contract, /token\.length|token\.startsWith/);
