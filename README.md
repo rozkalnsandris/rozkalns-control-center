@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 2 live read-only GitHub integration — source-only bounded GitHub REST read transport is in progress through issue #30 / PR #31. No live GitHub App, credential minting, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
+> **Status:** Phase 2 live read-only GitHub integration — source-only GitHub App JWT / installation-session hardening is in progress through issue #32 / PR #33. No live GitHub App, real credential minting, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
 
 The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
 
@@ -111,11 +111,13 @@ Current source contracts now cover:
 - source-only GitHub App installation-read scope, short-lived credential-lease evidence and GET-only REST request contracts with no raw credential material in domain/business interfaces;
 - concrete bounded GitHub REST GET transport under the dedicated integration path, with fixed origin/API media/version metadata, manual redirect policy, repository-bound Link pagination, request-budget/cycle protection and sanitized rate-limit evidence;
 - typed fail-closed outcomes for auth/status/rate-limit/pagination/malformed-response failures, without automatic retry loops;
+- source-only GitHub App JWT / installation-token session boundary with deterministic `RS256` signing input, explicit repository/read-permission narrowing, exact returned-scope verification and raw JWT/token material confined to the dedicated integration layer;
+- the authorized installation session composes with the bounded REST transport while keeping Bearer credentials out of shared/domain/Worker interfaces;
 - documented future endpoint → minimum GitHub App permission requirements, including `Commit statuses: read` only when live status reads are actually introduced and no pre-authorization of `Administration: read`.
 
 Phase 2 application projection still exposes only `OPEN_PR`; it does **not** expose a live Merge mutation.
 
-There are still **no live GitHub API calls from Worker routes, live credentials, dedicated Control GitHub App installation, D1/Queue/Workflow bindings or production deploy path** in the current repository. The concrete transport remains disconnected from `src/worker/index.ts` and uses only deterministic fake authorized sessions in tests.
+There are still **no live GitHub API calls from Worker routes, real credentials, dedicated Control GitHub App installation, Cloudflare secret binding, D1/Queue/Workflow bindings or production deploy path** in the current repository. The credential/session and REST transport layers remain disconnected from `src/worker/index.ts` and use deterministic fake signer/HTTP dependencies in tests.
 
 The current `RPi5_main` automation program remains in Phase 3. Its first incomplete sequence is issue #163: separately reconcile the exact CV classifier/control-plane baseline and then the production baseline before any future genuine-newer-SHA `AUTO_DEPLOY_SAFE` controller execution canary. Control live rollout therefore remains separately gated and requires a fresh sequencing reconciliation at the exact rollout step.
 
@@ -129,6 +131,7 @@ See:
 - [`docs/PHASE2_ASYNC_SAFETY.md`](docs/PHASE2_ASYNC_SAFETY.md)
 - [`docs/PHASE2_GITHUB_APP_AUTH_CONTRACT.md`](docs/PHASE2_GITHUB_APP_AUTH_CONTRACT.md)
 - [`docs/PHASE2_GITHUB_REST_READ_TRANSPORT.md`](docs/PHASE2_GITHUB_REST_READ_TRANSPORT.md)
+- [`docs/PHASE2_GITHUB_APP_SESSION.md`](docs/PHASE2_GITHUB_APP_SESSION.md)
 
 ## Bootstrap runtime
 
@@ -191,6 +194,7 @@ The initial design targets Cloudflare Free-compatible components where practical
 - [`docs/PHASE2_ASYNC_SAFETY.md`](docs/PHASE2_ASYNC_SAFETY.md) — typed production-source Promise handling contract;
 - [`docs/PHASE2_GITHUB_APP_AUTH_CONTRACT.md`](docs/PHASE2_GITHUB_APP_AUTH_CONTRACT.md) — short-lived GitHub App credential and read-request source contract;
 - [`docs/PHASE2_GITHUB_REST_READ_TRANSPORT.md`](docs/PHASE2_GITHUB_REST_READ_TRANSPORT.md) — bounded repository-scoped REST GET/pagination/rate-limit transport contract;
+- [`docs/PHASE2_GITHUB_APP_SESSION.md`](docs/PHASE2_GITHUB_APP_SESSION.md) — source-only JWT, installation-token exchange and authorized-session boundary;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
 
 ## Development rule
