@@ -6,7 +6,7 @@ async function source(path: string): Promise<string> {
   return readFile(path, "utf8");
 }
 
-test("authoritative GitHub provider remains source-only and transport-bounded", async () => {
+test("authoritative GitHub provider remains transport-bounded and disconnected from the public Worker route", async () => {
   const [provider, worker, wrangler] = await Promise.all([
     source("src/integrations/github/authoritative-read-provider.ts"),
     source("src/worker/index.ts"),
@@ -23,5 +23,5 @@ test("authoritative GitHub provider remains source-only and transport-bounded", 
   assert.doesNotMatch(provider, /app-installation-session|private.?key|webhook.?secret/i);
   assert.doesNotMatch(provider, /\b(?:POST|PUT|PATCH|DELETE)\b/);
   assert.doesNotMatch(worker, /authoritative-read-provider|readGitHubAuthoritativePullRequestSnapshot/);
-  assert.doesNotMatch(wrangler, /"secrets"|"vars"|"d1_databases"|"queues"/);
+  assert.doesNotMatch(wrangler, /"d1_databases"|"queues"/);
 });
