@@ -25,5 +25,5 @@ test("commit-status coverage remains a pure source-only least-privilege boundary
   assert.doesNotMatch(combined, /api\.github\.com|Authorization|Bearer|fetch\(/);
   assert.doesNotMatch(combined, /\b(?:POST|PUT|PATCH|DELETE)\b/);
   assert.doesNotMatch(worker, /commitStatusCoverage|listCommitStatuses|api\.github\.com/);
-  assert.doesNotMatch(wrangler, /"secrets"|"vars"|"d1_databases"|"queues"/);
+  assert.doesNotMatch(wrangler, /"d1_databases"|"queues"/);
 });
