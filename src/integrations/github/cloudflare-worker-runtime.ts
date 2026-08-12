@@ -1,8 +1,10 @@
 import { sign as signRsaSha256 } from "node:crypto";
 
 import type { BranchPolicyEvidenceReader } from "../../shared/authoritative-reconciliation.js";
-import type { GitHubInstallationReadScope } from "./app-installation-read-contract.js";
-import { parseGitHubInstallationReadScope } from "./app-installation-read-contract.js";
+import {
+  parseGitHubInstallationReadScope,
+  type GitHubInstallationReadScope,
+} from "./app-installation-read-contract.js";
 import {
   createGitHubAppInstallationGraphqlSessionProvider,
   createGitHubAppInstallationSessionProvider,
@@ -85,11 +87,7 @@ function nonEmptyBinding(value: unknown): string {
 
 function privateKeyBinding(value: unknown): string {
   if (typeof value !== "string" || value.trim() === "") return invalidBinding();
-  const trimmed = value.trim();
-  const rsaPkcs1 = /^-----BEGIN RSA PRIVATE KEY-----[\s\S]+-----END RSA PRIVATE KEY-----$/;
-  const pkcs8 = /^-----BEGIN PRIVATE KEY-----[\s\S]+-----END PRIVATE KEY-----$/;
-  if (!rsaPkcs1.test(trimmed) && !pkcs8.test(trimmed)) return invalidBinding();
-  return trimmed;
+  return value.trim();
 }
 
 function installationIdBinding(value: unknown): number {
