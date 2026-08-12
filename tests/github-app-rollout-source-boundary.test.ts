@@ -6,12 +6,16 @@ async function source(path: string) {
   return readFile(path, "utf8");
 }
 
-test("GitHub App rollout manifest remains source-only and least-privilege", async () => {
+test("GitHub App rollout manifest and declared runtime bindings remain least-privilege", async () => {
   const [rollout, worker, wrangler] = await Promise.all([
     source("src/integrations/github/app-read-rollout-plan.ts"),
     source("src/worker/index.ts"),
     source("wrangler.jsonc"),
   ]);
+  const config = JSON.parse(wrangler) as {
+    readonly vars?: Readonly<Record<string, string>>;
+    readonly secrets?: { readonly required?: readonly string[] };
+  };
 
   assert.match(rollout, /GITHUB_CONTROL_APP_NAME = "Rozkalns Control"/);
   assert.match(rollout, /GITHUB_CONTROL_REPOSITORY_SELECTION = "selected"/);
@@ -21,6 +25,13 @@ test("GitHub App rollout manifest remains source-only and least-privilege", asyn
   assert.doesNotMatch(rollout, /\b(?:POST|PUT|PATCH|DELETE)\b/);
   assert.doesNotMatch(rollout, /"administration"|"write"/);
   assert.doesNotMatch(rollout, /BEGIN (?:RSA )?PRIVATE KEY|ghs_/);
-  assert.doesNotMatch(worker, /app-read-rollout-plan|GitHubReadRollout/);
-  assert.doesNotMatch(wrangler, /"secrets"|"vars"/);
+
+  assert.deepEqual(config.vars, {
+    GITHUB_APP_CLIENT_ID: "Iv23likDoFtVeWBJfdFS",
+    GITHUB_APP_INSTALLATION_ID: "153121564",
+  });
+  assert.deepEqual(config.secrets?.required, ["GITHUB_APP_PRIVATE_KEY_PEM"]);
+  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_/);
+
+  assert.doesNotMatch(worker, /app-read-rollout-plan|GitHubReadRollout|cloudflare-worker-runtime|GITHUB_APP_/);
 });
