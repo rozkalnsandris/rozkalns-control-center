@@ -75,7 +75,7 @@ Goal: prove the Android-first UX before live GitHub writes.
 
 Goal: replace fixtures with trustworthy live GitHub state.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout/coverage/provider contracts are complete through issue #42 / PR #43; current issue #44 / PR #46 adds the Metadata-only active branch-rules reader while keeping policy coverage deliberately partial. Live GitHub App/credential/Cloudflare rollout remains separately gated.
+**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout/coverage/provider/active-rules contracts are merged through issue #44 / PR #46; current issue #47 / PR #48 adds the fail-closed authoritative reconciliation composition. Live GitHub App/credential/Cloudflare rollout remains separately gated.
 
 ### Sequencing prerequisite
 
@@ -377,8 +377,26 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [x] source-boundary proves no classic `/protection` request, `administration` permission, live auth/HTTP primitive, Worker wiring or mutation path;
 - [x] source/test exact-head CI #116 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
 - [x] add focused active-rules reader documentation and reconcile README/ROADMAP with #43 merged baseline and current RPi5 #140 `NO_DEPLOY` gate;
+- [x] exact final-head GitHub CI PASS after docs reconciliation — run #119;
+- [x] #44 reviewed and merged through PR #46 as `450016bf609ca8f30fbe962e9df26b5b058db965`.
+
+### Source-only authoritative reconciliation composition — issue #47 / PR #48
+
+- [x] start the branch from exact post-PR-#46 `main=450016bf609ca8f30fbe962e9df26b5b058db965`;
+- [x] add provider-neutral reconciliation composition with one explicit observation time;
+- [x] read the authoritative exact-head PR snapshot and exact requested open issue from the same provider instance;
+- [x] read branch-policy evidence for the observed default branch and require repository/branch/time identity agreement;
+- [x] derive CI/review policy only through existing `deriveProjectionPolicies()`;
+- [x] return typed `BLOCKED` without a `DecisionReadModel` for partial/unknown/unrepresentable policy evidence;
+- [x] return typed `PROJECTED` only for complete representable policy evidence through the existing projection mapper;
+- [x] preserve `OBSERVED` / `NOT_REQUESTED` commit-status coverage and prove required-check CI remains `WAITING` when statuses were not requested;
+- [x] preserve existing exact-head stale-evidence rejection;
+- [x] keep deploy impact `UNKNOWN` unless supplied by a trusted caller;
+- [x] source-boundary proves no HTTP/auth/token/private-key/secret/Worker/permission/mutation path was introduced;
+- [x] source/test exact-head CI #121 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
+- [x] add focused reconciliation documentation and reconcile README/ROADMAP with #46 merged baseline and current RPi5 #140 `NO_DEPLOY` gate;
 - [ ] exact final-head GitHub CI PASS after docs reconciliation;
-- [ ] #44 final branch reviewed and merged.
+- [ ] #47 final branch reviewed and merged.
 
 ### Later Phase 2 live deliverables — separately gated
 
@@ -391,7 +409,7 @@ Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
 - [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
 - [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
 - [ ] add an approved Cloudflare secret/private-key signer binding and prove real short-lived installation-token minting through a narrowly scoped canary;
-- [ ] wire the reviewed source-only provider + bounded REST/GraphQL transports/sessions to an approved live authoritative read-only reconciliation path;
+- [ ] wire the reviewed source-only provider + bounded REST/GraphQL transports/sessions + authoritative reconciliation composition to an approved live authoritative read-only reconciliation path;
 - [ ] authenticated webhook route using raw-body HMAC validation;
 - [ ] create/bind D1 and apply reviewed source-controlled migrations;
 - [ ] create/bind Queue + DLQ and implement producer/consumer handlers;
