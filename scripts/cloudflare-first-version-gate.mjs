@@ -88,6 +88,27 @@ function assertExactRepositoryState(expectedSha) {
   if (remoteMain !== expectedSha) fail("REMOTE_MAIN_MISMATCH", "origin/main moved from the authorized SHA");
 }
 
+async function assertNonRoutableConfig() {
+  let config;
+  try {
+    config = JSON.parse(await readFile(resolve("wrangler.jsonc"), "utf8"));
+  } catch {
+    fail("WRANGLER_CONFIG_INVALID", "wrangler.jsonc must be valid JSON for guarded bootstrap");
+  }
+  if (config?.name !== WORKER_NAME) {
+    fail("WRANGLER_NAME_INVALID", "Wrangler Worker name does not match the guarded target");
+  }
+  if (config?.workers_dev !== false) {
+    fail("WORKERS_DEV_NOT_DISABLED", "workers_dev must be explicitly false before bootstrap");
+  }
+  if (config?.preview_urls !== false) {
+    fail("PREVIEW_URLS_NOT_DISABLED", "preview_urls must be explicitly false before bootstrap");
+  }
+  if (Object.hasOwn(config, "route") || Object.hasOwn(config, "routes") || Object.hasOwn(config, "triggers")) {
+    fail("PUBLIC_TRIGGER_CONFIG_PRESENT", "route/routes/triggers are forbidden during first bootstrap");
+  }
+}
+
 async function cloudflareGet(accountId, token, path) {
   const response = await fetch(`${API_ORIGIN}/accounts/${accountId}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -165,6 +186,7 @@ async function apply(args) {
   }
 
   assertExactRepositoryState(expectedSha);
+  await assertNonRoutableConfig();
   const localEnv = sanitizedLocalEnvironment();
   const wrangler = repoWranglerPath();
   run(wrangler, ["--version"], { env: localEnv });
