@@ -8,6 +8,13 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "GITHUB_APP_CLIENT_ID": "Iv23likDoFtVeWBJfdFS",
+    "GITHUB_APP_INSTALLATION_ID": "153121564"
+  },
+  "secrets": {
+    "required": ["GITHUB_APP_PRIVATE_KEY_PEM"]
+  },
   "assets": {
     "directory": "./dist/client",
     "not_found_handling": "single-page-application"

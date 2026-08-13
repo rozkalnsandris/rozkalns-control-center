@@ -84,7 +84,7 @@ test("dedicated GitHub App session owns JWT, token exchange and Authorization pr
   assert.doesNotMatch(session, /token\.startsWith|token\.length/);
   assert.doesNotMatch(session, /BEGIN (?:RSA )?PRIVATE KEY/);
   assert.doesNotMatch(worker, /app-installation-session|Authorization|Bearer|api\.github\.com/);
-  assert.doesNotMatch(wrangler, /"secrets"|"vars"/);
+  assert.doesNotMatch(wrangler, /"d1_databases"|"queues"|-----BEGIN|ghs_/);
 });
 
 test("Phase 2 reconciliation model makes authoritative reread and exact-head status evidence explicit", async () => {

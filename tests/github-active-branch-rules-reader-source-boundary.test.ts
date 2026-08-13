@@ -6,7 +6,7 @@ async function source(path: string): Promise<string> {
   return readFile(path, "utf8");
 }
 
-test("active branch-rules reader remains Metadata-only and disconnected from live runtime", async () => {
+test("active branch-rules reader remains Metadata-only and disconnected from the public Worker route", async () => {
   const [reader, worker, wrangler] = await Promise.all([
     source("src/integrations/github/active-branch-rules-reader.ts"),
     source("src/worker/index.ts"),
@@ -21,5 +21,5 @@ test("active branch-rules reader remains Metadata-only and disconnected from liv
   assert.doesNotMatch(reader, /\b(?:POST|PUT|PATCH|DELETE)\b/);
 
   assert.doesNotMatch(worker, /active-branch-rules-reader|readGitHubActiveBranchPolicyEvidence/);
-  assert.doesNotMatch(wrangler, /"secrets"|"vars"|"d1_databases"|"queues"/);
+  assert.doesNotMatch(wrangler, /"d1_databases"|"queues"/);
 });
