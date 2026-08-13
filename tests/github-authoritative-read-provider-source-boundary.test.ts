@@ -23,5 +23,7 @@ test("authoritative GitHub provider remains transport-bounded and disconnected f
   assert.doesNotMatch(provider, /app-installation-session|private.?key|webhook.?secret/i);
   assert.doesNotMatch(provider, /\b(?:POST|PUT|PATCH|DELETE)\b/);
   assert.doesNotMatch(worker, /authoritative-read-provider|readGitHubAuthoritativePullRequestSnapshot/);
-  assert.doesNotMatch(wrangler, /"d1_databases"|"queues"/);
+  assert.match(wrangler, /"binding": "CONTROL_DB"/);
+  assert.match(wrangler, /"database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09"/);
+  assert.doesNotMatch(wrangler, /"queues"/);
 });
