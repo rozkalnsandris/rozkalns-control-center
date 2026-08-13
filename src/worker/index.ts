@@ -1,11 +1,16 @@
 import { buildHealthPayload } from "../shared/health";
+import { handleGitHubReconciliationRequest } from "./github-reconciliation-route";
 
 const worker: ExportedHandler<Env> = {
-  fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/api/health") {
       return Response.json(buildHealthPayload());
+    }
+
+    if (url.pathname === "/api/github/reconcile") {
+      return handleGitHubReconciliationRequest(request, env, new Date().toISOString());
     }
 
     return new Response("Not Found", { status: 404 });
