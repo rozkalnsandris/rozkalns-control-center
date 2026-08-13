@@ -31,7 +31,7 @@ class FakeD1Database implements D1DatabaseLike {
         call.values = values;
         return this.#statement(call);
       },
-      run: async () => this.#nextResult(),
+      run: async <Row = Record<string, unknown>>() => this.#nextResult() as D1RunResultLike<Row>,
     };
   }
 
