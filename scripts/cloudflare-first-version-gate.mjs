@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const WORKER_NAME = "rozkalns-control";
 const SECRET_NAME = "GITHUB_APP_PRIVATE_KEY_PEM";
-const AUTH_PREFIX = "authorize Phase 2 Cloudflare first non-deployed version ";
+const AUTH_PREFIX = "authorize Phase 2 Cloudflare first non-routable bootstrap ";
 const API_ORIGIN = "https://api.cloudflare.com/client/v4";
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const ACCOUNT_ID_PATTERN = /^[0-9a-f]{32}$/;
@@ -125,11 +125,24 @@ function normalizeDeployments(result) {
   fail("POST_VERIFY_DEPLOYMENTS_INVALID", "deployment response was not usable");
 }
 
+function privateKeyBindingPresent(versionDetail) {
+  const bindings = versionDetail?.resources?.bindings;
+  if (!Array.isArray(bindings)) return false;
+  return bindings.some(
+    (binding) =>
+      binding?.name === SECRET_NAME &&
+      (binding?.type === "secret_text" || binding?.type === "secret_key"),
+  );
+}
+
 function printPlan() {
   console.log("MODE=PLAN");
   console.log(`WORKER=${WORKER_NAME}`);
   console.log("CLOUDFLARE_MUTATION=NO");
-  console.log("TRAFFIC_DEPLOYMENT=NO");
+  console.log("AUTHORIZED_APPLY_CREATES_INITIAL_DEPLOYMENT=YES");
+  console.log("PUBLIC_ROUTING=NO");
+  console.log("WORKERS_DEV=DISABLED");
+  console.log("PREVIEW_URLS=DISABLED");
   console.log("APPLY_REQUIRES=exact-main+clean-tree+read-token+write-token+private-key-file+owner-authorization");
   console.log(`OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha>`);
 }
@@ -159,21 +172,20 @@ async function apply(args) {
 
   const before = await listScripts(accountId, readToken);
   if (before.includes(WORKER_NAME)) {
-    fail("TARGET_ALREADY_EXISTS", "first-version gate requires target Worker to be absent");
+    fail("TARGET_ALREADY_EXISTS", "first-bootstrap gate requires target Worker to be absent");
   }
 
   const pem = await validatePrivateKeyFile(args.privateKeyFile);
-  const tempRoot = await mkdtemp(join(tmpdir(), "rozkalns-control-first-version-"));
+  const tempRoot = await mkdtemp(join(tmpdir(), "rozkalns-control-first-bootstrap-"));
   const secretFile = join(tempRoot, "secrets.json");
-  let uploadSucceeded = false;
+  let deploySucceeded = false;
 
   try {
     await writeFile(secretFile, JSON.stringify({ [SECRET_NAME]: pem }), { encoding: "utf8", mode: 0o600 });
     const result = spawnSync(
       wrangler,
       [
-        "versions",
-        "upload",
+        "deploy",
         "--name",
         WORKER_NAME,
         "--strict",
@@ -182,17 +194,13 @@ async function apply(args) {
         "--install-skills=false",
         "--secrets-file",
         secretFile,
-        "--message",
-        `Phase 2 first non-deployed version ${expectedSha}`,
-        "--tag",
-        `phase2-bootstrap-${expectedSha.slice(0, 12)}`,
       ],
       { cwd: process.cwd(), stdio: "inherit", env: childEnvironment(writeToken) },
     );
     if (result.error || result.status !== 0) {
-      fail("VERSION_UPLOAD_FAILED", "Wrangler version upload failed");
+      fail("INITIAL_DEPLOY_FAILED", "Wrangler initial non-routable deploy failed");
     }
-    uploadSucceeded = true;
+    deploySucceeded = true;
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -201,29 +209,59 @@ async function apply(args) {
     await delay(2000);
     const after = await listScripts(accountId, readToken);
     if (!after.includes(WORKER_NAME)) {
-      fail("POST_VERIFY_WORKER_MISSING", "uploaded Worker is not visible to read-only verification");
+      fail("POST_VERIFY_WORKER_MISSING", "deployed Worker is not visible to read-only verification");
     }
 
     const versions = await cloudflareGet(accountId, readToken, `/workers/scripts/${WORKER_NAME}/versions?per_page=20`);
     if (!Array.isArray(versions) || versions.length !== 1 || typeof versions[0]?.id !== "string") {
-      fail("POST_VERIFY_VERSION_COUNT", "expected exactly one first Worker version");
+      fail("POST_VERIFY_VERSION_COUNT", "expected exactly one initial Worker version");
     }
+    const versionId = versions[0].id;
 
     const deployments = normalizeDeployments(
       await cloudflareGet(accountId, readToken, `/workers/scripts/${WORKER_NAME}/deployments`),
     );
-    if (deployments.length !== 0) {
-      fail("POST_VERIFY_DEPLOYMENT_PRESENT", "unexpected active deployment exists");
+    if (deployments.length !== 1) {
+      fail("POST_VERIFY_DEPLOYMENT_COUNT", "expected exactly one initial deployment");
+    }
+    const deploymentVersions = deployments[0]?.versions;
+    if (
+      !Array.isArray(deploymentVersions) ||
+      deploymentVersions.length !== 1 ||
+      deploymentVersions[0]?.version_id !== versionId ||
+      deploymentVersions[0]?.percentage !== 100
+    ) {
+      fail("POST_VERIFY_DEPLOYMENT_VERSION", "initial deployment does not point 100% at the first version");
+    }
+
+    const subdomain = await cloudflareGet(accountId, readToken, `/workers/scripts/${WORKER_NAME}/subdomain`);
+    if (subdomain?.enabled !== false) {
+      fail("POST_VERIFY_WORKERS_DEV_ENABLED", "workers.dev must remain disabled for bootstrap");
+    }
+    if (subdomain?.previews_enabled !== false) {
+      fail("POST_VERIFY_PREVIEW_URLS_ENABLED", "preview URLs must remain disabled for bootstrap");
+    }
+
+    const versionDetail = await cloudflareGet(
+      accountId,
+      readToken,
+      `/workers/scripts/${WORKER_NAME}/versions/${versionId}`,
+    );
+    if (!privateKeyBindingPresent(versionDetail)) {
+      fail("POST_VERIFY_PRIVATE_KEY_BINDING", "required GitHub App private-key binding was not observed");
     }
 
     console.log("APPLY=PASS");
     console.log(`WORKER=${WORKER_NAME}`);
-    console.log(`VERSION_ID=${versions[0].id}`);
-    console.log("ACTIVE_DEPLOYMENTS=0");
-    console.log("TRAFFIC_DEPLOYMENT=NO");
+    console.log(`VERSION_ID=${versionId}`);
+    console.log("INITIAL_DEPLOYMENTS=1");
+    console.log("WORKERS_DEV=DISABLED");
+    console.log("PREVIEW_URLS=DISABLED");
+    console.log("PUBLIC_ROUTING=NO");
+    console.log("PRIVATE_KEY_BINDING=PROVEN");
     console.log("LOCAL_TEMP_SECRET_FILE_REMOVED=YES");
   } catch (error) {
-    if (uploadSucceeded) console.error("POST_UPLOAD_STATE=REVIEW_REQUIRED");
+    if (deploySucceeded) console.error("POST_DEPLOY_STATE=REVIEW_REQUIRED");
     throw error;
   }
 }
