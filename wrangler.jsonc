@@ -4,6 +4,8 @@
   "main": "./src/worker/index.ts",
   "compatibility_date": "2026-08-10",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
   "upload_source_maps": true,
   "observability": {
     "enabled": true
