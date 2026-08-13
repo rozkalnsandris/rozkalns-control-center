@@ -21,6 +21,8 @@ Never commit or persist secrets in:
 
 Platform credentials belong in Cloudflare secret bindings/Secrets Store or equivalent purpose-built secret storage.
 
+The canonical setup-token, runtime-secret, GitHub App credential and credential-lifecycle policy is [`docs/CREDENTIAL_AND_TOKEN_MODEL.md`](docs/CREDENTIAL_AND_TOKEN_MODEL.md). New Cloudflare/GitHub/Wrangler live scripts must re-check the relevant official platform documentation before relying on an external permission or command contract.
+
 ## Required security invariants
 
 - Cloudflare Access JWT must be cryptographically validated against the expected issuer/JWKS/audience.
