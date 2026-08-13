@@ -38,3 +38,28 @@ test("Cloudflare GitHub runtime is wired only through the reviewed read-only Wor
   assert.doesNotMatch(wrangler, /-----BEGIN|ghs_[A-Za-z0-9]/);
   assert.doesNotMatch(wrangler, /"d1_databases"|"queues"|"routes"|"route"/);
 });
+
+test("GitHub webhook Worker boundary authenticates raw bytes but remains runtime-disabled without durability", async () => {
+  const [route, worker, wrangler] = await Promise.all([
+    source("src/worker/github-webhook-route.ts"),
+    source("src/worker/index.ts"),
+    source("wrangler.jsonc"),
+  ]);
+
+  assert.match(route, /request\.arrayBuffer\(\)/);
+  assert.match(route, /authenticateGitHubWebhook\(rawBody, request\.headers, options\.secret\)/);
+  assert.match(route, /resolveManagedProjectPolicy\(webhook\.repository\)/);
+  assert.match(route, /MAX_GITHUB_WEBHOOK_BODY_BYTES = 1024 \* 1024/);
+  assert.match(route, /DURABILITY_NOT_READY/);
+  assert.doesNotMatch(route, /\bfetch\s*\(|D1Database|\bQueue\s*</);
+  assert.doesNotMatch(route, /api\.github\.com|Authorization|Bearer/);
+
+  assert.match(worker, /github-webhook-route/);
+  assert.match(worker, /url\.pathname === "\/api\/github\/webhook"/);
+  assert.match(worker, /secret:\s*null/);
+  assert.match(worker, /acceptor:\s*null/);
+  assert.doesNotMatch(worker, /GITHUB_WEBHOOK_SECRET/);
+
+  assert.doesNotMatch(wrangler, /GITHUB_WEBHOOK_SECRET/);
+  assert.doesNotMatch(wrangler, /"d1_databases"|"queues"|"routes"|"route"/);
+});
