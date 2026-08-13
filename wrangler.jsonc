@@ -17,6 +17,14 @@
   "secrets": {
     "required": ["GITHUB_APP_PRIVATE_KEY_PEM"]
   },
+  "d1_databases": [
+    {
+      "binding": "CONTROL_DB",
+      "database_name": "rozkalns-control-production",
+      "database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09",
+      "migrations_dir": "migrations"
+    }
+  ],
   "assets": {
     "directory": "./dist/client",
     "not_found_handling": "single-page-application"
