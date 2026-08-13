@@ -171,6 +171,33 @@ test("durability contracts add no live D1 or Queue binding or network side effec
   assert.doesNotMatch(migration, /^\s*(?:token|secret|private_key|webhook_payload|payload_body)\s+/im);
 });
 
+test("D1 claim adapter stays source-bound while production config remains unbound", async () => {
+  const [adapter, productionWrangler, localWrangler] = await Promise.all([
+    source("src/integrations/cloudflare/d1-delivery-claim-store.ts"),
+    source("wrangler.jsonc"),
+    source("wrangler.d1-local-verify.jsonc"),
+  ]);
+
+  assert.match(adapter, /implements DeliveryClaimStore/);
+  assert.match(adapter, /prepare\(INSERT_CLAIM_SQL\)/);
+  assert.match(adapter, /\.bind\(deliveryId, project\.repository, project\.id, eventName, claimedAt\)/);
+  assert.match(adapter, /ON CONFLICT\(delivery_id\) DO NOTHING/);
+  assert.match(adapter, /duplicate delivery identity does not match/);
+  assert.doesNotMatch(adapter, /fetch\(|Authorization|Bearer|api\.cloudflare\.com|wrangler|payload_body|webhook_payload/i);
+  assert.doesNotMatch(adapter, /\bQueue\s*</);
+
+  assert.doesNotMatch(productionWrangler, /"d1_databases"/);
+  assert.doesNotMatch(productionWrangler, /"queues"/);
+
+  assert.match(localWrangler, /"name": "rozkalns-control-d1-local-verify"/);
+  assert.match(localWrangler, /"binding": "CONTROL_DB"/);
+  assert.match(localWrangler, /"database_id": "00000000-0000-0000-0000-000000000001"/);
+  assert.match(localWrangler, /"migrations_dir": "migrations"/);
+  assert.match(localWrangler, /"workers_dev": false/);
+  assert.match(localWrangler, /"preview_urls": false/);
+  assert.doesNotMatch(localWrangler, /"remote": true|"routes"|"route"|"queues"/);
+});
+
 test("GitHub App read contract keeps credentials opaque and transport source-only", async () => {
   const contract = await source("src/integrations/github/app-installation-read-contract.ts");
 
