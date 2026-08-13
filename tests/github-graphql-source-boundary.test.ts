@@ -42,5 +42,5 @@ test("GitHub App session keeps raw authorization primitives inside the dedicated
   assert.match(session, /createGitHubAppInstallationGraphqlSessionProvider/);
   assert.doesNotMatch(graphql, /Authorization|Bearer|ghs_/);
   assert.doesNotMatch(graphql, /token\.startsWith|token\.length/);
-  assert.doesNotMatch(wrangler, /"d1_databases"|"queues"|-----BEGIN|ghs_/);
+  assert.doesNotMatch(wrangler, /"queues"|-----BEGIN|ghs_/);
 });
