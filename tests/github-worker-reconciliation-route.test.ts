@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type {
-  AuthoritativeReconciliationRequest,
-  AuthoritativeReconciliationResult,
-} from "../src/shared/authoritative-reconciliation.js";
+import type { AuthoritativeReconciliationResult } from "../src/shared/authoritative-reconciliation.js";
 import {
   executeLiveGitHubReconciliation,
   handleGitHubReconciliationRequest,
@@ -148,8 +145,8 @@ test("route sanitizes unexpected upstream failures", async () => {
 });
 
 test("live executor preserves one observation time and explicitly skips commit-status reads", async () => {
-  let contextInput: { repository: string; observedAt: string } | null = null;
-  let reconciliationRequest: AuthoritativeReconciliationRequest | null = null;
+  let contextCalls = 0;
+  let reconcileCalls = 0;
 
   const provider = {} as never;
   const branchPolicyReader = {} as never;
@@ -167,7 +164,9 @@ test("live executor preserves one observation time and explicitly skips commit-s
         clientId: "test-client",
         installationId: 1,
         createRepositoryReadContext(repository, observedAt) {
-          contextInput = { repository, observedAt };
+          contextCalls += 1;
+          assert.equal(repository, REPOSITORY);
+          assert.equal(observedAt, OBSERVED_AT);
           return {
             scope: {} as never,
             provider,
@@ -177,21 +176,21 @@ test("live executor preserves one observation time and explicitly skips commit-s
         },
       }),
       reconcile: async (input) => {
-        reconciliationRequest = input;
+        reconcileCalls += 1;
+        assert.equal(input.repository, REPOSITORY);
+        assert.equal(input.issueNumber, 49);
+        assert.equal(input.pullNumber, 625);
+        assert.equal(input.observedAt, OBSERVED_AT);
+        assert.equal(input.commitStatusCoverage, "NOT_REQUESTED");
+        assert.equal(input.deployImpact, "UNKNOWN");
+        assert.equal(input.provider, provider);
+        assert.equal(input.branchPolicyReader, branchPolicyReader);
         return blockedResult;
       },
     },
   );
 
   assert.deepEqual(result, blockedResult);
-  assert.deepEqual(contextInput, { repository: REPOSITORY, observedAt: OBSERVED_AT });
-  assert.ok(reconciliationRequest);
-  assert.equal(reconciliationRequest.repository, REPOSITORY);
-  assert.equal(reconciliationRequest.issueNumber, 49);
-  assert.equal(reconciliationRequest.pullNumber, 625);
-  assert.equal(reconciliationRequest.observedAt, OBSERVED_AT);
-  assert.equal(reconciliationRequest.commitStatusCoverage, "NOT_REQUESTED");
-  assert.equal(reconciliationRequest.deployImpact, "UNKNOWN");
-  assert.equal(reconciliationRequest.provider, provider);
-  assert.equal(reconciliationRequest.branchPolicyReader, branchPolicyReader);
+  assert.equal(contextCalls, 1);
+  assert.equal(reconcileCalls, 1);
 });
