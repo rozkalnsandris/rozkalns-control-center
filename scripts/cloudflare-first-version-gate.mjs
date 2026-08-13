@@ -232,7 +232,7 @@ try {
   const args = parseArgs(process.argv.slice(2));
   if (args.mode === "plan") printPlan();
   else await apply(args);
-} catch (error) {
+} catch {
   if (process.exitCode !== 1) {
     console.error("UNEXPECTED_FAILURE: sanitized controller failure");
     process.exitCode = 1;
