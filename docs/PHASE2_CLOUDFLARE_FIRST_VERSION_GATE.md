@@ -25,6 +25,7 @@ Current Cloudflare documentation confirms:
 - `wrangler deploy --secrets-file` can upload required secrets alongside code;
 - `Workers Scripts Read` is sufficient for read-only verification;
 - `Workers Scripts Write` authorizes the single initial Worker deployment;
+- the List Versions API is paginated (`V4PagePagination`) and its collection is returned under the response `result.items`; the first item is the latest version;
 - automatic draft resource provisioning is enabled by default in current Wrangler, so this gate explicitly disables experimental provisioning and auto-create;
 - `secrets.required` in `wrangler.jsonc` remains the source of truth for required secret names.
 
@@ -143,12 +144,16 @@ Apply stops before deploy when any of these is true:
 After the initial deploy, the controller uses only the read token and requires:
 
 - `rozkalns-control` is present in Worker inventory;
+- the paginated List Versions result contains an `items` array;
 - exactly one Worker version exists;
+- that version has a non-empty id;
 - exactly one deployment exists;
 - that deployment points 100% at the one first version;
 - Worker `workers.dev` subdomain is disabled;
 - Worker Preview URLs are disabled;
 - the first version exposes a `GITHUB_APP_PRIVATE_KEY_PEM` secret binding by name/type only, never by value.
+
+Malformed/missing version pagination, an unexpected version count or a missing version id fail closed with distinct sanitized controller errors.
 
 Successful bounded evidence is limited to non-secret metadata such as version id and:
 
@@ -168,6 +173,27 @@ The previous live attempt on `main=e8bb5e58719b10552c45948a6cdceff9a2f0af11` rea
 
 Read-only inventory immediately before that attempt showed `TARGET_WORKER_PRESENT=NO`. Therefore the failed attempt created no Worker version or deployment and the previous owner authorization is not reusable for this corrected write boundary.
 
+## Successful live bootstrap evidence
+
+The separately authorized corrected bootstrap on exact `main=0c2aec41e3eaa8c76c8a4a17ab4043097ada6a5e` successfully uploaded the Worker, assets and required secret binding. Wrangler reported version `38819190-ab13-4865-8976-7b5f7d1c1966` before the controller stopped in post-verification.
+
+The stop was a controller parser defect, not a failed Cloudflare write: the controller assumed the List Versions `result` was a direct array, while the live and documented paginated API returns the collection under `result.items`.
+
+An independent read-only reconciliation immediately after the stop proved:
+
+- Worker present: yes;
+- version count: exactly one;
+- version id: `38819190-ab13-4865-8976-7b5f7d1c1966`;
+- deployment count: exactly one;
+- deployment allocation: 100% to that one version;
+- `workers.dev`: disabled;
+- Preview URLs: disabled;
+- `GITHUB_APP_PRIVATE_KEY_PEM`: exactly one `secret_text` binding.
+
+After that proof, the local GitHub App private-key PEM was removed successfully. The corresponding GitHub App public-key record must remain active while Cloudflare uses the bound private key.
+
+The bootstrap must **not** be repeated: the target Worker now exists, and the controller's pre-write `TARGET_ALREADY_EXISTS` guard must continue to stop any accidental first-bootstrap rerun. The parser correction is source-only and requires no additional Cloudflare write.
+
 ## Forbidden scope
 
 This gate does not authorize or implement:
@@ -186,4 +212,4 @@ This gate does not authorize or implement:
 
 `DEPLOY_REQUIRED=no` for this source-only correction.
 
-Merging the source correction does not authorize its apply mode. The corrected first non-routable Cloudflare deployment remains a separately scoped owner authorization after merge and exact-main CI.
+The live first bootstrap is already complete and independently verified. This parser correction must not perform or authorize another Cloudflare deployment.

@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { normalizeVersionItems } from "./cloudflare-bootstrap-response.mjs";
 
 const WORKER_NAME = "rozkalns-control";
 const SECRET_NAME = "GITHUB_APP_PRIVATE_KEY_PEM";
@@ -234,9 +235,20 @@ async function apply(args) {
       fail("POST_VERIFY_WORKER_MISSING", "deployed Worker is not visible to read-only verification");
     }
 
-    const versions = await cloudflareGet(accountId, readToken, `/workers/scripts/${WORKER_NAME}/versions?per_page=20`);
-    if (!Array.isArray(versions) || versions.length !== 1 || typeof versions[0]?.id !== "string") {
+    const versionsPage = await cloudflareGet(
+      accountId,
+      readToken,
+      `/workers/scripts/${WORKER_NAME}/versions?per_page=20`,
+    );
+    const versions = normalizeVersionItems(versionsPage);
+    if (versions === null) {
+      fail("POST_VERIFY_VERSIONS_INVALID", "version-list response did not contain a paginated items array");
+    }
+    if (versions.length !== 1) {
       fail("POST_VERIFY_VERSION_COUNT", "expected exactly one initial Worker version");
+    }
+    if (typeof versions[0]?.id !== "string" || versions[0].id.length === 0) {
+      fail("POST_VERIFY_VERSION_ID", "initial Worker version did not contain an id");
     }
     const versionId = versions[0].id;
 
