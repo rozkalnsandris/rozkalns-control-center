@@ -15,6 +15,7 @@
     "build": "wrangler types && tsc -b && vite build",
     "cf:dry-run": "wrangler deploy --dry-run --outdir .wrangler-dry-run",
     "cf:first-version-gate": "node scripts/cloudflare-first-version-gate.mjs",
+    "cf:second-version-gate": "node scripts/cloudflare-second-version-gate.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
     "verify:actions": "node scripts/verify-actions-pinning.mjs",
     "verify:public": "node scripts/verify-public-repo-safety.mjs",
