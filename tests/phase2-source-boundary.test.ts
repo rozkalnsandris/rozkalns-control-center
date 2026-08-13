@@ -84,7 +84,7 @@ test("dedicated GitHub App session owns JWT, token exchange and Authorization pr
   assert.doesNotMatch(session, /token\.startsWith|token\.length/);
   assert.doesNotMatch(session, /BEGIN (?:RSA )?PRIVATE KEY/);
   assert.doesNotMatch(worker, /app-installation-session|Authorization|Bearer|api\.github\.com/);
-  assert.doesNotMatch(wrangler, /"d1_databases"|"queues"|-----BEGIN|ghs_/);
+  assert.doesNotMatch(wrangler, /"queues"|-----BEGIN|ghs_/);
 });
 
 test("Phase 2 reconciliation model makes authoritative reread and exact-head status evidence explicit", async () => {
@@ -151,7 +151,7 @@ test("classic protection mapper is pure source mapping and keeps producer identi
   assert.equal(classicProtection.includes("Administration:"), false);
 });
 
-test("durability contracts add no live D1 or Queue binding or network side effect", async () => {
+test("durability domain contracts add no network or Queue side effect while D1 identity is source-configured", async () => {
   const [queueContract, durabilityContract, wrangler, migration] = await Promise.all([
     source("src/shared/reconciliation-queue.ts"),
     source("src/shared/reconciliation-durability.ts"),
@@ -165,13 +165,16 @@ test("durability contracts add no live D1 or Queue binding or network side effec
   assert.doesNotMatch(sourceContracts, /\bQueue\s*</);
   assert.doesNotMatch(sourceContracts, /\benv\./);
 
-  assert.doesNotMatch(wrangler, /"d1_databases"/);
+  assert.match(wrangler, /"binding": "CONTROL_DB"/);
+  assert.match(wrangler, /"database_name": "rozkalns-control-production"/);
+  assert.match(wrangler, /"database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09"/);
+  assert.match(wrangler, /"migrations_dir": "migrations"/);
   assert.doesNotMatch(wrangler, /"queues"/);
   assert.match(migration, /delivery_id TEXT PRIMARY KEY NOT NULL/);
   assert.doesNotMatch(migration, /^\s*(?:token|secret|private_key|webhook_payload|payload_body)\s+/im);
 });
 
-test("D1 claim adapter stays source-bound while production config remains unbound", async () => {
+test("D1 claim adapter stays source-bound and production config pins the verified database identity", async () => {
   const [adapter, productionWrangler, localWrangler] = await Promise.all([
     source("src/integrations/cloudflare/d1-delivery-claim-store.ts"),
     source("wrangler.jsonc"),
@@ -186,8 +189,11 @@ test("D1 claim adapter stays source-bound while production config remains unboun
   assert.doesNotMatch(adapter, /fetch\(|Authorization|Bearer|api\.cloudflare\.com|wrangler|payload_body|webhook_payload/i);
   assert.doesNotMatch(adapter, /\bQueue\s*</);
 
-  assert.doesNotMatch(productionWrangler, /"d1_databases"/);
-  assert.doesNotMatch(productionWrangler, /"queues"/);
+  assert.match(productionWrangler, /"binding": "CONTROL_DB"/);
+  assert.match(productionWrangler, /"database_name": "rozkalns-control-production"/);
+  assert.match(productionWrangler, /"database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09"/);
+  assert.match(productionWrangler, /"migrations_dir": "migrations"/);
+  assert.doesNotMatch(productionWrangler, /"preview_database_id"|"queues"|"routes"|"route"/);
 
   assert.match(localWrangler, /"name": "rozkalns-control-d1-local-verify"/);
   assert.match(localWrangler, /"binding": "CONTROL_DB"/);
