@@ -58,11 +58,14 @@ test("D1 migration executes locally and creates the durable delivery table plus 
       )
       .all() as Array<{ name: string; type: string }>;
 
-    assert.deepEqual(objects, [
-      { name: "idx_webhook_deliveries_repository_updated_at", type: "index" },
-      { name: "idx_webhook_deliveries_state_updated_at", type: "index" },
-      { name: "webhook_deliveries", type: "table" },
-    ]);
+    assert.deepEqual(
+      objects.map((row) => ({ name: row.name, type: row.type })),
+      [
+        { name: "idx_webhook_deliveries_repository_updated_at", type: "index" },
+        { name: "idx_webhook_deliveries_state_updated_at", type: "index" },
+        { name: "webhook_deliveries", type: "table" },
+      ],
+    );
 
     const columns = database.prepare('PRAGMA table_info("webhook_deliveries")').all() as Array<{ name: string }>;
     const names = columns.map((column) => column.name);
