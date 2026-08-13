@@ -73,7 +73,7 @@ function requireUtcTimestamp(value: string): string {
   return value;
 }
 
-function requireSuccessfulResult(result: D1RunResultLike, operation: string): void {
+function requireSuccessfulResult<Row>(result: D1RunResultLike<Row>, operation: string): void {
   if (result.success !== true) {
     throw new D1DeliveryClaimError(`D1 ${operation} did not report success`);
   }
