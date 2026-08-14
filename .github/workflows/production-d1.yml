@@ -15,6 +15,7 @@ jobs:
   apply:
     name: authorized D1 migration
     if: >-
+      github.run_attempt == '1' &&
       github.event.issue.number == 74 &&
       !github.event.issue.pull_request &&
       github.event.comment.user.id == 277435981 &&
