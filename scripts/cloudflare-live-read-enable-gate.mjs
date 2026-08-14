@@ -93,12 +93,14 @@ function assertVersionId(value, code, label) {
 }
 
 function assertDomainId(value) {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > 256 ||
-    /[\u0000-\u001f\u007f]/.test(value)
-  ) {
+  const hasControlCharacter =
+    typeof value === "string" &&
+    Array.from(value).some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127;
+    });
+
+  if (typeof value !== "string" || value.length === 0 || value.length > 256 || hasControlCharacter) {
     stop("DOMAIN_ID_INVALID", "domain id must be a non-empty bounded opaque identifier");
   }
 }
