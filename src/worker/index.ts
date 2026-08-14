@@ -13,7 +13,8 @@ const worker: ExportedHandler<Env> = {
     }
 
     if (url.pathname === "/api/github/reconcile") {
-      if (env.CONTROL_LIVE_READ_ENABLED !== "true") {
+      const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true";
+      if (!liveReadEnabled) {
         return Response.json(
           { error: "LIVE_READ_DISABLED" },
           { status: 503, headers: NO_STORE_HEADERS },
