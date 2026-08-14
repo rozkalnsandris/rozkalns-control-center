@@ -31,9 +31,10 @@ import {
 const AUTH_PREFIX = `authorize Phase 2 Cloudflare live read diagnostic redeploy ${HOSTNAME} `;
 const APP_CLIENT_ID = "Iv23likDoFtVeWBJfdFS";
 const INSTALLATION_ID = "153121564";
+const DIAGNOSTIC_REPOSITORY = "rozkalnsandris/hermes-deals";
+const GITHUB_API_VERSION = "2026-03-10";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const DIAGNOSTIC_PATH =
-  "/api/github/reconcile?repository=rozkalnsandris%2Fhermes-deals&issue=19&pull=657";
+const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const DIAGNOSTIC_ERROR_CODES = new Set([
   "GITHUB_CREDENTIAL_UNAVAILABLE",
   "GITHUB_CREDENTIAL_UNUSABLE",
@@ -61,6 +62,9 @@ function parseArgs(argv) {
     currentVersion: "",
     currentDeployment: "",
     domainId: "",
+    diagnosticIssue: "",
+    diagnosticPull: "",
+    diagnosticHead: "",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -70,6 +74,9 @@ function parseArgs(argv) {
     else if (argv[index] === "--expected-current-version-id") out.currentVersion = argv[++index] ?? "";
     else if (argv[index] === "--expected-current-deployment-id") out.currentDeployment = argv[++index] ?? "";
     else if (argv[index] === "--expected-domain-id") out.domainId = argv[++index] ?? "";
+    else if (argv[index] === "--diagnostic-issue") out.diagnosticIssue = argv[++index] ?? "";
+    else if (argv[index] === "--diagnostic-pull") out.diagnosticPull = argv[++index] ?? "";
+    else if (argv[index] === "--diagnostic-head-sha") out.diagnosticHead = argv[++index] ?? "";
     else stop("ARGUMENT_INVALID", `unsupported argument ${argv[index]}`);
   }
 
@@ -83,6 +90,7 @@ function plan() {
   console.log(`ACCOUNT_ID=${ACCOUNT_ID}`);
   console.log(`CUSTOM_DOMAIN=${HOSTNAME}`);
   console.log(`ZONE_NAME=${ZONE_NAME}`);
+  console.log(`DIAGNOSTIC_REPOSITORY=${DIAGNOSTIC_REPOSITORY}`);
   console.log("SOURCE_TARGET_MODE=LIVE_READ_ONLY");
   console.log("CURRENT_RUNTIME_MODE=LIVE_READ_ONLY_REQUIRED");
   console.log("GITHUB_MUTATION=DISABLED");
@@ -93,10 +101,11 @@ function plan() {
   console.log("CREDENTIAL_MODEL=SINGLE_TEMPORARY_SETUP_TOKEN");
   console.log("ACCESS_CANARY_AUTH=SHORT_LIVED_USER_TOKEN_REQUIRED");
   console.log("PREWRITE_ACCESS_CANARY=HEALTH_ROUTE");
+  console.log("PREWRITE_DIAGNOSTIC_TARGET=PUBLIC_GITHUB_OPEN_ISSUE_AND_PULL");
   console.log("POSTVERIFY_ACCESS_CANARY=SANITIZED_RECONCILE_ROUTE");
   console.log("LIVE_DASHBOARD_RECOVERY_REQUIRED=NO_DIAGNOSTIC_ONLY");
   console.log(
-    `OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id> version <current-version-id> deployment <current-deployment-id> domain <domain-id>`,
+    `OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id> version <current-version-id> deployment <current-deployment-id> domain <domain-id> diagnostic issue <issue-number> pull <pull-number> head <pull-head-sha>`,
   );
   console.log("NO_BLIND_RETRY_AFTER_DEPLOY_STARTED=YES");
 }
@@ -116,6 +125,27 @@ function assertDomainId(value) {
   if (typeof value !== "string" || value.length === 0 || value.length > 256 || hasControlCharacter) {
     stop("DOMAIN_ID_INVALID", "domain id must be a non-empty bounded opaque identifier");
   }
+}
+
+function positiveIntegerArg(value, code, label) {
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
+    stop(code, `${label} must be a positive integer`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) stop(code, `${label} must be a positive safe integer`);
+  return parsed;
+}
+
+function diagnosticTarget(args) {
+  if (!SHA_PATTERN.test(args.diagnosticHead)) {
+    stop("DIAGNOSTIC_HEAD_INVALID", "diagnostic pull head must be an exact lowercase 40-character SHA");
+  }
+  return {
+    repository: DIAGNOSTIC_REPOSITORY,
+    issueNumber: positiveIntegerArg(args.diagnosticIssue, "DIAGNOSTIC_ISSUE_INVALID", "diagnostic issue"),
+    pullNumber: positiveIntegerArg(args.diagnosticPull, "DIAGNOSTIC_PULL_INVALID", "diagnostic pull"),
+    headSha: args.diagnosticHead,
+  };
 }
 
 function sanitizedChildEnvironment(apiToken = "") {
@@ -235,6 +265,62 @@ function versionIdSet(versions, codePrefix) {
   return new Set(ids);
 }
 
+async function readPublicGitHubJson(codePrefix, path, label) {
+  let response;
+  try {
+    response = await fetch(`https://api.github.com/repos/${DIAGNOSTIC_REPOSITORY}${path}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+      },
+      redirect: "manual",
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch {
+    stop(`${codePrefix}_DIAGNOSTIC_${label}_READ`, `public GitHub ${label.toLowerCase()} read failed`);
+  }
+
+  if (response.status !== 200) {
+    stop(`${codePrefix}_DIAGNOSTIC_${label}_STATUS`, `public GitHub ${label.toLowerCase()} did not return HTTP 200`);
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    stop(`${codePrefix}_DIAGNOSTIC_${label}_MEDIA_TYPE`, `public GitHub ${label.toLowerCase()} was not JSON`);
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    stop(`${codePrefix}_DIAGNOSTIC_${label}_JSON`, `public GitHub ${label.toLowerCase()} JSON could not be parsed`);
+  }
+}
+
+async function assertDiagnosticTargetCurrent(args, codePrefix) {
+  const target = diagnosticTarget(args);
+  const issue = await readPublicGitHubJson(codePrefix, `/issues/${target.issueNumber}`, "ISSUE");
+  if (
+    issue?.number !== target.issueNumber ||
+    issue?.state !== "open" ||
+    Object.prototype.hasOwnProperty.call(issue ?? {}, "pull_request")
+  ) {
+    stop(`${codePrefix}_DIAGNOSTIC_ISSUE_STATE`, "authorized diagnostic issue is not a current open issue");
+  }
+
+  const pull = await readPublicGitHubJson(codePrefix, `/pulls/${target.pullNumber}`, "PULL");
+  if (
+    pull?.number !== target.pullNumber ||
+    pull?.state !== "open" ||
+    pull?.head?.sha !== target.headSha ||
+    pull?.base?.repo?.full_name !== DIAGNOSTIC_REPOSITORY ||
+    pull?.head?.repo?.full_name !== DIAGNOSTIC_REPOSITORY
+  ) {
+    stop(`${codePrefix}_DIAGNOSTIC_PULL_STATE`, "authorized diagnostic pull is not current, open and exact-head bound");
+  }
+
+  return target;
+}
+
 async function readAccessJson(codePrefix, path, accessToken, label) {
   let response;
   try {
@@ -278,8 +364,15 @@ async function assertHealthCanary(codePrefix, accessToken) {
   }
 }
 
-async function diagnosticReconcileCanary(codePrefix, accessToken) {
-  const { response, body } = await readAccessJson(codePrefix, DIAGNOSTIC_PATH, accessToken, "RECONCILE");
+function diagnosticPath(target) {
+  return (
+    `/api/github/reconcile?repository=${encodeURIComponent(target.repository)}` +
+    `&issue=${target.issueNumber}&pull=${target.pullNumber}`
+  );
+}
+
+async function diagnosticReconcileCanary(codePrefix, accessToken, target) {
+  const { response, body } = await readAccessJson(codePrefix, diagnosticPath(target), accessToken, "RECONCILE");
   if (!response.headers.get("cache-control")?.includes("no-store")) {
     stop(`${codePrefix}_PUBLIC_RECONCILE_CACHE`, "reconciliation response must remain no-store");
   }
@@ -287,7 +380,9 @@ async function diagnosticReconcileCanary(codePrefix, accessToken) {
   if (response.status === 200) {
     if (
       (body?.kind !== "BLOCKED" && body?.kind !== "PROJECTED") ||
-      body?.repository !== "rozkalnsandris/hermes-deals"
+      body?.repository !== target.repository ||
+      body?.issueNumber !== target.issueNumber ||
+      body?.pullNumber !== target.pullNumber
     ) {
       stop(`${codePrefix}_RECONCILE_SHAPE`, "successful diagnostic reconciliation response had an unexpected shape");
     }
@@ -306,6 +401,7 @@ async function apply(args) {
   assertVersionId(args.currentVersion, "CURRENT_VERSION_ID_INVALID", "current version id");
   assertVersionId(args.currentDeployment, "CURRENT_DEPLOYMENT_ID_INVALID", "current deployment id");
   assertDomainId(args.domainId);
+  const diagnostic = diagnosticTarget(args);
 
   const account = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
   const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? "";
@@ -318,14 +414,19 @@ async function apply(args) {
 
   const expectedAuthorization =
     `${AUTH_PREFIX}${args.sha} ci ${args.ci} version ${args.currentVersion} ` +
-    `deployment ${args.currentDeployment} domain ${args.domainId}`;
+    `deployment ${args.currentDeployment} domain ${args.domainId} diagnostic issue ${diagnostic.issueNumber} ` +
+    `pull ${diagnostic.pullNumber} head ${diagnostic.headSha}`;
   if (authorization !== expectedAuthorization) {
-    stop("OWNER_AUTHORIZATION_INVALID", "live-read diagnostic redeploy authorization must match exact main, CI and current Cloudflare state");
+    stop(
+      "OWNER_AUTHORIZATION_INVALID",
+      "live-read diagnostic redeploy authorization must match exact main, CI, Cloudflare state and diagnostic target",
+    );
   }
 
   assertRepo(args.sha);
   await assertLiveSourceConfig();
   await assertCi(args.sha, args.ci);
+  await assertDiagnosticTargetCurrent(args, "PREWRITE");
   run("npm", ["run", "check"], { inherit: true, env: sanitizedChildEnvironment() });
 
   const beforeIds = versionIdSet(await listVersions(apiToken), "PREWRITE");
@@ -336,6 +437,7 @@ async function apply(args) {
   assertRepo(args.sha);
   await assertLiveSourceConfig();
   await assertCi(args.sha, args.ci);
+  await assertDiagnosticTargetCurrent(args, "FINAL_PREWRITE");
   await assertExpectedActiveLive(apiToken, args.currentVersion, args.currentDeployment, "FINAL_PREWRITE");
   await assertExactDomain(apiToken, args.domainId, "FINAL_PREWRITE");
   await assertHealthCanary("FINAL_PREWRITE", accessToken);
@@ -385,7 +487,8 @@ async function apply(args) {
   await assertSubdomainDisabled(apiToken, "POST_VERIFY");
   const domain = await assertExactDomain(apiToken, args.domainId, "POST_VERIFY");
   await assertHealthCanary("POST_VERIFY", accessToken);
-  const diagnosticResult = await diagnosticReconcileCanary("POST_VERIFY", accessToken);
+  await assertDiagnosticTargetCurrent(args, "POST_VERIFY_TARGET");
+  const diagnosticResult = await diagnosticReconcileCanary("POST_VERIFY", accessToken, diagnostic);
 
   console.log("LIVE_READ_REDEPLOY_GATE=PASS");
   console.log("AUTHORIZATION_CONSUMED=YES");
@@ -394,6 +497,10 @@ async function apply(args) {
   console.log("ACTIVE_TRAFFIC_PERCENT=100");
   console.log(`CUSTOM_DOMAIN=${domain.hostname}`);
   console.log(`DOMAIN_ID=${domain.id}`);
+  console.log(`DIAGNOSTIC_REPOSITORY=${diagnostic.repository}`);
+  console.log(`DIAGNOSTIC_ISSUE=${diagnostic.issueNumber}`);
+  console.log(`DIAGNOSTIC_PULL=${diagnostic.pullNumber}`);
+  console.log(`DIAGNOSTIC_HEAD_SHA=${diagnostic.headSha}`);
   console.log("PUBLIC_UI_MODE=LIVE_READ_ONLY");
   console.log("CONTROL_LIVE_READ_ENABLED=TRUE");
   console.log("ACCESS_PROTECTION=PRESERVED");
