@@ -10,7 +10,7 @@ test("normalizes GitHub credential fetch to plain-function receiver semantics", 
     method: "POST",
   });
 
-  let observedThis: unknown = unexpectedReceiver;
+  const observedReceivers: unknown[] = [];
   let observedRequest: Request | undefined;
   let calls = 0;
 
@@ -19,7 +19,7 @@ test("normalizes GitHub credential fetch to plain-function receiver semantics", 
     input: Request,
   ): Promise<Response> {
     calls += 1;
-    observedThis = this;
+    observedReceivers.push(this);
     observedRequest = input;
     return Response.json({ ok: true });
   };
@@ -29,6 +29,6 @@ test("normalizes GitHub credential fetch to plain-function receiver semantics", 
 
   assert.equal(response.status, 200);
   assert.equal(calls, 1);
-  assert.equal(observedThis, undefined);
+  assert.deepEqual(observedReceivers, [undefined]);
   assert.equal(observedRequest, request);
 });
