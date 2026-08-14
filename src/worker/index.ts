@@ -1,4 +1,5 @@
 import { buildHealthPayload } from "../shared/health";
+import { handleGitHubDashboardRequest } from "./github-dashboard-route";
 import { handleGitHubReconciliationRequest } from "./github-reconciliation-route";
 import { handleGitHubWebhookRequest } from "./github-webhook-route";
 
@@ -10,6 +11,17 @@ const worker: ExportedHandler<Env> = {
 
     if (request.method === "GET" && url.pathname === "/api/health") {
       return Response.json(buildHealthPayload());
+    }
+
+    if (url.pathname === "/api/github/dashboard") {
+      const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true";
+      if (!liveReadEnabled) {
+        return Response.json(
+          { error: "LIVE_READ_DISABLED" },
+          { status: 503, headers: NO_STORE_HEADERS },
+        );
+      }
+      return handleGitHubDashboardRequest(request, env, new Date().toISOString());
     }
 
     if (url.pathname === "/api/github/reconcile") {

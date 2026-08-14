@@ -131,6 +131,29 @@ function selectedRepository(scope: GitHubInstallationReadScope, repositoryInput:
   return repository;
 }
 
+function sessionCacheKey(scope: GitHubInstallationReadScope, observedAt: string): string {
+  const permissions = Object.entries(scope.permissions).sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify([scope.installationId, [...scope.repositories].sort(), permissions, observedAt]);
+}
+
+export function memoizeGitHubInstallationSessionProvider<T>(
+  acquire: (scope: GitHubInstallationReadScope, observedAt: string) => Promise<T>,
+): (scope: GitHubInstallationReadScope, observedAt: string) => Promise<T> {
+  const sessions = new Map<string, Promise<T>>();
+  return (scope, observedAt) => {
+    const key = sessionCacheKey(scope, observedAt);
+    const existing = sessions.get(key);
+    if (existing) return existing;
+
+    const pending = acquire(scope, observedAt).catch((error: unknown) => {
+      sessions.delete(key);
+      throw error;
+    });
+    sessions.set(key, pending);
+    return pending;
+  };
+}
+
 export function createCloudflareGitHubReadRuntime(
   options: CloudflareGitHubReadRuntimeOptions,
 ): CloudflareGitHubReadRuntime {
@@ -144,10 +167,14 @@ export function createCloudflareGitHubReadRuntime(
     signer,
     fetchRequest,
   };
-  const restTransport = createGitHubRestReadTransport(createGitHubAppInstallationSessionProvider(dependencies));
-  const graphqlMergeStateTransport = createGitHubGraphqlMergeStateTransport(
+  const restSessionProvider = memoizeGitHubInstallationSessionProvider(
+    createGitHubAppInstallationSessionProvider(dependencies),
+  );
+  const graphqlSessionProvider = memoizeGitHubInstallationSessionProvider(
     createGitHubAppInstallationGraphqlSessionProvider(dependencies),
   );
+  const restTransport = createGitHubRestReadTransport(restSessionProvider);
+  const graphqlMergeStateTransport = createGitHubGraphqlMergeStateTransport(graphqlSessionProvider);
 
   const approvedRolloutScope = buildPhase2GitHubReadScopeForStage(installationId, "actions");
 
