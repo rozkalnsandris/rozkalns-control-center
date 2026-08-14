@@ -39,7 +39,7 @@ test("first public UI rollout plan modes are credential-free and non-mutating", 
   assert.match(domain.stdout, /NO_BLIND_RETRY_AFTER_DOMAIN_ATTACH_STARTED=YES/);
 });
 
-test("production source targets live read-only without declaring public routing, while fixture redeploy stays fail-closed", async () => {
+test("production source targets live read-only with deterministic API routing, while fixture redeploy stays fail-closed", async () => {
   const [configText, worker, historicalRedeploy] = await Promise.all([
     readFile("wrangler.jsonc", "utf8"),
     readFile("src/worker/index.ts", "utf8"),
@@ -47,11 +47,13 @@ test("production source targets live read-only without declaring public routing,
   ]);
   const config = JSON.parse(configText) as Record<string, unknown> & {
     vars?: Record<string, string>;
+    assets?: { run_worker_first?: string[] };
   };
 
   assert.equal(config.vars?.CONTROL_LIVE_READ_ENABLED, "true");
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
+  assert.deepEqual(config.assets?.run_worker_first, ["/api/*"]);
   for (const forbidden of ["route", "routes", "triggers", "custom_domain", "custom_domains"]) {
     assert.equal(forbidden in config, false);
   }
@@ -65,6 +67,18 @@ test("production source targets live read-only without declaring public routing,
   assert.match(worker, /acceptor:\s*null/);
 
   assert.match(historicalRedeploy, /assertFixtureSourceConfig\(\)/);
+});
+
+test("shared control-plane JSON reads fail closed on non-JSON media types before parsing", async () => {
+  const shared = await readFile(sharedGate, "utf8");
+  const contentTypeGuard = shared.indexOf('headers.get("content-type")');
+  const jsonParse = shared.indexOf("response.json()", contentTypeGuard);
+
+  assert.ok(contentTypeGuard >= 0 && jsonParse > contentTypeGuard);
+  assert.match(shared, /application\/json/);
+  assert.match(shared, /\$\{code\}_NON_JSON/);
+  assert.match(shared, /response declared JSON but could not be parsed/);
+  assert.doesNotMatch(shared, /await response\.json\(\).*headers\.get\("content-type"\)/s);
 });
 
 test("both new UI rollout gates use only the normative single setup token", async () => {
