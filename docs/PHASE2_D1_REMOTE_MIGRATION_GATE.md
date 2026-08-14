@@ -1,8 +1,8 @@
 # Phase 2 remote D1 migration gate
 
-This document records the source-controlled safety boundary for the first production D1 schema migration. The source change itself performs no Cloudflare mutation.
+This document records the source-controlled safety boundary for the first production D1 schema migration. Source changes to this gate perform no Cloudflare mutation by themselves.
 
-The controller is pinned to the reviewed production D1 identity, the exact source migration and the repository-pinned toolchain. Its default plan mode is credential-free, network-free and mutation-free. The repository runtime contract keeps the repository Node contract at `>=22.12.0`; the migration regression test explicitly enables Node 22.12's documented `--experimental-sqlite` flag, authoritative GitHub CI remains pinned to Node `22.16.0`, and Wrangler remains pinned to `4.120.0`.
+The controller is pinned to the reviewed production D1 identity, the exact source migration and the repository-pinned toolchain. Its default plan mode is credential-free, network-free and mutation-free. The repository runtime contract keeps Node at `>=22.12.0`, authoritative GitHub CI remains pinned to Node `22.16.0`, and Wrangler remains pinned to `4.120.0`.
 
 ## Corrected first-bootstrap prewrite contract
 
@@ -37,7 +37,7 @@ Repository-pinned Wrangler `4.120.0` calls `initMigrationsTable()` before listin
 
 For this reason the controller must not run `wrangler d1 migrations list` before or after the guarded write. Before write it proves pending state from the exact one-file source set plus the migration-history bootstrap evidence above. After write it proves no-pending state by requiring `d1_migrations` to contain exactly that source migration name.
 
-## Production reconciliation evidence before this correction
+## Production reconciliation evidence
 
 A SELECT-only reconciliation on 2026-08-14 proved the production database was in the second allowed bootstrap state:
 
@@ -51,7 +51,35 @@ A SELECT-only reconciliation on 2026-08-14 proved the production database was in
 - remaining schema limited to Cloudflare/SQLite system objects;
 - all reconciliation SELECTs reported `changed_db=false` and `rows_written=0`.
 
-No `APPLY_STARTED=YES` marker was emitted during the attempt that discovered this state, so no guarded migration write began and that authorization was not consumed.
+No `APPLY_STARTED=YES` marker was emitted during the attempt that discovered this state, so no guarded migration write began.
+
+## Central GitHub Actions execution path
+
+The normal production path is `.github/workflows/production-d1.yml`; terminal execution on Lenovo is retained only as a reviewed fallback.
+
+The workflow is deliberately small:
+
+1. it listens only to newly created issue comments;
+2. the job is eligible only on issue `#74`, only for the owner GitHub user ID `277435981`, only for a non-PR issue comment, and only for the reviewed authorization prefix;
+3. the full comment must exactly match `authorize Phase 2 remote D1 migration rozkalns-control-production <exact-main-sha> ci <exact-ci-run-id>`;
+4. the authorized SHA must equal the `issue_comment` event's default-branch `GITHUB_SHA`;
+5. the job checks out `main`, installs the locked dependencies and calls the existing source-controlled D1 gate;
+6. the D1 gate independently rechecks exact `main`, exact-main push CI, source/tool/migration hashes, D1 identity and the production schema prewrite state immediately before the write.
+
+The workflow has repository permission `contents: read`, uses a GitHub-hosted Linux runner, pins external Actions to full commit SHAs, disables checkout credential persistence and serializes D1 production runs with `cancel-in-progress: false`.
+
+The Cloudflare credential is expected only as the `production` GitHub Environment secret `CLOUDFLARE_D1_TOKEN`. It is not committed, copied to project repositories or stored in D1. The account ID and reviewed D1 identity remain source-pinned non-secret identifiers.
+
+Merging this workflow does not itself create the Environment secret and does not execute any existing authorization comment retroactively. Live secret setup and the first Actions-based migration remain separate owner-authorized steps.
+
+## Execution-context boundary
+
+Apply mode now accepts exactly two reviewed execution contexts:
+
+- local fallback: host short name `lenovo`, outside GitHub Actions;
+- normal path: `issue_comment` on `refs/heads/main` in `rozkalnsandris/rozkalns-control-center`, exact authorized `GITHUB_SHA`, exact `production-d1.yml@refs/heads/main`, `RUNNER_ENVIRONMENT=github-hosted` and `RUNNER_OS=Linux`.
+
+Any other apply context fails closed before Cloudflare credentials are used.
 
 ## One-shot write boundary
 
@@ -77,9 +105,9 @@ After a successful apply the controller uses only D1 identity GET plus SELECT-on
 - `webhook_deliveries` contains zero rows;
 - the exact one-file source migration set equals the applied migration history.
 
-A future remote migration remains separately owner-authorized after this correction is merged and a new exact-main CI succeeds. Any authorization tied to the pre-fix main SHA is stale after merge and is not reusable.
+Any authorization tied to a pre-centralization `main` SHA becomes stale after this source change merges and must not be reused. A fresh exact-main push CI and a fresh one-shot owner authorization are required for the first Actions-based apply.
 
-Queue/DLQ, webhook activation, Worker deployment, traffic/public routing, Cloudflare Access, GitHub write permissions, RPi5 mutation and production deployment remain outside this gate.
+Queue/DLQ, webhook activation, Worker deployment, traffic/public routing, Cloudflare Access, GitHub write permissions, RPi5 mutation and production application deployment remain outside this gate.
 
 `Production deploy: NO`.
-`Remote D1 migration: NO` until this source correction is merged and a new post-merge exact-main owner authorization is explicitly given.
+`Remote D1 migration: NO` from this source-only change.
