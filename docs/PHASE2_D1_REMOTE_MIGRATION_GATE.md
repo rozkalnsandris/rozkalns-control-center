@@ -6,26 +6,36 @@ The controller is pinned to the reviewed production D1 identity, the exact sourc
 
 ## Corrected first-bootstrap prewrite contract
 
-Cloudflare D1 maintains reserved/system schema objects. A fresh application database therefore must not be classified by the raw D1 `num_tables` value. The first-bootstrap gate instead performs SELECT-only inspection of `sqlite_schema` and treats an object as system-owned only when its `tbl_name` belongs to the documented SQLite/D1 system namespaces `sqlite_%`, `d1_%` or `_cf_%`. Any malformed schema evidence or unexpected application table, view, index or trigger fails closed.
+Cloudflare D1 maintains reserved/system schema objects. A fresh application database therefore must not be classified by the raw D1 `num_tables` value. The first-bootstrap gate instead performs SELECT-only inspection of `sqlite_schema` and treats an object as system-owned only when its `tbl_name` belongs to the SQLite/D1 system namespaces `sqlite_%`, `d1_%` or `_cf_%`. Any malformed schema evidence or unexpected application table, view, index or trigger fails closed.
 
-The reviewed project objects are checked separately and must all be absent before first apply:
+For the reviewed first migration, the prewrite gate accepts exactly two migration-history bootstrap states:
 
-- `d1_migrations`;
+1. `d1_migrations` is absent; or
+2. Wrangler `4.120.0` has already created only its canonical empty migration-history table plus SQLite's unique autoindex, with zero rows in `d1_migrations`.
+
+If `d1_migrations` exists, the gate verifies the normalized table SQL exactly as:
+
+`CREATE TABLE "d1_migrations"( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL )`
+
+and requires the only history-owned companion object to be `sqlite_autoindex_d1_migrations_1`. Any non-empty history, malformed/noncanonical table definition, extra history-owned object or unexpected reviewed application schema fails closed.
+
+The application schema must still be absent before first apply:
+
 - `webhook_deliveries`;
 - `idx_webhook_deliveries_repository_updated_at`;
 - `idx_webhook_deliveries_state_updated_at`.
 
-The source migration directory must still contain exactly `0001_reconciliation_core.sql` with the reviewed SHA-256. With that exact one-file source set and `d1_migrations` absent, the initial migration is necessarily unapplied without asking Wrangler to initialize migration state.
+The source migration directory must still contain exactly `0001_reconciliation_core.sql` with the reviewed SHA-256. Therefore both an entirely uninitialized database and the exact canonical empty Wrangler migration-history bootstrap state are safe first-migration inputs.
 
 ### Why prewrite does not use `wrangler d1 migrations list --remote`
 
 Repository-pinned Wrangler `4.120.0` calls `initMigrationsTable()` before listing migrations. That creates `d1_migrations` with `CREATE TABLE IF NOT EXISTS`, so `migrations list --remote` is not a read-only prewrite operation for an uninitialized D1 database.
 
-For this reason the controller must not run `wrangler d1 migrations list` before or after the guarded write. Before write it proves pending state from the exact one-file source set plus absence of `d1_migrations`. After write it proves no-pending state by requiring `d1_migrations` to contain exactly that source migration name.
+For this reason the controller must not run `wrangler d1 migrations list` before or after the guarded write. Before write it proves pending state from the exact one-file source set plus either absent migration history or the exact canonical empty migration-history state. After write it proves no-pending state by requiring `d1_migrations` to contain exactly that source migration name.
 
 ## One-shot write boundary
 
-Immediately before write the controller repeats the exact repository, CI, D1 identity, project-schema absence and SELECT-only application-schema checks. Only after all checks pass does it emit:
+Immediately before write the controller repeats the exact repository, CI, D1 identity, migration-history bootstrap and SELECT-only application-schema checks. Only after all checks pass does it emit:
 
 - `APPLY_STARTED=YES`;
 - `AUTHORIZATION_CONSUMED=YES`;
