@@ -214,7 +214,9 @@ export async function listDeployments(readToken) {
 }
 
 export function singleDeploymentVersion(deployments, codePrefix) {
-  if (deployments.length !== 1) stop(`${codePrefix}_DEPLOYMENT_COUNT`, "expected exactly one active deployment");
+  if (deployments.length === 0) {
+    stop(`${codePrefix}_DEPLOYMENT_HISTORY_EMPTY`, "deployment history did not contain an active deployment");
+  }
   const deployment = deployments[0];
   if (typeof deployment?.id !== "string" || deployment.id.length === 0) {
     stop(`${codePrefix}_DEPLOYMENT_ID`, "deployment id missing");
@@ -226,7 +228,7 @@ export function singleDeploymentVersion(deployments, codePrefix) {
     typeof versions[0]?.version_id !== "string" ||
     versions[0]?.percentage !== 100
   ) {
-    stop(`${codePrefix}_DEPLOYMENT_VERSION`, "deployment must route 100% to exactly one version");
+    stop(`${codePrefix}_DEPLOYMENT_VERSION`, "latest active deployment must route 100% to exactly one version");
   }
   return { deploymentId: deployment.id, versionId: versions[0].version_id };
 }
