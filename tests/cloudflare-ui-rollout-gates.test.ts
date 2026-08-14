@@ -52,7 +52,8 @@ test("production source remains fixture-only and does not declare public routing
     assert.equal(forbidden in config, false);
   }
 
-  assert.match(worker, /env\.CONTROL_LIVE_READ_ENABLED !== "true"/);
+  assert.match(worker, /String\(env\.CONTROL_LIVE_READ_ENABLED\) === "true"/);
+  assert.match(worker, /if \(!liveReadEnabled\)/);
   assert.match(worker, /LIVE_READ_DISABLED/);
   assert.match(worker, /status: 503/);
   assert.match(worker, /Cache-Control/);
