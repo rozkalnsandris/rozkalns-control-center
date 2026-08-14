@@ -5,7 +5,10 @@ import { readFile, readdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { classifyInitialD1SchemaRows } from "./d1-schema-policy.mjs";
+import {
+  classifyInitialD1MigrationBootstrap,
+  classifyInitialD1SchemaRows,
+} from "./d1-schema-policy.mjs";
 
 const REPO = "rozkalnsandris/rozkalns-control-center";
 const HOST = "lenovo";
@@ -132,9 +135,27 @@ function schemaSql() {
   return PROJECT_SCHEMA.map((x) => `'${x}'`).join(", ");
 }
 
-async function assertProjectAbsent(account, token) {
-  const rows = await select(account, token, `SELECT type, name, tbl_name FROM sqlite_schema WHERE name IN (${schemaSql()}) ORDER BY type, name`);
-  if (rows.length !== 0) stop("PREWRITE_PROJECT_SCHEMA_PRESENT", "reviewed project schema or migration history already exists");
+async function assertInitialProjectBootstrap(account, token) {
+  const schemaRows = await select(
+    account,
+    token,
+    `SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE name IN (${schemaSql()}) OR tbl_name = 'd1_migrations' ORDER BY type, name`,
+  );
+  const hasHistoryTable = schemaRows.some(
+    (row) => row?.type === "table" && row?.name === "d1_migrations" && row?.tbl_name === "d1_migrations",
+  );
+  const historyRows = hasHistoryTable
+    ? await select(account, token, "SELECT name FROM d1_migrations ORDER BY id")
+    : null;
+  const classification = classifyInitialD1MigrationBootstrap({ schemaRows, historyRows });
+  if (classification.valid) return;
+  if (classification.reason === "APPLICATION_SCHEMA_PRESENT") {
+    stop("PREWRITE_PROJECT_SCHEMA_PRESENT", "reviewed application schema already exists");
+  }
+  if (classification.reason === "MIGRATION_HISTORY_NOT_EMPTY") {
+    stop("PREWRITE_MIGRATION_HISTORY_NOT_EMPTY", "migration history is not empty before first reviewed migration");
+  }
+  stop("PREWRITE_MIGRATION_HISTORY_SCHEMA_INVALID", "migration-history bootstrap state is malformed or noncanonical");
 }
 
 async function assertInitialUserSchemaEmpty(account, token) {
@@ -167,6 +188,7 @@ function plan() {
   console.log(`NODE_MINIMUM=${NODE_MINIMUM}`);
   console.log(`WRANGLER=${WRANGLER_VERSION}`);
   console.log("PREWRITE_D1_VERIFICATION=GET_AND_SELECT_ONLY");
+  console.log("PREWRITE_ACCEPTS_CANONICAL_EMPTY_D1_MIGRATION_HISTORY=YES");
   console.log("PREWRITE_WRANGLER_MIGRATIONS_LIST=DISABLED");
   console.log("REMOTE_D1_MUTATION=NO");
   console.log(`OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id>`);
@@ -188,13 +210,13 @@ async function apply(a) {
   await assertCi(a.sha, a.ci);
   run("npm", ["run", "check"], { inherit: true });
   await assertDb(account, token);
-  await assertProjectAbsent(account, token);
+  await assertInitialProjectBootstrap(account, token);
   await assertInitialUserSchemaEmpty(account, token);
 
   assertRepo(a.sha);
   await assertCi(a.sha, a.ci);
   await assertDb(account, token);
-  await assertProjectAbsent(account, token);
+  await assertInitialProjectBootstrap(account, token);
   await assertInitialUserSchemaEmpty(account, token);
 
   console.log("APPLY_STARTED=YES");
