@@ -20,8 +20,10 @@ import {
   createGitHubAuthoritativeReadProvider,
   type GitHubAuthoritativeReadProvider,
 } from "./authoritative-read-provider.js";
-import { createGitHubGraphqlMergeStateTransport } from "./graphql-merge-state-transport.js";
-import { createGitHubRestReadTransport } from "./rest-read-transport.js";
+import {
+  createGitHubCredentialDiagnosticGraphqlTransport,
+  createGitHubCredentialDiagnosticRestTransport,
+} from "./credential-stage-diagnostics.js";
 
 export const GITHUB_APP_PRIVATE_KEY_SECRET_NAME = "GITHUB_APP_PRIVATE_KEY_PEM" as const;
 export const GITHUB_APP_CLIENT_ID_BINDING_NAME = "GITHUB_APP_CLIENT_ID" as const;
@@ -173,8 +175,8 @@ export function createCloudflareGitHubReadRuntime(
   const graphqlSessionProvider = memoizeGitHubInstallationSessionProvider(
     createGitHubAppInstallationGraphqlSessionProvider(dependencies),
   );
-  const restTransport = createGitHubRestReadTransport(restSessionProvider);
-  const graphqlMergeStateTransport = createGitHubGraphqlMergeStateTransport(graphqlSessionProvider);
+  const restTransport = createGitHubCredentialDiagnosticRestTransport(restSessionProvider);
+  const graphqlMergeStateTransport = createGitHubCredentialDiagnosticGraphqlTransport(graphqlSessionProvider);
 
   const approvedRolloutScope = buildPhase2GitHubReadScopeForStage(installationId, "actions");
 
