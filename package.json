@@ -11,7 +11,7 @@
     "cf-typegen": "wrangler types",
     "typecheck": "wrangler types && tsc -b --pretty false",
     "lint": "eslint . --max-warnings=0",
-    "test": "rm -rf .tmp-tests && tsc -p tsconfig.test.json && node --test .tmp-tests/tests/*.test.js",
+    "test": "rm -rf .tmp-tests && tsc -p tsconfig.test.json && node --experimental-sqlite --test .tmp-tests/tests/*.test.js",
     "build": "wrangler types && tsc -b && vite build",
     "cf:dry-run": "wrangler deploy --dry-run --outdir .wrangler-dry-run",
     "cf:first-version-gate": "node scripts/cloudflare-first-version-gate.mjs",
