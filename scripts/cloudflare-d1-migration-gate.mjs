@@ -8,7 +8,14 @@ import { setTimeout as delay } from "node:timers/promises";
 import { classifyD1MigrationBootstrapSchemaRows, classifyInitialD1SchemaRows } from "./d1-schema-policy.mjs";
 
 const REPO = "rozkalnsandris/rozkalns-control-center";
-const HOST = "lenovo";
+const LOCAL_HOST = "lenovo";
+const ACTIONS_WORKFLOW_NAME = "Production D1 Migration";
+const ACTIONS_WORKFLOW_PATH = ".github/workflows/production-d1.yml";
+const ACTIONS_WORKFLOW_REF = `${REPO}/${ACTIONS_WORKFLOW_PATH}@refs/heads/main`;
+const ACTIONS_JOB = "migrate";
+const ACTIONS_ENVIRONMENT = "production";
+const OWNER_ACTOR = "rozkalnsandris";
+const OWNER_ACTOR_ID = "277435981";
 const ACCOUNT = "70e29dbca0e8363358659102d2b74178";
 const DB_NAME = "rozkalns-control-production";
 const DB_ID = "8504e986-faf0-450c-bfb5-41b5dbf8be09";
@@ -67,16 +74,49 @@ function wrangler() {
   return resolve("node_modules", ".bin", process.platform === "win32" ? "wrangler.cmd" : "wrangler");
 }
 
+function isGitHubActions() {
+  return process.env.GITHUB_ACTIONS === "true";
+}
+
+function assertExecutionContext(a) {
+  if (!isGitHubActions()) {
+    if (hostname().split(".")[0].toLowerCase() !== LOCAL_HOST) stop("WRONG_HOST", `local apply requires ${LOCAL_HOST}`);
+    return;
+  }
+
+  const exact = {
+    GITHUB_REPOSITORY: REPO,
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REF: "refs/heads/main",
+    GITHUB_SHA: a.sha,
+    GITHUB_WORKFLOW: ACTIONS_WORKFLOW_NAME,
+    GITHUB_WORKFLOW_REF: ACTIONS_WORKFLOW_REF,
+    GITHUB_WORKFLOW_SHA: a.sha,
+    GITHUB_JOB: ACTIONS_JOB,
+    RUNNER_ENVIRONMENT: "github-hosted",
+    CONTROL_GITHUB_ENVIRONMENT: ACTIONS_ENVIRONMENT,
+  };
+  for (const [key, expected] of Object.entries(exact)) {
+    if (process.env[key] !== expected) stop("ACTIONS_CONTEXT_INVALID", `${key} does not match the reviewed production workflow context`);
+  }
+  if (process.env.GITHUB_ACTOR !== OWNER_ACTOR || process.env.GITHUB_ACTOR_ID !== OWNER_ACTOR_ID) {
+    stop("ACTIONS_ACTOR_INVALID", "production workflow dispatch must be initiated by the repository owner");
+  }
+  if (process.env.GITHUB_RUN_ATTEMPT !== "1") {
+    stop("ACTIONS_RERUN_FORBIDDEN", "production migration workflow reruns are forbidden; reconcile before a new owner authorization");
+  }
+}
+
 function assertInputs(a) {
   if (!/^[0-9a-f]{40}$/.test(a.sha)) stop("EXPECTED_SHA_INVALID", "expected SHA must be 40 lowercase hex characters");
   if (!/^[1-9][0-9]*$/.test(a.ci)) stop("CI_RUN_ID_INVALID", "CI run id must be a positive integer");
   const node = process.versions.node.split(".").map(Number);
   if (node[0] < 22 || (node[0] === 22 && node[1] < 12)) stop("NODE_VERSION_INVALID", `Node ${NODE_MINIMUM}+ is required`);
-  if (hostname().split(".")[0].toLowerCase() !== HOST) stop("WRONG_HOST", `apply requires ${HOST}`);
+  assertExecutionContext(a);
 }
 
 function assertRepo(sha) {
-  if (run("git", ["branch", "--show-current"]) !== "main") stop("BRANCH_NOT_MAIN", "apply requires main");
+  if (!isGitHubActions() && run("git", ["branch", "--show-current"]) !== "main") stop("BRANCH_NOT_MAIN", "local apply requires main");
   if (run("git", ["status", "--porcelain"]) !== "") stop("WORKTREE_DIRTY", "apply requires a clean worktree");
   if (run("git", ["rev-parse", "HEAD"]) !== sha) stop("HEAD_MISMATCH", "local HEAD differs from authorized SHA");
   run("git", ["fetch", "--quiet", "origin", "main"]);
@@ -167,7 +207,11 @@ async function postVerify(account, token) {
 
 function plan() {
   console.log("MODE=PLAN");
-  console.log(`HOST=${HOST}`);
+  console.log(`LOCAL_HOST=${LOCAL_HOST}`);
+  console.log(`ACTIONS_WORKFLOW=${ACTIONS_WORKFLOW_PATH}`);
+  console.log(`ACTIONS_ENVIRONMENT=${ACTIONS_ENVIRONMENT}`);
+  console.log("ACTIONS_RUNNER=github-hosted");
+  console.log("ACTIONS_RERUN=FORBIDDEN");
   console.log(`ACCOUNT_ID=${ACCOUNT}`);
   console.log(`DATABASE_NAME=${DB_NAME}`);
   console.log(`DATABASE_UUID=${DB_ID}`);
@@ -191,7 +235,7 @@ async function apply(a) {
   const token = process.env.CLOUDFLARE_API_TOKEN ?? "";
   const authorization = process.env.CONTROL_OWNER_AUTHORIZATION ?? "";
   if (account !== ACCOUNT) stop("ACCOUNT_ID_INVALID", "Cloudflare account does not match reviewed production account");
-  if (!token) stop("CLOUDFLARE_API_TOKEN_REQUIRED", "temporary setup token is required");
+  if (!token) stop("CLOUDFLARE_API_TOKEN_REQUIRED", "Cloudflare D1 migration token is required");
   if (authorization !== `${AUTH_PREFIX}${a.sha} ci ${a.ci}`) stop("OWNER_AUTHORIZATION_INVALID", "one-shot authorization must match exact SHA and CI run");
 
   assertRepo(a.sha);
