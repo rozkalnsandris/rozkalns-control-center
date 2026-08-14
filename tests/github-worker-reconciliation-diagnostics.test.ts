@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { GitHubActiveBranchRulesReaderError } from "../src/integrations/github/active-branch-rules-reader.js";
+import { GitHubAuthoritativeReadProviderError } from "../src/integrations/github/authoritative-read-provider.js";
 import { GitHubGraphqlMergeStateError } from "../src/integrations/github/graphql-merge-state-transport.js";
 import { GitHubRestReadError } from "../src/integrations/github/rest-read-transport.js";
 import { handleGitHubReconciliationRequest } from "../src/worker/github-reconciliation-route.js";
@@ -121,6 +123,32 @@ test("reconciliation route projects bounded GraphQL failure categories", async (
   );
 });
 
+test("reconciliation route projects bounded authoritative provider failure categories", async () => {
+  await expectFailure(
+    new GitHubAuthoritativeReadProviderError("MALFORMED_RESPONSE"),
+    502,
+    "GITHUB_RESPONSE_INVALID",
+  );
+  await expectFailure(
+    new GitHubAuthoritativeReadProviderError("INVALID_REQUEST"),
+    502,
+    "GITHUB_READ_INVALID",
+  );
+});
+
+test("reconciliation route projects bounded active branch-rules failure categories", async () => {
+  await expectFailure(
+    new GitHubActiveBranchRulesReaderError("MALFORMED_RESPONSE"),
+    502,
+    "GITHUB_RESPONSE_INVALID",
+  );
+  await expectFailure(
+    new GitHubActiveBranchRulesReaderError("INVALID_REQUEST"),
+    502,
+    "GITHUB_READ_INVALID",
+  );
+});
+
 test("diagnostic projection never exposes typed error metadata or arbitrary upstream messages", async () => {
   const rest = new GitHubRestReadError("RATE_LIMITED", {
     status: 429,
@@ -146,4 +174,26 @@ test("diagnostic projection never exposes typed error metadata or arbitrary upst
   assert.equal(body.includes("2026-08-14T21:06:00.000Z"), false);
   assert.equal(body.includes("429"), false);
   assert.deepEqual(JSON.parse(body), { error: "GITHUB_RATE_LIMITED" });
+});
+
+test("provider diagnostic projection never exposes provider messages", async () => {
+  const provider = new GitHubAuthoritativeReadProviderError("MALFORMED_RESPONSE");
+  Object.defineProperty(provider, "message", {
+    value: "raw-provider-payload-should-never-leak",
+  });
+
+  const response = await handleGitHubReconciliationRequest(
+    request(),
+    bindings,
+    OBSERVED_AT,
+    async () => {
+      throw provider;
+    },
+  );
+
+  const body = await response.text();
+  assert.equal(response.status, 502);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(body.includes("raw-provider-payload-should-never-leak"), false);
+  assert.deepEqual(JSON.parse(body), { error: "GITHUB_RESPONSE_INVALID" });
 });
