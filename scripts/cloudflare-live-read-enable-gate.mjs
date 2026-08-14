@@ -82,6 +82,8 @@ function plan() {
   console.log("PUBLIC_ROUTING_CHANGE=NO");
   console.log("CREDENTIAL_MODEL=SINGLE_TEMPORARY_SETUP_TOKEN");
   console.log("ACCESS_CANARY_AUTH=SHORT_LIVED_USER_TOKEN_REQUIRED");
+  console.log("PREWRITE_ACCESS_CANARY=HEALTH_ROUTE");
+  console.log("POSTVERIFY_ACCESS_CANARY=LIVE_DASHBOARD_ROUTE");
   console.log(
     `OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id> version <current-version-id> deployment <current-deployment-id> domain <domain-id>`,
   );
@@ -222,10 +224,10 @@ function versionIdSet(versions, codePrefix) {
   return new Set(ids);
 }
 
-async function readPublicDashboard(codePrefix, accessToken) {
+async function readAccessJson(codePrefix, path, accessToken, label) {
   let response;
   try {
-    response = await fetch(`https://${HOSTNAME}/api/github/dashboard`, {
+    response = await fetch(`https://${HOSTNAME}${path}`, {
       headers: {
         Accept: "application/json",
         "cf-access-token": accessToken,
@@ -233,18 +235,14 @@ async function readPublicDashboard(codePrefix, accessToken) {
       signal: AbortSignal.timeout(15000),
     });
   } catch {
-    stop(`${codePrefix}_PUBLIC_DASHBOARD_READ`, "Access-authenticated public dashboard request failed");
-  }
-
-  if (!response.headers.get("cache-control")?.includes("no-store")) {
-    stop(`${codePrefix}_PUBLIC_DASHBOARD_CACHE`, "dashboard response must remain no-store");
+    stop(`${codePrefix}_PUBLIC_${label}_READ`, `Access-authenticated ${label.toLowerCase()} request failed`);
   }
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {
     stop(
-      `${codePrefix}_PUBLIC_DASHBOARD_MEDIA_TYPE`,
-      `Access-authenticated dashboard response must be application/json; got ${contentType || "missing content-type"}`,
+      `${codePrefix}_PUBLIC_${label}_MEDIA_TYPE`,
+      `Access-authenticated ${label.toLowerCase()} response must be application/json; got ${contentType || "missing content-type"}`,
     );
   }
 
@@ -252,16 +250,29 @@ async function readPublicDashboard(codePrefix, accessToken) {
   try {
     body = await response.json();
   } catch {
-    stop(`${codePrefix}_PUBLIC_DASHBOARD_JSON`, "dashboard response declared JSON but could not be parsed");
+    stop(`${codePrefix}_PUBLIC_${label}_JSON`, `${label.toLowerCase()} response declared JSON but could not be parsed`);
   }
   return { response, body };
 }
 
-async function assertFixturePublicCanary(codePrefix, accessToken) {
-  const { response, body } = await readPublicDashboard(codePrefix, accessToken);
-  if (response.status !== 503 || body?.error !== "LIVE_READ_DISABLED") {
-    stop(`${codePrefix}_FIXTURE_CANARY`, "current Access-protected Worker is not the reviewed fixture-only runtime");
+async function assertPrewriteHealthCanary(codePrefix, accessToken) {
+  const { response, body } = await readAccessJson(codePrefix, "/api/health", accessToken, "HEALTH");
+  if (
+    response.status !== 200 ||
+    body?.status !== "ok" ||
+    body?.service !== WORKER_NAME ||
+    body?.phase !== "phase-0"
+  ) {
+    stop(`${codePrefix}_HEALTH_CANARY`, "Access-authenticated current Worker health contract did not match");
   }
+}
+
+async function readPublicDashboard(codePrefix, accessToken) {
+  const result = await readAccessJson(codePrefix, "/api/github/dashboard", accessToken, "DASHBOARD");
+  if (!result.response.headers.get("cache-control")?.includes("no-store")) {
+    stop(`${codePrefix}_PUBLIC_DASHBOARD_CACHE`, "dashboard response must remain no-store");
+  }
+  return result;
 }
 
 async function assertLivePublicCanary(codePrefix, accessToken) {
@@ -296,7 +307,7 @@ async function apply(args) {
 
   if (account !== ACCOUNT_ID) stop("ACCOUNT_ID_INVALID", "Cloudflare account does not match reviewed production account");
   if (!apiToken) stop("API_TOKEN_REQUIRED", "temporary rozkalns-control-setup Cloudflare API token is required");
-  if (!accessToken) stop("ACCESS_TOKEN_REQUIRED", "short-lived Cloudflare Access user token is required for protected dashboard canaries");
+  if (!accessToken) stop("ACCESS_TOKEN_REQUIRED", "short-lived Cloudflare Access user token is required for protected canaries");
 
   const expectedAuthorization =
     `${AUTH_PREFIX}${args.sha} ci ${args.ci} version ${args.currentVersion} ` +
@@ -313,14 +324,14 @@ async function apply(args) {
   const beforeIds = versionIdSet(await listVersions(apiToken), "PREWRITE");
   await assertExpectedActive(apiToken, args.currentVersion, args.currentDeployment, false, "PREWRITE");
   await assertExactDomain(apiToken, args.domainId, "PREWRITE");
-  await assertFixturePublicCanary("PREWRITE", accessToken);
+  await assertPrewriteHealthCanary("PREWRITE", accessToken);
 
   assertRepo(args.sha);
   await assertLiveSourceConfig();
   await assertCi(args.sha, args.ci);
   await assertExpectedActive(apiToken, args.currentVersion, args.currentDeployment, false, "FINAL_PREWRITE");
   await assertExactDomain(apiToken, args.domainId, "FINAL_PREWRITE");
-  await assertFixturePublicCanary("FINAL_PREWRITE", accessToken);
+  await assertPrewriteHealthCanary("FINAL_PREWRITE", accessToken);
 
   const finalBeforeIds = versionIdSet(await listVersions(apiToken), "FINAL_PREWRITE");
   if (beforeIds.size !== finalBeforeIds.size || [...beforeIds].some((id) => !finalBeforeIds.has(id))) {
