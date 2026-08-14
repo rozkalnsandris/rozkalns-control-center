@@ -12,10 +12,16 @@ type SchemaClassification = {
   unexpected: Array<{ type: string; name: string; tbl_name: string }>;
 };
 
+type MigrationBootstrapClassification = {
+  valid: boolean;
+  present: boolean;
+};
+
 async function loadSchemaPolicy() {
   const moduleUrl = pathToFileURL(resolve("scripts/d1-schema-policy.mjs")).href;
   return (await import(moduleUrl)) as {
     classifyInitialD1SchemaRows(rows: unknown): SchemaClassification;
+    classifyD1MigrationBootstrapSchemaRows(rows: unknown): MigrationBootstrapClassification;
   };
 }
 
@@ -26,6 +32,7 @@ test("remote D1 gate defaults to a credential-free non-mutating plan", () => {
   assert.match(result.stdout, /MODE=PLAN/);
   assert.match(result.stdout, /NODE_MINIMUM=22\.12\.0/);
   assert.match(result.stdout, /PREWRITE_D1_VERIFICATION=GET_AND_SELECT_ONLY/);
+  assert.match(result.stdout, /PREWRITE_MIGRATION_BOOTSTRAP=ABSENT_OR_CANONICAL_EMPTY/);
   assert.match(result.stdout, /PREWRITE_WRANGLER_MIGRATIONS_LIST=DISABLED/);
   assert.match(result.stdout, /REMOTE_D1_MUTATION=NO/);
   assert.match(result.stdout, /NO_BLIND_RETRY_AFTER_APPLY_STARTED=YES/);
@@ -84,10 +91,62 @@ test("malformed schema evidence fails closed", async () => {
   }
 });
 
+test("migration bootstrap accepts absent or canonical empty Wrangler history schema", async () => {
+  const { classifyD1MigrationBootstrapSchemaRows } = await loadSchemaPolicy();
+  assert.deepEqual(classifyD1MigrationBootstrapSchemaRows([]), { valid: true, present: false });
+  assert.deepEqual(
+    classifyD1MigrationBootstrapSchemaRows([
+      {
+        type: "index",
+        name: "sqlite_autoindex_d1_migrations_1",
+        tbl_name: "d1_migrations",
+        sql: null,
+      },
+      {
+        type: "table",
+        name: "d1_migrations",
+        tbl_name: "d1_migrations",
+        sql: `CREATE TABLE "d1_migrations"(
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          name       TEXT UNIQUE,
+          applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+        )`,
+      },
+    ]),
+    { valid: true, present: true },
+  );
+});
+
+test("migration bootstrap schema is fail closed for noncanonical or extra history-owned objects", async () => {
+  const { classifyD1MigrationBootstrapSchemaRows } = await loadSchemaPolicy();
+  for (const rows of [
+    null,
+    [{ type: "table", name: "d1_migrations", tbl_name: "d1_migrations", sql: "CREATE TABLE d1_migrations(name TEXT)" }],
+    [
+      { type: "index", name: "sqlite_autoindex_d1_migrations_1", tbl_name: "d1_migrations", sql: null },
+      { type: "table", name: "d1_migrations", tbl_name: "d1_migrations", sql: "CREATE TABLE d1_migrations(name TEXT)" },
+    ],
+    [
+      { type: "index", name: "sqlite_autoindex_d1_migrations_1", tbl_name: "d1_migrations", sql: null },
+      {
+        type: "table",
+        name: "d1_migrations",
+        tbl_name: "d1_migrations",
+        sql: 'CREATE TABLE "d1_migrations"( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL )',
+      },
+      { type: "trigger", name: "unexpected_history_trigger", tbl_name: "d1_migrations", sql: "CREATE TRIGGER unexpected_history_trigger" },
+    ],
+  ]) {
+    assert.equal(classifyD1MigrationBootstrapSchemaRows(rows).valid, false);
+  }
+});
+
 test("prewrite and postverify guards are fail closed without num_tables", async () => {
   const source = await readFile(gate, "utf8");
   for (const guard of [
-    "PREWRITE_PROJECT_SCHEMA_PRESENT",
+    "PREWRITE_APPLICATION_SCHEMA_PRESENT",
+    "PREWRITE_MIGRATION_HISTORY_SCHEMA_INVALID",
+    "PREWRITE_MIGRATION_HISTORY_NOT_EMPTY",
     "PREWRITE_SCHEMA_EVIDENCE_INVALID",
     "PREWRITE_UNEXPECTED_USER_SCHEMA",
     "D1_QUERY_NOT_READ_ONLY",
@@ -96,8 +155,11 @@ test("prewrite and postverify guards are fail closed without num_tables", async 
     "POST_VERIFY_SCHEMA_INVALID",
     "POST_VERIFY_DELIVERY_ROWS",
   ]) assert.ok(source.includes(guard));
+  assert.doesNotMatch(source, /PREWRITE_PROJECT_SCHEMA_PRESENT/);
   assert.doesNotMatch(source, /PREWRITE_DATABASE_NOT_EMPTY/);
   assert.doesNotMatch(source, /num_tables/);
+  assert.match(source, /SELECT id, name, applied_at FROM d1_migrations ORDER BY id/);
+  assert.match(source, /history\.length !== 0/);
 });
 
 test("prewrite never invokes Wrangler migrations list and apply remains the sole migration command", async () => {
