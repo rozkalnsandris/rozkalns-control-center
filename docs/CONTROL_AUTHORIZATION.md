@@ -22,7 +22,7 @@ The registry deliberately records:
 - target selection: source-controlled allow-list;
 - `liveEnabled: false`.
 
-This PR therefore defines the contract only. It does not grant `Actions: write`, mint a token, select a target workflow, dispatch a workflow, create a GitHub Environment/secret, or perform any production mutation.
+This source contract therefore defines the authorization boundary only. It does not grant `Actions: write`, mint a token, select a target workflow, dispatch a workflow, create a GitHub Environment/secret, or perform any production mutation.
 
 ## Adapter model
 
@@ -34,9 +34,20 @@ Control remains one operator/API surface while production execution stays separa
 
 Unsupported project/operation combinations remain disabled until a focused source change and separate live owner authorization enable them.
 
-## Legacy first-D1 canary
+## Legacy first-D1 canary — retired
 
-Issue #74 and migration `0001_reconciliation_core.sql` are completed. `.github/workflows/production-d1.yml` remains historical canary infrastructure for now; it is not the generic cross-project dispatcher and must not be treated as reusable authorization for another migration or project.
+Issue #74 and migration `0001_reconciliation_core.sql` are completed and the one-shot authorization was consumed.
+
+`.github/workflows/production-d1.yml` is now an inert historical marker only:
+
+- it no longer listens to `issue_comment` authorization events;
+- it has no `production` Environment;
+- it references no production secret;
+- its only job is statically disabled with `if: false`.
+
+The historical controller remains in source for evidence and local review, including its replay defenses, but the GitHub Actions entry point cannot execute it. The consumed #74 authorization must never be reused.
+
+Future privileged execution must be introduced through the common Control authorization contract with a reviewed source-controlled target, exact-main SHA/CI revalidation, the minimum separately authorized credential permission and operation-specific no-blind-retry handling.
 
 Production deploy: NO.
 Production mutation: NO.

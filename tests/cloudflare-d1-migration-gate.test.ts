@@ -68,30 +68,17 @@ test("gate pins reviewed resource, workflow and source identities", async () => 
   assert.match(source, /RUNNER_OS/);
 });
 
-test("central production D1 workflow is owner-only, default-branch bound and least privilege", async () => {
+test("completed production D1 workflow is an inert least-privilege historical marker", async () => {
   const workflow = await readFile(productionWorkflow, "utf8");
-  assert.match(workflow, /issue_comment:\s*\n\s+types: \[created\]/);
-  assert.doesNotMatch(workflow, /workflow_dispatch/);
+  assert.match(workflow, /name: Retired Production D1 Canary/);
+  assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /permissions:\s*\n\s+contents: read/);
-  assert.match(workflow, /github\.event\.issue\.number == 74/);
-  assert.match(workflow, /!github\.event\.issue\.pull_request/);
-  assert.match(workflow, /github\.event\.comment\.user\.id == 277435981/);
-  assert.match(workflow, /startsWith\(github\.event\.comment\.body, 'authorize Phase 2 remote D1 migration rozkalns-control-production '\)/);
+  assert.match(workflow, /if: \$\{\{ false \}\}/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
-  assert.doesNotMatch(workflow, /self-hosted/);
-  assert.match(workflow, /environment: production/);
-  assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(workflow, /AUTHORIZATION: \$\{\{ github\.event\.comment\.body \}\}/);
-  assert.match(workflow, /EVENT_MAIN_SHA: \$\{\{ github\.sha \}\}/);
-  assert.match(workflow, /STOP=AUTHORIZATION_SHA_STALE/);
-  assert.match(workflow, /uses: actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/);
-  assert.match(workflow, /uses: actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
-  assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_D1_TOKEN \}\}/);
-  assert.match(workflow, /CONTROL_OWNER_AUTHORIZATION: \$\{\{ github\.event\.comment\.body \}\}/);
-  assert.match(workflow, /--mode apply/);
-  assert.match(workflow, /--expected-sha "\$EXPECTED_SHA"/);
-  assert.match(workflow, /--expected-ci-run-id "\$EXPECTED_CI"/);
+  assert.doesNotMatch(workflow, /issue_comment:/);
+  assert.doesNotMatch(workflow, /environment: production/);
+  assert.doesNotMatch(workflow, /CLOUDFLARE_D1_TOKEN|secrets\./);
+  assert.doesNotMatch(workflow, /--mode apply|CONTROL_OWNER_AUTHORIZATION/);
 });
 
 test("D1 system namespaces are tolerated during first-bootstrap schema inspection", async () => {
@@ -219,7 +206,7 @@ test("authorization is consumed before the guarded apply and failures require re
   assert.match(source, /REMOTE_D1_MIGRATION_GATE=PASS/);
 });
 
-test("package and CI expose a compatible Node contract", async () => {
+test("package and authoritative CI expose a compatible Node contract while retired workflow has no runtime", async () => {
   const pkg = JSON.parse(await readFile("package.json", "utf8")) as {
     engines?: { node?: string };
     scripts?: Record<string, string>;
@@ -230,5 +217,6 @@ test("package and CI expose a compatible Node contract", async () => {
   assert.match(pkg.scripts?.test ?? "", /node --experimental-sqlite --test/);
   assert.equal(pkg.scripts?.["cf:d1-migration-gate"], "node scripts/cloudflare-d1-migration-gate.mjs");
   assert.match(ci, /node-version:\s*22\.16\.0/);
-  assert.match(production, /node-version:\s*22\.16\.0/);
+  assert.doesNotMatch(production, /setup-node|node-version:/);
+  assert.match(production, /if: \$\{\{ false \}\}/);
 });
