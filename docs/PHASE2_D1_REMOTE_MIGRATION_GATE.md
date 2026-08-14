@@ -60,13 +60,15 @@ The normal production path is `.github/workflows/production-d1.yml`; terminal ex
 The workflow is deliberately small:
 
 1. it listens only to newly created issue comments;
-2. the job is eligible only on issue `#74`, only for the owner GitHub user ID `277435981`, only for a non-PR issue comment, and only for the reviewed authorization prefix;
+2. the job is eligible only on issue `#74`, only for the owner GitHub user ID `277435981`, only for a non-PR issue comment, only on workflow run attempt `1`, and only for the reviewed authorization prefix;
 3. the full comment must exactly match `authorize Phase 2 remote D1 migration rozkalns-control-production <exact-main-sha> ci <exact-ci-run-id>`;
 4. the authorized SHA must equal the `issue_comment` event's default-branch `GITHUB_SHA`;
 5. the job checks out `main`, installs the locked dependencies and calls the existing source-controlled D1 gate;
 6. the D1 gate independently rechecks exact `main`, exact-main push CI, source/tool/migration hashes, D1 identity and the production schema prewrite state immediately before the write.
 
 The workflow has repository permission `contents: read`, uses a GitHub-hosted Linux runner, pins external Actions to full commit SHAs, disables checkout credential persistence and serializes D1 production runs with `cancel-in-progress: false`.
+
+GitHub workflow **re-runs are forbidden** for this production gate. Job eligibility requires `github.run_attempt == '1'`, so a re-run does not enter the `production` Environment job or receive the D1 secret. The controller independently requires `GITHUB_RUN_ATTEMPT=1` as defense in depth. After any attempt that reached `APPLY_STARTED=YES`, reconciliation and a new owner authorization must create a new issue-comment event; the GitHub Re-run button is never a retry mechanism.
 
 The Cloudflare credential is expected only as the `production` GitHub Environment secret `CLOUDFLARE_D1_TOKEN`. It is not committed, copied to project repositories or stored in D1. The account ID and reviewed D1 identity remain source-pinned non-secret identifiers.
 
@@ -77,9 +79,9 @@ Merging this workflow does not itself create the Environment secret and does not
 Apply mode now accepts exactly two reviewed execution contexts:
 
 - local fallback: host short name `lenovo`, outside GitHub Actions;
-- normal path: `issue_comment` on `refs/heads/main` in `rozkalnsandris/rozkalns-control-center`, exact authorized `GITHUB_SHA`, exact `production-d1.yml@refs/heads/main`, `RUNNER_ENVIRONMENT=github-hosted` and `RUNNER_OS=Linux`.
+- normal path: first workflow attempt only, `issue_comment` on `refs/heads/main` in `rozkalnsandris/rozkalns-control-center`, exact authorized `GITHUB_SHA`, exact `production-d1.yml@refs/heads/main`, `RUNNER_ENVIRONMENT=github-hosted` and `RUNNER_OS=Linux`.
 
-Any other apply context fails closed before Cloudflare credentials are used.
+Any other apply context, including any GitHub workflow re-run attempt, fails closed before Cloudflare credentials are used.
 
 ## One-shot write boundary
 
@@ -93,7 +95,7 @@ The sole intended D1 schema write is then the repository-pinned equivalent of:
 
 `wrangler d1 migrations apply rozkalns-control-production --remote`
 
-Any failure or ambiguous result after `APPLY_STARTED=YES` requires read-only reconciliation before another authorization; never blindly retry.
+Any failure or ambiguous result after `APPLY_STARTED=YES` requires read-only reconciliation before another authorization; never blindly retry and never use GitHub's workflow re-run action.
 
 ## Post-verification
 

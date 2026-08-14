@@ -74,6 +74,10 @@ function assertExecutionContext(sha) {
     return;
   }
 
+  if (process.env.GITHUB_RUN_ATTEMPT !== "1") {
+    stop("ACTIONS_RERUN_FORBIDDEN", "production D1 workflow reruns are forbidden; reconcile and create a new owner authorization event");
+  }
+
   const valid =
     process.env.GITHUB_REPOSITORY === REPO &&
     process.env.GITHUB_EVENT_NAME === "issue_comment" &&
@@ -191,6 +195,7 @@ function plan() {
   console.log(`LOCAL_HOST=${HOST}`);
   console.log("GITHUB_ACTIONS_CONTEXT=github-hosted Linux issue_comment default-branch workflow");
   console.log(`GITHUB_WORKFLOW_REF=${EXPECTED_WORKFLOW_REF}`);
+  console.log("GITHUB_ACTIONS_RERUN=FORBIDDEN");
   console.log(`ACCOUNT_ID=${ACCOUNT}`);
   console.log(`DATABASE_NAME=${DB_NAME}`);
   console.log(`DATABASE_UUID=${DB_ID}`);
