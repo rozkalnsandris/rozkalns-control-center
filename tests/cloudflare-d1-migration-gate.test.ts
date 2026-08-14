@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 const gate = "scripts/cloudflare-d1-migration-gate.mjs";
+const productionWorkflow = ".github/workflows/production-d1.yml";
 
 type SchemaClassification = {
   valid: boolean;
@@ -31,6 +32,7 @@ test("remote D1 gate defaults to a credential-free non-mutating plan", () => {
   assert.equal(result.stderr, "");
   assert.match(result.stdout, /MODE=PLAN/);
   assert.match(result.stdout, /NODE_MINIMUM=22\.12\.0/);
+  assert.match(result.stdout, /GITHUB_ACTIONS_CONTEXT=github-hosted Linux issue_comment default-branch workflow/);
   assert.match(result.stdout, /PREWRITE_D1_VERIFICATION=GET_AND_SELECT_ONLY/);
   assert.match(result.stdout, /PREWRITE_MIGRATION_BOOTSTRAP=ABSENT_OR_CANONICAL_EMPTY/);
   assert.match(result.stdout, /PREWRITE_WRANGLER_MIGRATIONS_LIST=DISABLED/);
@@ -38,10 +40,12 @@ test("remote D1 gate defaults to a credential-free non-mutating plan", () => {
   assert.match(result.stdout, /NO_BLIND_RETRY_AFTER_APPLY_STARTED=YES/);
 });
 
-test("gate pins reviewed resource and source identities", async () => {
+test("gate pins reviewed resource, workflow and source identities", async () => {
   const source = await readFile(gate, "utf8");
   for (const expected of [
     "lenovo",
+    "production-d1.yml",
+    "github-hosted",
     "70e29dbca0e8363358659102d2b74178",
     "rozkalns-control-production",
     "8504e986-faf0-450c-bfb5-41b5dbf8be09",
@@ -54,6 +58,40 @@ test("gate pins reviewed resource and source identities", async () => {
   assert.match(source, /REMOTE_MAIN_MISMATCH/);
   assert.match(source, /CI_GATE_INVALID/);
   assert.match(source, /OWNER_AUTHORIZATION_INVALID/);
+  assert.match(source, /EXECUTION_CONTEXT_INVALID/);
+  assert.match(source, /GITHUB_REPOSITORY/);
+  assert.match(source, /GITHUB_EVENT_NAME/);
+  assert.match(source, /GITHUB_REF/);
+  assert.match(source, /GITHUB_SHA/);
+  assert.match(source, /GITHUB_WORKFLOW_REF/);
+  assert.match(source, /RUNNER_ENVIRONMENT/);
+  assert.match(source, /RUNNER_OS/);
+});
+
+test("central production D1 workflow is owner-only, default-branch bound and least privilege", async () => {
+  const workflow = await readFile(productionWorkflow, "utf8");
+  assert.match(workflow, /issue_comment:\s*\n\s+types: \[created\]/);
+  assert.doesNotMatch(workflow, /workflow_dispatch/);
+  assert.match(workflow, /permissions:\s*\n\s+contents: read/);
+  assert.match(workflow, /github\.event\.issue\.number == 74/);
+  assert.match(workflow, /!github\.event\.issue\.pull_request/);
+  assert.match(workflow, /github\.event\.comment\.user\.id == 277435981/);
+  assert.match(workflow, /startsWith\(github\.event\.comment\.body, 'authorize Phase 2 remote D1 migration rozkalns-control-production '\)/);
+  assert.match(workflow, /runs-on: ubuntu-24\.04/);
+  assert.doesNotMatch(workflow, /self-hosted/);
+  assert.match(workflow, /environment: production/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /AUTHORIZATION: \$\{\{ github\.event\.comment\.body \}\}/);
+  assert.match(workflow, /EVENT_MAIN_SHA: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /STOP=AUTHORIZATION_SHA_STALE/);
+  assert.match(workflow, /uses: actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/);
+  assert.match(workflow, /uses: actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_D1_TOKEN \}\}/);
+  assert.match(workflow, /CONTROL_OWNER_AUTHORIZATION: \$\{\{ github\.event\.comment\.body \}\}/);
+  assert.match(workflow, /--mode apply/);
+  assert.match(workflow, /--expected-sha \"\$EXPECTED_SHA\"/);
+  assert.match(workflow, /--expected-ci-run-id \"\$EXPECTED_CI\"/);
 });
 
 test("D1 system namespaces are tolerated during first-bootstrap schema inspection", async () => {
@@ -187,8 +225,10 @@ test("package and CI expose a compatible Node contract", async () => {
     scripts?: Record<string, string>;
   };
   const ci = await readFile(".github/workflows/ci.yml", "utf8");
+  const production = await readFile(productionWorkflow, "utf8");
   assert.equal(pkg.engines?.node, ">=22.12.0");
   assert.match(pkg.scripts?.test ?? "", /node --experimental-sqlite --test/);
   assert.equal(pkg.scripts?.["cf:d1-migration-gate"], "node scripts/cloudflare-d1-migration-gate.mjs");
   assert.match(ci, /node-version:\s*22\.16\.0/);
+  assert.match(production, /node-version:\s*22\.16\.0/);
 });
