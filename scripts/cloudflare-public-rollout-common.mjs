@@ -185,10 +185,9 @@ export async function listVersions(token) {
 
 export async function listDeployments(token) {
   const result = await cfGet(token, `/workers/scripts/${WORKER_NAME}/deployments`);
-  if (!Array.isArray(result?.deployments)) {
-    stop("DEPLOYMENTS_INVALID", "deployment-list response did not contain deployments");
-  }
-  return result.deployments;
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.deployments)) return result.deployments;
+  stop("DEPLOYMENTS_INVALID", "deployment-list response did not contain a supported deployment array");
 }
 
 export async function assertSubdomainDisabled(token) {
