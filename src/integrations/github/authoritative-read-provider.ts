@@ -153,6 +153,22 @@ function branchHeadSha(payload: unknown, expectedBranch: string): string {
   return requireNonEmptyString(commit.sha);
 }
 
+interface ListedOpenPullRequestIdentity {
+  readonly number: number;
+  readonly headSha: string;
+}
+
+function listedOpenPullRequestIdentity(payload: unknown): ListedOpenPullRequestIdentity {
+  const pull = requireRecord(payload);
+  if (pull.state !== "open") malformed();
+  if (typeof pull.number !== "number" || !Number.isSafeInteger(pull.number) || pull.number <= 0) malformed();
+  const head = requireRecord(pull.head);
+  return {
+    number: pull.number,
+    headSha: requireNonEmptyString(head.sha),
+  };
+}
+
 function assertOpenPullRequest(pullRequest: PullRequestRead): PullRequestRead {
   if (pullRequest.state !== "open") malformed();
   return pullRequest;
@@ -223,7 +239,24 @@ export function createGitHubAuthoritativeReadProvider(
     async listOpenPullRequests(repositoryInput: string): Promise<PullRequestRead[]> {
       const repository = canonicalRepository(repositoryInput);
       const pages = await restPages(repository, `/repos/${repository}/pulls?state=open&per_page=100`, "pull_requests");
-      return flattenArrayPages(pages).map((payload) => assertOpenPullRequest(safeMap(mapGitHubPullRequest, payload)));
+      return Promise.all(
+        flattenArrayPages(pages).map(async (payload) => {
+          const record = requireRecord(payload);
+          if (Object.prototype.hasOwnProperty.call(record, "changed_files")) {
+            return assertOpenPullRequest(safeMap(mapGitHubPullRequest, record));
+          }
+
+          const listed = listedOpenPullRequestIdentity(record);
+          const detailPages = await restPages(
+            repository,
+            `/repos/${repository}/pulls/${listed.number}`,
+            "pull_requests",
+          );
+          const detailed = assertOpenPullRequest(safeMap(mapGitHubPullRequest, singlePage(detailPages)));
+          if (detailed.number !== listed.number || detailed.headSha !== listed.headSha) malformed();
+          return detailed;
+        }),
+      );
     },
 
     async getPullRequest(repositoryInput: string, pullNumberInput: number): Promise<PullRequestRead> {
