@@ -16,14 +16,16 @@ The historical `cloudflare-ui-redeploy-gate.mjs` remains fixture-only and intent
 
 This rollout preserves the existing Access protection. It does not add a bypass, public API exception, Service Auth policy or service token.
 
-For this owner-present one-shot gate, obtain a short-lived user-scoped Access token interactively on the operator machine:
+For this owner-present one-shot gate, obtain a user-scoped Access token interactively on the operator machine. The `--quiet` flag is mandatory so `cloudflared access login` does not print the JWT to the terminal:
 
 ```text
-cloudflared access login https://control.rozkalns.net
+cloudflared access login --quiet https://control.rozkalns.net
 export CONTROL_ACCESS_TOKEN="$(cloudflared access token -app=https://control.rozkalns.net)"
 ```
 
-The gate sends that token only in the `cf-access-token` header of the protected dashboard canary requests. It never logs or persists the token and removes `CONTROL_ACCESS_TOKEN` from child-process environments, including Git, npm and Wrangler processes.
+Do not print, echo, paste or persist `CONTROL_ACCESS_TOKEN`. If an Access JWT is ever printed or exposed, treat it as compromised, do not reuse it, and log out through `https://control.rozkalns.net/cdn-cgi/access/logout` before generating a fresh token.
+
+The gate sends the token only in the `cf-access-token` header of protected canary requests. It never logs or persists the token and removes `CONTROL_ACCESS_TOKEN` from child-process environments, including Git, npm and Wrangler processes.
 
 After the one-shot operation or any stopped attempt, remove the shell copy:
 
@@ -33,7 +35,7 @@ unset CONTROL_ACCESS_TOKEN
 
 ## JSON response boundary
 
-Cloudflare control-plane reads and the Access-authenticated dashboard canary are JSON protocols. The rollout helpers fail closed unless the response declares an `application/json` media type before calling `response.json()`.
+Cloudflare control-plane reads and the Access-authenticated Worker canaries are JSON protocols. The rollout helpers fail closed unless the response declares an `application/json` media type before calling `response.json()`.
 
 A non-JSON response, including an Access sign-in page, SPA shell or intermediary error page, is treated as a controlled gate failure. The gate reports the HTTP/media-type boundary and does not dump the response body, credentials or upstream HTML into rollout evidence.
 
@@ -61,7 +63,7 @@ Apply mode requires:
 - exact current active Worker deployment id;
 - exact existing `control.rozkalns.net` Custom Domain id as freshly returned by Cloudflare;
 - temporary `rozkalns-control-setup` token in `CLOUDFLARE_API_TOKEN`;
-- short-lived user-scoped Access token in `CONTROL_ACCESS_TOKEN`;
+- fresh user-scoped Access token in `CONTROL_ACCESS_TOKEN`;
 - `CLOUDFLARE_ACCOUNT_ID=70e29dbca0e8363358659102d2b74178`;
 - exact one-shot owner authorization printed by plan mode.
 
@@ -79,9 +81,11 @@ Before the sole write, and again immediately before it, the gate fails closed un
 - authorized Worker version/deployment is still the latest active deployment at exactly 100%;
 - the current active Worker version still has `CONTROL_LIVE_READ_ENABLED=false` plus the reviewed GitHub App and required secret/D1 bindings;
 - exactly the authorized existing Custom Domain identity is attached;
-- the Access-authenticated `GET /api/github/dashboard` reaches the Worker and returns JSON `503 LIVE_READ_DISABLED` with `Cache-Control: no-store`;
-- Cloudflare API and dashboard reads do not cross the JSON media-type boundary;
+- the Access-authenticated `GET /api/health` reaches the currently deployed Worker and returns JSON HTTP 200 with the stable payload `status=ok`, `service=rozkalns-control`, `phase=phase-0`;
+- Cloudflare API and Access-canary reads do not cross the JSON media-type boundary;
 - Worker version inventory does not change during preflight.
+
+The prewrite canary intentionally uses `/api/health`, which existed in the already-deployed fixture Worker before the live dashboard route was introduced in source. Fixture-only runtime state is proved separately and authoritatively by the active Worker version binding `CONTROL_LIVE_READ_ENABLED=false`. The future `/api/github/dashboard` route is therefore not required to exist before the deploy that introduces it.
 
 ## Sole intended write
 
@@ -145,4 +149,4 @@ PUBLIC_ROUTING_CHANGE=NO_EXISTING_DOMAIN_PRESERVED
 
 ## Authorization boundary
 
-Merging this source does not authorize the production transition. The live deploy requires a fresh explicit owner authorization tied to the then-current exact main SHA, exact successful main CI and fresh Cloudflare version/deployment/domain observations. The short-lived Access user token is operational canary authentication only; it is not production deploy authorization.
+Merging this source does not authorize the production transition. The live deploy requires a fresh explicit owner authorization tied to the then-current exact main SHA, exact successful main CI and fresh Cloudflare version/deployment/domain observations. The Access user token is operational canary authentication only; it is not production deploy authorization.
