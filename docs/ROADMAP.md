@@ -1,504 +1,427 @@
 # Delivery Roadmap
 
-This roadmap mirrors master issue #1 but is repository-local so implementation workers can inspect phase gates without depending on chat history. If this file and master issue #1 differ, master issue #1 wins until the repository document is reconciled.
+This repository-local roadmap records the current implementation sequence and phase gates for Rozkalns Control. Master issue #1 remains the canonical product/architecture contract; if a normative rule conflicts, master #1 wins until reconciled.
+
+Last reconciled: **2026-08-14**.
+
+## Current checkpoint
+
+Rozkalns Control has moved beyond the original source-only Phase 2 foundation:
+
+- Phase 0 repository/contracts: **COMPLETE**;
+- Phase 1 mobile-first fixture UI: **COMPLETE**;
+- public Cloudflare Worker + `control.rozkalns.net`: **LIVE**;
+- accepted Samsung Galaxy A55 mobile-first polish: **LIVE**;
+- dedicated `Rozkalns Control` GitHub App: **LIVE, READ-ONLY**;
+- production D1 base migration: **APPLIED**;
+- production live GitHub dashboard reads: **NOT ENABLED**;
+- Phase 2 live-dashboard source boundary: **READY FOR REVIEW in PR #102**;
+- Phase 3 GitHub write actions: **NOT STARTED / NOT AUTHORIZED**.
+
+Current merged `main` before PR #102 is:
+
+`b5cf46d53aee6cbbe235b6f639c934daba18dfc2`
+
+Current PR #102 exact head is:
+
+`a324f6e906cae97f6de473ccdd87744bec68376e`
+
+Exact-head CI #199 / run `31827655423` is successful.
+
+The immediate next owner gate is:
+
+1. explicit `squash merge #102`;
+2. verify the resulting exact `main` and exact-main CI;
+3. only then design/authorize a separate production **LIVE READ-ONLY activation** gate;
+4. keep all GitHub mutation actions unavailable until Phase 3.
+
+---
 
 ## Phase 0 — repository + contracts
 
-Goal: create a safe, understandable codebase before any live integration.
+Goal: establish a safe, understandable repository before live integration.
 
-**Status:** complete on merge of PR #5. Contract evidence is PR #3; executable/CI evidence is PR #5 and its successful GitHub-hosted validation run.
+**Status: COMPLETE.**
 
-### Deliverables
+### Delivered
 
-- [x] concise README linked to master #1;
-- [x] `AGENTS.md`;
-- [x] `CONTRIBUTING.md`;
-- [x] `SECURITY.md`;
-- [x] architecture document;
-- [x] threat model;
-- [x] deterministic state model;
-- [x] ADR baseline;
+- [x] README + master-issue linkage;
+- [x] `AGENTS.md`, `CONTRIBUTING.md`, `SECURITY.md`;
+- [x] architecture, state model, threat model and ADR baseline;
 - [x] issue/PR templates;
 - [x] React + TypeScript + Vite + Cloudflare Worker skeleton;
-- [x] CI for dependency install, runtime audit, typecheck, lint, unit tests, build and Wrangler dry-run;
-- [x] secret/action safety checks appropriate to a public repository.
+- [x] authoritative CI covering dependency install, runtime audit, typecheck, lint, tests, build and Wrangler dry-run;
+- [x] public-repository secret/action safety checks;
+- [x] deterministic workflow: fresh branch → focused PR → exact-head CI → Ready → explicit owner merge.
 
-### Must not do
+### Permanent boundary
 
-- no Cloudflare production deployment;
-- no new GitHub App installation/permission mutation;
-- no RPi5 mutation;
-- no AI API/Sandbox integration;
-- no production DB or credential changes.
+- no merge implies production deployment;
+- no secrets in source/history;
+- no RPi5/root mutation from ordinary source work;
+- no AI API dependency required for the MVP.
 
-### Exit gate
-
-- [x] contracts are merged and non-contradictory;
-- [x] application skeleton builds/tests in authoritative GitHub CI;
-- [x] repository has a deterministic contribution workflow;
-- [x] no production integration was introduced.
+---
 
 ## Phase 1 — mobile-first read-only UI
 
-Goal: prove the Android-first UX before live GitHub writes.
+Goal: prove the Android-first decision UX before live GitHub writes.
 
-**Status:** complete on merge of PR #7. Implementation evidence is issue #6 / PR #7; accessibility and fixture safety contract is `docs/PHASE1_UI_NOTES.md`.
+**Status: COMPLETE and publicly deployed in fixture mode.**
 
-### Deliverables
+### Delivered
 
-- [x] project overview;
-- [x] PR/CI/review read models using deterministic fixtures;
-- [x] `Needs Andris` queue;
-- [x] decision card layout;
-- [x] working/waiting/failed and merge-ready states;
-- [x] responsive/mobile-first layout;
-- [x] Samsung Galaxy A55-class compact portrait contract without device sniffing/physical-pixel hardcoding;
-- [x] accessibility checks for touch targets, visible focus, skip navigation and text-based status meaning;
-- [x] explicit fixture-mode safety so mock actions cannot be mistaken for live mutations.
+- [x] deterministic project/decision fixture models;
+- [x] `Needs Andris` priority queue;
+- [x] `Working / Waiting`, `CI Failed`, `Merge Ready`, `Projects` hierarchy;
+- [x] responsive 320–430 CSS px portrait contract;
+- [x] Samsung Galaxy A55-class layout without device sniffing;
+- [x] keyboard focus, skip navigation and text-based status meaning;
+- [x] >=48px Android-oriented primary touch targets;
+- [x] semantic native `<details>/<summary>` evidence disclosure;
+- [x] explicit fixture safety so mock actions cannot mutate GitHub/Cloudflare/RPi5.
 
-### Must not do
+### 2026-08-14 mobile polish checkpoint
 
-- [x] no GitHub writes;
-- [x] no live production mutation;
-- [x] no AI execution.
+PR #98 was merged and deployed after real A55 screenshot review.
 
-### Exit gate
+The production UI now has:
 
-- [x] phone-first layout surfaces `Needs Andris` before secondary states;
-- [x] mocked PR decisions include enough CI/review/SHA/deploy evidence to understand why a human is needed;
-- [x] primary mock controls meet the Android-oriented >=48px touch-target goal;
-- [x] status meaning is not color-only and keyboard focus remains visible;
-- [x] fixture/model/UI/compact-phone tests are part of normal CI;
-- [x] no live GitHub/production write path was introduced.
+- [x] compact header with `FIXTURE MODE` retained in the header row;
+- [x] reduced hero/vertical spacing;
+- [x] combined Worker + fixture safety status strip;
+- [x] collapsed evidence summary instead of always-visible SHA matrices;
+- [x] primary full-width `Merge` presentation in fixture mode;
+- [x] `Needs changes` + `Later` in a two-column row;
+- [x] tertiary `Open PR` presentation;
+- [x] compact lower-priority cards;
+- [x] accepted A55 production screenshots with no obvious horizontal overflow.
+
+Fixture UI remains a visual/read-model prototype only. No Phase 1 control performs a live GitHub write.
+
+---
 
 ## Phase 2 — live read-only GitHub integration
 
-Goal: replace fixtures with trustworthy live GitHub state.
+Goal: replace fixture observations with trustworthy live GitHub state while keeping GitHub write capability absent.
 
-**Status:** CURRENT — source-only safety/correctness/durability/async/auth/evidence/REST/GraphQL/session/rollout/coverage/provider/active-rules contracts are merged through issue #44 / PR #46; current issue #47 / PR #48 adds the fail-closed authoritative reconciliation composition. Live GitHub App/credential/Cloudflare rollout remains separately gated.
+**Status: CURRENT. Infrastructure/read-only trust boundaries are substantially live; normalized dashboard source is Ready in PR #102; production live-read flag remains disabled.**
 
-### Sequencing prerequisite
+### 2A — source-only foundation — COMPLETE
 
-The current authoritative `RPi5_main/docs/AUTOMATION_MASTER_PLAN.md`, completed issue #163 and open issue #140 were re-read during current Phase 2 work on 2026-08-12. RPi5 automation remains in Phase 3 — CV pull-deploy migration. Issue #163 is complete and the last proven CV production baseline remains exact `4a0069a97022841da07a687a197ea8cfacc56cd6`.
+The reviewed source-only chain established:
 
-Current exact CV main is newer at `cfe2bd0c3d557dc30f441eec7b511d26b71cb0d6`, with exact-main CI #626 / run `31537249617` successful, but the complete production→current-main range is documentation-only and classifies `NO_DEPLOY`. It is therefore not an `AUTO_DEPLOY_SAFE` one-shot canary candidate. The current first incomplete #140 gate remains: wait for a later genuine exact-current-main target whose complete production-to-target range classifies `AUTO_DEPLOY_SAFE` with `CONTROL_PLANE_CHANGED=false`, then separately review/authorize exactly one one-shot controller canary while the recurring timer remains disabled/inactive.
-
-Therefore source-only interfaces, schemas, migrations, crypto/reconciliation/projection/merge-state/policy/evidence/auth/transport/session/rollout-plan/provider code, tests and docs may proceed, but real GitHub App installation/permission changes, real credential minting, Cloudflare secret/bindings/resources or RPi5 integration require a separate owner authorization and fresh sequencing reconciliation at the exact rollout step.
-
-Do not reuse or broaden the existing `Rozkalns Automation` RPi5 verifier App.
-
-### Source-only read/webhook preflight — issue #8 / PR #9
-
-- [x] configuration-driven managed-repository allow-list source model;
+- [x] six-repository managed-project allow-list and explicit excluded repository;
 - [x] provider-neutral source-control read interface with no mutation methods;
 - [x] exact-head PR/check/workflow evidence binding;
-- [x] raw GitHub webhook header/HMAC verification source contract;
-- [x] delivery-claim/deduplication persistence interface with deterministic in-memory test implementation;
-- [x] reconciliation trigger requiring authoritative GitHub reread;
-- [x] planned REST endpoint → minimum GitHub App permission documentation;
-- [x] focused tests for allow-list, HMAC vector, missing/malformed auth metadata, duplicate delivery and stale SHA evidence;
-- [x] authoritative GitHub CI PASS after the Web Crypto compatibility fix;
-- [x] #8 reviewed and merged through PR #9.
+- [x] webhook HMAC/source contracts and durable delivery model;
+- [x] normalized GitHub REST/GraphQL mappers;
+- [x] fail-closed CI/review projection;
+- [x] exact-head GitHub merge-state gate;
+- [x] branch-policy provenance with `UNKNOWN` / `PARTIAL` / `COMPLETE` coverage;
+- [x] classic branch-protection mapper without automatically requesting Administration permission;
+- [x] commit-status/check producer identity modeling;
+- [x] latest-effective Check/workflow rerun evidence selection;
+- [x] D1 reconciliation schema and idempotency model;
+- [x] type-aware Promise safety;
+- [x] GitHub App installation-scope and short-lived credential lease contracts;
+- [x] bounded repository-scoped REST GET transport;
+- [x] GitHub App RS256 JWT + installation-token session boundary;
+- [x] staged least-privilege rollout contract;
+- [x] bounded fixed-query GraphQL merge-state transport;
+- [x] conditional commit-status evidence coverage (`OBSERVED` vs `NOT_REQUESTED`);
+- [x] concrete authoritative GitHub read provider;
+- [x] Metadata-only active branch-rules reader;
+- [x] fail-closed authoritative reconciliation composition.
 
-### Source-only projection/parity — issue #10 / PR #11
+Historical implementation evidence is retained in issues/PRs #8–#48 and focused Phase 2 docs rather than repeated line-by-line here.
 
-- [x] fail-closed mappers for only the documented GitHub REST fields currently consumed;
-- [x] current pending-like check-run statuses represented without treating them as success;
-- [x] exact-head check/workflow filtering and projection reassertion;
-- [x] conservative required-CI aggregation; missing/ambiguous policy/evidence never becomes PASS;
-- [x] conservative latest-effective-review aggregation; missing reviewer policy never becomes PASS;
-- [x] authoritative snapshot projection into the existing Phase 1 `DecisionReadModel` contract;
-- [x] deploy impact remains `UNKNOWN` unless supplied by a separate trusted projection;
-- [x] read-only projection exposes `OPEN_PR` only, never Merge;
-- [x] fixture/live structural parity and stale-head regression tests;
-- [x] source-only boundary tests include the mapper/projection modules;
-- [x] authoritative GitHub CI PASS on the final branch;
-- [x] #10 reviewed and merged through PR #11.
+### 2B — dedicated GitHub App rollout — COMPLETE for current read-only scope
 
-### Source-only authoritative merge-state gate — issue #12 / PR #14
+Dedicated App:
 
-- [x] exact-head provider contract includes a separate pull-request merge-state read;
-- [x] fail-closed mapper for the documented GitHub GraphQL merge-state fields consumed by Control;
-- [x] merge-state evidence is bound to the same PR number, exact head SHA and draft state as the PR snapshot;
-- [x] only `MERGEABLE/CLEAN` may satisfy the merge-state readiness gate;
-- [x] `BEHIND`, `BLOCKED`, `DIRTY`, `DRAFT`, `HAS_HOOKS`, `UNKNOWN`, `UNSTABLE` remain non-ready;
-- [x] unknown future merge-state enum values fail closed;
-- [x] source-only boundary includes the GraphQL mapper and still proves no transport/auth/mutation path;
-- [x] Repository `Administration: read` is deliberately not added merely to read branch protection;
-- [x] authoritative GitHub CI PASS on the final branch;
-- [x] #12 reviewed and merged through PR #14.
+`Rozkalns Control`
 
-### Source-only branch-policy provenance — issue #15 / PR #16
+Known identities:
 
-- [x] model branch-policy observations with explicit source provenance;
-- [x] distinguish `UNKNOWN`, `PARTIAL` and `COMPLETE` policy coverage;
-- [x] map active GitHub ruleset `required_status_checks` and pull-request review requirements from consumed documented fields;
-- [x] deduplicate required check contexts and combine multiple active rules conservatively;
-- [x] preserve required-check `integration_id` in policy evidence;
-- [x] record complex review semantics that cannot safely collapse to approval count alone;
-- [x] ruleset-only evidence remains partial while classic branch protection is unverified;
-- [x] reject duplicate source observations, branch/repository mismatch and mixed reconciliation timestamps;
-- [x] derive CI/review policy objects only from complete and representable evidence;
-- [x] document that active-rules reads need only Repository `Metadata: read` while classic branch protection needs `Administration: read`;
-- [x] authoritative GitHub CI PASS on final branch;
-- [x] #15 reviewed and merged through PR #16.
+- App ID: `4567356`;
+- Client ID: `Iv23likDoFtVeWBJfdFS`;
+- installation ID: `153121564`.
 
-### Source-only classic branch-protection mapper — issue #17 / PR #18
+Installed selected repositories exactly:
 
-- [x] add fail-closed mapper for consumed classic branch-protection response fields;
-- [x] preserve explicit `checks[].app_id` producer identity;
-- [x] normalize explicit `app_id=-1` as any-App while keeping missing `app_id` source identity unresolved;
-- [x] preserve legacy `contexts` requirements without pretending their producer identity is known;
-- [x] map classic required approval count, stale-review, code-owner and last-push semantics;
-- [x] map required conversation resolution into the existing complex-review feature gate;
-- [x] propagate unresolved required-check source identity through combined policy evidence;
-- [x] keep ambiguous/complex policy fail-closed in `deriveProjectionPolicies()`;
-- [x] source-boundary tests prove no live API/auth/mutation path was introduced;
-- [x] authoritative GitHub CI PASS on final branch;
-- [x] #17 reviewed and merged through PR #18 as `19e4e89d66bfba9218a36e5e19628ce7866c40ec`.
+- [x] `rozkalnsandris/hermes-tech`;
+- [x] `rozkalnsandris/hermes-deals`;
+- [x] `rozkalnsandris/rozkalns-cv`;
+- [x] `rozkalnsandris/RPi5_main`;
+- [x] `rozkalnsandris/ops-workflows`;
+- [x] `rozkalnsandris/rozkalnsandris`.
 
-### Source-only status/producer/webhook correctness — issue #19 / PR #20
+Explicitly excluded:
 
-- [x] add provider-neutral commit-status evidence bound to the exact PR head SHA;
-- [x] add fail-closed GitHub commit-status mapper for `success`, `failure`, `error`, `pending`;
-- [x] deterministically keep the newest effective status for each case-insensitive context;
-- [x] preserve Check Run `app.id` producer identity;
-- [x] treat completed Check Run `success`, `neutral` and `skipped` as passing GitHub required-status evidence;
-- [x] evaluate same required context across Check Runs and commit statuses conservatively;
-- [x] carry explicit required App/integration ID into CI policy and reject wrong/unknown producer evidence;
-- [x] bind commit-status evidence to the exact observed PR head SHA in authoritative reads and projection;
-- [x] derive reconciliation repository identity from the HMAC-verified webhook payload instead of an independent caller hint;
-- [x] regression tests cover latest status selection, case-insensitive contexts, mixed Check/status evidence, App mismatch/unknown producer, stale heads and verified webhook repo binding;
-- [x] source-boundary tests prove no live GitHub transport/auth/mutation path was introduced;
-- [x] authoritative GitHub CI PASS after code/docs reconciliation;
-- [x] #19 reviewed and merged through PR #20 as `9e56fc5cab4f61bcd3ee48df7a4c8865fc6d058b`.
+- [x] `rozkalnsandris/hermes-email-skill`.
 
-### Source-only reconciliation durability — issue #21 / PR #22
+Current granted repository permissions are read-only:
 
-- [x] add versioned minimal `GITHUB_RECONCILIATION` Queue-message contract;
-- [x] reject unknown Queue schema versions/kinds/fields and non-authoritative messages;
-- [x] bind message repository/project identity to the managed-project allow-list;
-- [x] define explicit durable delivery lifecycle `RECEIVED -> ENQUEUED -> PROCESSING -> SUCCEEDED/RETRY_PENDING/DEAD_LETTERED`;
-- [x] make success/dead-letter terminal and require sanitized error codes for retry/dead-letter transitions;
-- [x] add source-controlled `migrations/0001_reconciliation_core.sql` with `delivery_id` primary-key idempotency;
-- [x] persist attempt/timestamp/state/error-code observability without webhook body, tokens, secrets or private keys;
-- [x] source-boundary proves no D1/Queue binding, handler, `fetch()` transport or `env.*` access exists;
-- [x] first authoritative GitHub CI run #49 PASS on source/tests implementation;
-- [x] document durability, DLQ observability and current RPi sequencing contract;
-- [x] authoritative GitHub CI PASS after docs reconciliation — run #52;
-- [x] #21 reviewed and merged through PR #22 as `47cc58e5815159203e0822de42b3e0a47f442047`.
+- [x] Metadata;
+- [x] Contents;
+- [x] Issues;
+- [x] Pull requests;
+- [x] Checks;
+- [x] Actions.
 
-### Source-only async Promise safety — issue #23 / PR #25
+Still deliberately absent:
 
-- [x] enable type-aware ESLint Project Service for production `src/**/*.{ts,tsx}`;
-- [x] enforce `@typescript-eslint/no-floating-promises` as an error before live async handlers exist;
-- [x] keep `node:test` registration code outside this production runtime rule rather than adding blanket suppressions;
-- [x] preserve existing non-type-checked recommended lint for tests and JavaScript utility scripts;
-- [x] regression-lock the runtime-source glob, Project Service and floating-Promise rule in `tests/eslint-config.test.ts`;
-- [x] first typed-lint attempt failed closed because tests were outside a Project Service `tsconfig.json`;
-- [x] second typed-lint attempt proved the rule active but exposed only 58 `node:test` registration calls, leading to the narrower production-source scope instead of suppressions;
-- [x] authoritative GitHub CI run #59 PASS after source scoping, with typed lint, unit tests, build and Wrangler dry-run green;
-- [x] document runtime Promise handling and async-safety rationale;
-- [x] final authoritative GitHub CI PASS on exact final head — run #63;
-- [x] #23 reviewed and merged through PR #25 as `2030c9c93c0e8e6348c0b5381792eb57964ef391`.
+- [ ] Commit statuses permission;
+- [ ] Administration permission;
+- [ ] GitHub write permissions.
 
-### Source-only GitHub App installation auth/read transport — issue #26 / PR #27
+Do not add `statuses: read` or `Administration: read` merely to make readiness appear greener. Evidence must justify any permission expansion and owner authorization remains mandatory.
 
-- [x] define selected managed-repository installation read scope with case-insensitive duplicate rejection;
-- [x] allow only the Phase 2 read-permission subset and fail closed on write access;
-- [x] keep `administration` outside the approved source contract pending a separate canary/owner gate;
-- [x] model only sanitized credential lease evidence; raw credential material is absent from domain/business interfaces;
-- [x] enforce short-lived lease lifetime and a minimum remaining-lifetime safety margin;
-- [x] make installation-token format opaque with no prefix/length assumptions;
-- [x] define a repository/permission/version-bound REST read request with no caller-supplied auth header or write method;
-- [x] place future GitHub integration contracts under `src/integrations/github` and include them in Worker/test typechecking;
-- [x] source-boundary tests prove no live GitHub host, HTTP implementation or credential source was introduced;
-- [x] first authoritative GitHub CI run #65 PASS on source/tests implementation;
-- [x] document the GitHub App auth/read-transport contract and current RPi sequencing boundary;
-- [x] authoritative GitHub CI PASS after docs reconciliation — run #68;
-- [x] exact final-head GitHub CI PASS — run #69;
-- [x] #26 reviewed and merged through PR #27 as `a5f6c0e5a2a42172dc945247d51cb38bd50ce196`.
+### 2C — Cloudflare runtime + D1 bootstrap — COMPLETE for current fixture/read-only boundary
 
-### Source-only latest-effective CI rerun evidence — issue #28 / PR #29
+Production Cloudflare account:
 
-- [x] add documented optional ordering evidence for Check Runs and workflow runs;
-- [x] validate provided ordering fields while treating missing ordering evidence as ambiguous rather than guessed;
-- [x] select latest provable Check evidence per case-insensitive context + producer App;
-- [x] keep different Check producer Apps separate;
-- [x] normalize commit statuses latest-per-case-insensitive-context inside projection as a second safety layer;
-- [x] select latest provable workflow evidence by known workflow identity, run number, run attempt and documented timestamps;
-- [x] never collapse missing workflow identity merely because display names match;
-- [x] preserve ambiguous/equal/unorderable evidence simultaneously so it can block `PASS`;
-- [x] make `aggregateCiState()` normalize latest-effective evidence even when a future provider supplies duplicates;
-- [x] regression tests cover old-fail/new-success, old-success/new-running, producer separation, workflow reruns, ambiguous ordering and stale heads;
-- [x] source-boundary includes the evidence selector and remains free of live transport/mutation paths;
-- [x] first authoritative GitHub CI run #71 PASS on source/tests implementation;
-- [x] reconcile README, projection contract and ROADMAP with #27 merged baseline and #28 evidence semantics;
-- [x] authoritative GitHub CI PASS after docs reconciliation — run #74;
-- [x] exact final-head GitHub CI PASS — run #75;
-- [x] #28 reviewed and merged through PR #29 as `d414a34e04ffff36b904a4ab1562cc0025f5df71`.
+`70e29dbca0e8363358659102d2b74178`
 
-### Source-only bounded GitHub REST read transport — issue #30 / PR #31
+Worker:
 
-- [x] start the branch from exact post-PR-#29 `main=d414a34e04ffff36b904a4ab1562cc0025f5df71`;
-- [x] keep the concrete transport under the dedicated `src/integrations/github` boundary;
-- [x] use a fixed `https://api.github.com` origin with GET-only, integration-owned media type/API version and manual redirect handling;
-- [x] revalidate managed repository, approved read permission and sanitized credential lease before transport;
-- [x] follow only validated same-origin/same-repository `Link` `rel="next"` evidence sequentially;
-- [x] reject off-origin/cross-repository/traversal pagination, duplicate/malformed next links and pagination cycles;
-- [x] enforce a local request budget with a source-controlled hard cap;
-- [x] preserve endpoint-specific response pages instead of generically merging payload shapes;
-- [x] parse only sanitized `x-ratelimit-*` evidence and expose retry-not-before timing without an automatic retry loop;
-- [x] distinguish rate-limited, unauthorized, forbidden, not-found, malformed, boundary/budget and unexpected-status outcomes fail closed;
-- [x] keep credential-provider/network details out of public error strings and raw credential material out of source/tests/docs;
-- [x] keep `src/worker/index.ts` disconnected from the transport; no live GitHub request route exists;
-- [x] deterministic fake-session regressions cover one/multiple pages, absent Link, hostile links, cycles/budget, auth statuses, primary/secondary limits, malformed headers/content and transport failures;
-- [x] first CI attempt #77 failed closed at TypeScript because the generic transport method parameters needed explicit annotations;
-- [x] corrected source/test exact-head CI #78 PASS with policy, runtime audit, typecheck, typed lint, unit tests, build and Wrangler dry-run green;
-- [x] add focused transport documentation and reconcile README/ROADMAP with the merged #29 baseline and current RPi5 #163 sequencing gate;
-- [x] exact final-head GitHub CI PASS after docs reconciliation — run #81;
-- [x] #30 reviewed and merged through PR #31 as `e02093510afaa7decd88bfc753ee585a3a3ad676`.
+`rozkalns-control`
 
-### Source-only GitHub App JWT / installation session — issue #32 / PR #33
+Production D1:
 
-- [x] start the branch from exact current `main=2cf8cac5b63cd87599a027ad3eb5d39a32fb8872` after the disclosed no-op cleanup reconciliation;
-- [x] define non-secret GitHub App client-ID identity and a narrow `signRs256()` abstraction with no PEM/private-key representation in the public contract;
-- [x] build deterministic `RS256` JWT signing input with 60-second clock-skew backdating and a 9-minute future expiry;
-- [x] fix token exchange to `POST /app/installations/{installation_id}/access_tokens` under the trusted GitHub REST origin;
-- [x] explicitly narrow every token request to the validated repository names and approved read-only permission map;
-- [x] parse returned repository/permission evidence and require exact scope equivalence before accepting the lease;
-- [x] reuse the existing short-lived credential lease parser/usability gate for expiry and remaining lifetime;
-- [x] keep installation-token value opaque with no prefix or length assumption;
-- [x] retain raw JWT/token material only inside the dedicated integration layer and authorized-session closure;
-- [x] compose the authorized session with the merged #31 bounded REST GET transport while keeping Bearer credentials out of returned models;
-- [x] reject off-origin/out-of-scope authorized reads before authenticated HTTP;
-- [x] map signing/token endpoint/response/read failures to fixed sanitized typed outcomes;
-- [x] source-boundary proves Worker/shared/domain code has no JWT/token/Authorization primitive and Wrangler has no secret/var binding;
-- [x] CI #85 proved policy/audit/typecheck then failed closed on `no-control-regex`; production validation was rewritten without a lint suppression;
-- [x] CI #86 passed policy/audit/typecheck/lint and exposed only a test TypeScript nullability issue;
-- [x] CI #87 passed policy/audit/typecheck/lint and exposed only an opaque-token test false positive;
-- [x] corrected source/test exact-head CI #88 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
-- [x] add focused GitHub App session documentation and reconcile README/ROADMAP with #31 merged baseline and then-current RPi5 #163 gate;
-- [x] exact final-head GitHub CI PASS after docs reconciliation — run #91;
-- [x] #32 reviewed and merged through PR #33 as `5e6e4dbcc59207691bc2bae2c88e1c9b82d57f4f`.
+- binding: `CONTROL_DB`;
+- database: `rozkalns-control-production`;
+- UUID: `8504e986-faf0-450c-bfb5-41b5dbf8be09`;
+- jurisdiction: EU;
+- source-controlled migrations directory: `migrations`.
 
-### Source-only GitHub App rollout/canary plan — issue #34 / PR #36
+Completed live gates:
 
-- [x] start the branch from exact post-PR-#33 `main=5e6e4dbcc59207691bc2bae2c88e1c9b82d57f4f`;
-- [x] fix the future App identity to `Rozkalns Control` and repository-selection mode to selected repositories;
-- [x] derive the exact selected repository set from enabled `githubReadEnabled` managed-project policy instead of duplicating a second allow-list;
-- [x] prove the six intended repositories are selected and `rozkalnsandris/hermes-email-skill` remains excluded;
-- [x] begin with a Metadata-only stage covering repository metadata and active branch-rules canaries;
-- [x] define cumulative read-only stages for Contents, Issues, Pull requests, Checks and Actions;
-- [x] keep the planned GraphQL merge-state canary explicit under the Pull requests stage without adding a live GraphQL transport;
-- [x] make `statuses: read` conditional on explicit `LEGACY_COMMIT_STATUS_REQUIRED` repository evidence;
-- [x] keep `administration` and all write access unrepresentable by the rollout source contract;
-- [x] build exact-stage installation scopes through the existing fail-closed `parseGitHubInstallationReadScope()` contract;
-- [x] source-boundary tests prove the rollout manifest contains no GitHub HTTP/auth/secret/Worker mutation path;
-- [x] CI #93 failed closed at TypeScript on literal tuple-length narrowing; the runtime integrity check was preserved with a widened interface view;
-- [x] corrected source/test exact-head CI #94 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
-- [x] add focused rollout-plan documentation and reconcile README/ROADMAP with #33 merged baseline, completed RPi5 #163 and current RPi5 #140 gate;
-- [x] exact final-head GitHub CI PASS after docs reconciliation — run #97;
-- [x] #34 reviewed and merged through PR #36 as `44f557518e298e57488aac9d3a8df7184f8d9d99`.
+- [x] production D1 migration `0001_reconciliation_core.sql` applied through a one-shot fail-closed gate;
+- [x] GitHub App private-key secret binding exists as `GITHUB_APP_PRIVATE_KEY_PEM`;
+- [x] Worker carries the non-secret App Client ID + installation ID bindings;
+- [x] `CONTROL_LIVE_READ_ENABLED` exists and currently remains exactly `false`;
+- [x] workers.dev disabled;
+- [x] Preview URLs disabled.
 
-### Source-only bounded GitHub GraphQL merge-state transport — issue #37 / PR #39
+Queue/DLQ/webhook runtime durability is **not** live yet.
 
-- [x] start the branch from exact post-PR-#36 `main=44f557518e298e57488aac9d3a8df7184f8d9d99`;
-- [x] fix the endpoint to `https://api.github.com/graphql` and expose only one named pull-request merge-state query;
-- [x] pass dynamic repository owner/name and positive pull number only as GraphQL variables;
-- [x] limit selected fields to `number`, `headRefOid`, `mergeable`, `mergeStateStatus`, `isDraft`;
-- [x] require managed repository scope plus `pull_requests: read` before credential acquisition;
-- [x] keep arbitrary GraphQL documents, introspection and mutation operations unrepresentable;
-- [x] reuse the #32 private credential-acquisition path while keeping REST GET and GraphQL POST sessions as separate narrow interfaces;
-- [x] keep raw installation credentials internal to the integration session closure;
-- [x] reject any GraphQL `errors` envelope even when partial data is present;
-- [x] map only the validated pull-request node through the existing #12 fail-closed mapper and require exact returned PR number;
-- [x] parse sanitized GraphQL rate-limit headers and recognize HTTP-200 primary/secondary rate-limit evidence without an automatic retry loop;
-- [x] fail closed on missing repository/PR, malformed response/header/content, auth/permission, transport and unexpected-status outcomes;
-- [x] source-boundary tests prove Worker/shared code has no GraphQL endpoint/auth/mutation path and REST transport remains GET-only;
-- [x] source/test exact-head CI #99 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
-- [x] add focused GraphQL transport documentation and reconcile README/ROADMAP with #36 merged baseline and current RPi5 #140 gate;
-- [x] exact final-head GitHub CI PASS after docs reconciliation — run #102;
-- [x] #37 reviewed and merged through PR #39 as `d1854293fe4fdc3ba42fad48d0908627c4941bf9`.
+### 2D — public UI rollout — COMPLETE in fixture mode
 
-### Source-only conditional commit-status evidence coverage — issue #40 / PR #41
+Public UI:
 
-- [x] start the branch from exact post-PR-#39 `main=d1854293fe4fdc3ba42fad48d0908627c4941bf9`;
-- [x] distinguish `OBSERVED` from `NOT_REQUESTED` commit-status evidence in authoritative snapshots;
-- [x] keep existing callers defaulted to `OBSERVED` so the new contract cannot silently weaken current reads;
-- [x] make explicit `NOT_REQUESTED` skip `listCommitStatuses()` and return an empty, unobserved status array;
-- [x] prevent a successful Check from producing CI `PASS` for a required status-check context while commit statuses were not requested;
-- [x] preserve observed Check `FAIL` and `RUNNING` precedence when the status source is unrequested;
-- [x] allow workflow-only policy to evaluate independently when no required status-check contexts exist;
-- [x] reject contradictory `NOT_REQUESTED` snapshots that contain commit-status evidence;
-- [x] preserve exact-head validation for all commit statuses that are present;
-- [x] add deterministic provider-call, aggregation, projection and source-boundary regressions;
-- [x] CI #104 failed closed only because an existing projection test fixture did not declare the new required coverage field;
-- [x] correct that fixture to explicit `OBSERVED` without weakening production types;
-- [x] corrected source/test exact-head CI #105 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
-- [x] add focused coverage documentation and reconcile ROADMAP with #39 merged baseline and current RPi5 #140 gate;
-- [x] exact final-head GitHub CI PASS after docs reconciliation — run #108;
-- [x] #40 reviewed and merged through PR #41 as `6ea69414850f4e8796f4494be3d9a043623888d1`.
+`https://control.rozkalns.net`
 
-### Source-only authoritative GitHub read provider — issue #42 / PR #43
+Current routing state:
 
-- [x] start the branch from exact post-PR-#41 `main=6ea69414850f4e8796f4494be3d9a043623888d1`;
-- [x] implement the existing provider-neutral `SourceControlReadProvider` with no write methods;
-- [x] compose only the already-reviewed bounded REST transport and fixed GraphQL merge-state transport;
-- [x] bind one explicit observation time to every REST/GraphQL call made by the provider and composed snapshot helper;
-- [x] bind fixed repository-scoped endpoint paths to explicit minimum Phase 2 read permissions;
-- [x] exclude Issues API entries carrying the `pull_request` marker from normalized open issues;
-- [x] fail closed on repository/branch/PR identity mismatch and malformed collection/wrapper shapes;
-- [x] request Check Runs with `filter=all&per_page=100` so rerun evidence is not hidden by the endpoint default;
-- [x] filter Checks, commit statuses and workflow runs through existing exact-head/latest-effective evidence selectors;
-- [x] filter workflow runs by exact `head_sha` in the REST request;
-- [x] keep commit-status reads conditional: `NOT_REQUESTED` skips the provider status method through the merged #40 contract;
-- [x] add `readGitHubAuthoritativePullRequestSnapshot(...)` as a narrow composition helper over the generic authoritative snapshot reader;
-- [x] keep Worker, Wrangler and credential/session primitives outside the provider source boundary;
-- [x] deterministic fake-transport tests cover endpoint/permission binding, Issues-vs-PR filtering, exact-head evidence, malformed responses, one observation time and status skipping;
-- [x] CI #110 passed policy/audit/typecheck/lint and failed closed only because a local test case table was declared `readonly` before `.push()`;
-- [x] correct only the test helper declaration; production provider code remains unchanged;
-- [x] corrected source/test exact-head CI #111 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
-- [x] add focused provider documentation and reconcile README/ROADMAP with #41 merged baseline and current RPi5 #140 gate;
-- [x] exact final-head GitHub CI PASS after docs reconciliation — run #114;
-- [x] #42 reviewed and merged through PR #43 as `2d5d629179fd39b53e97c0b9b013f3e9fe383cc9`.
+- [x] custom domain attached;
+- [x] workers.dev OFF;
+- [x] Preview URLs OFF;
+- [x] no route mutation performed by ordinary redeploys.
 
-### Source-only Metadata active branch-rules reader — issue #44 / PR #46
+The first public rollout exposed an implementation bug in deployment-history verification: Cloudflare returns ordered deployment history, not a single deployment object. PR #96 corrected the verification contract to use the active/latest deployment while preserving exact one-version/100%-traffic checks.
 
-- [x] start the branch from exact post-PR-#43 `main=2d5d629179fd39b53e97c0b9b013f3e9fe383cc9`;
-- [x] add a concrete reader over the existing bounded REST transport with one explicit observation time;
-- [x] bind the fixed `/repos/{repo}/rules/branches/{encodedBranch}?per_page=100` endpoint to Repository `Metadata: read`;
-- [x] path-segment encode branch names while preserving the original normalized branch identity;
-- [x] flatten paginated array pages before mapping through `mapGitHubActiveBranchRules()`;
-- [x] preserve required status-check context/integration identity and simple review requirements through the existing mapper;
-- [x] combine only `GITHUB_ACTIVE_RULES` evidence so coverage remains explicitly `PARTIAL`;
-- [x] prove `deriveProjectionPolicies()` remains blocked with `BRANCH_POLICY_COVERAGE_INCOMPLETE` without classic evidence;
-- [x] fail closed on missing Metadata permission before transport execution and on invalid repository/time/branch or malformed page/rule evidence;
-- [x] source-boundary proves no classic `/protection` request, `administration` permission, live auth/HTTP primitive, Worker wiring or mutation path;
-- [x] source/test exact-head CI #116 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
-- [x] add focused active-rules reader documentation and reconcile README/ROADMAP with #43 merged baseline and current RPi5 #140 `NO_DEPLOY` gate;
-- [x] exact final-head GitHub CI PASS after docs reconciliation — run #119;
-- [x] #44 reviewed and merged through PR #46 as `450016bf609ca8f30fbe962e9df26b5b058db965`.
+PR #100 added an existing-domain redeploy gate so future Worker deploys can prove the existing `control.rozkalns.net` domain is unchanged rather than requiring `CUSTOM_DOMAIN=ABSENT`.
 
-### Source-only authoritative reconciliation composition — issue #47 / PR #48
+Latest proven production redeploy in this chat:
 
-- [x] start the branch from exact post-PR-#46 `main=450016bf609ca8f30fbe962e9df26b5b058db965`;
-- [x] add provider-neutral reconciliation composition with one explicit observation time;
-- [x] read the authoritative exact-head PR snapshot and exact requested open issue from the same provider instance;
-- [x] read branch-policy evidence for the observed default branch and require repository/branch/time identity agreement;
-- [x] derive CI/review policy only through existing `deriveProjectionPolicies()`;
-- [x] return typed `BLOCKED` without a `DecisionReadModel` for partial/unknown/unrepresentable policy evidence;
-- [x] return typed `PROJECTED` only for complete representable policy evidence through the existing projection mapper;
-- [x] preserve `OBSERVED` / `NOT_REQUESTED` commit-status coverage and prove required-check CI remains `WAITING` when statuses were not requested;
-- [x] preserve existing exact-head stale-evidence rejection;
-- [x] keep deploy impact `UNKNOWN` unless supplied by a trusted caller;
-- [x] source-boundary proves no HTTP/auth/token/private-key/secret/Worker/permission/mutation path was introduced;
-- [x] source/test exact-head CI #121 PASS with policy, runtime audit, typecheck, typed lint, all unit tests, build and Wrangler dry-run green;
-- [x] add focused reconciliation documentation and reconcile README/ROADMAP with #46 merged baseline and current RPi5 #140 `NO_DEPLOY` gate;
-- [ ] exact final-head GitHub CI PASS after docs reconciliation;
-- [ ] #47 final branch reviewed and merged.
+- Worker version: `ae86a000-845c-47e1-bac5-56a21d35fe07`;
+- active deployment: `faca2dcd-354b-436b-bdb6-4c6a4a56d797`;
+- traffic: `100%`;
+- domain ID: `ac685929d45e825df5b5f6b803a9814b6dbf5d9d`;
+- public routing change during redeploy: `NO_EXISTING_DOMAIN_PRESERVED`;
+- public mode: `FIXTURE_ONLY`;
+- live GitHub reconciliation: `DISABLED`.
 
-### Later Phase 2 live deliverables — separately gated
+All one-shot production authorizations used for the D1/UI/domain/redeploy gates are consumed and must never be reused.
 
-- [ ] dedicated `Rozkalns Control` GitHub App;
-- [ ] exact minimum read permissions and selected repositories only;
-- [ ] execute the reviewed rollout plan only one separately approved permission stage at a time;
-- [ ] live canary proving the exact GraphQL/REST permission set rather than assuming it;
-- [ ] canary `GET /rules/branches/{branch}` with Metadata-read before proposing any `Administration: read` expansion;
-- [ ] add/canary Repository `Commit statuses: read` only if actual managed repositories require commit-status evidence;
-- [ ] if still required after the Metadata-read canary, separately review/authorize an `Administration: read` classic-protection canary;
-- [ ] distinguish authorized classic-protection absence from permission/not-found ambiguity before treating classic coverage as observed-and-empty;
-- [ ] add an approved Cloudflare secret/private-key signer binding and prove real short-lived installation-token minting through a narrowly scoped canary;
-- [ ] wire the reviewed source-only provider + bounded REST/GraphQL transports/sessions + authoritative reconciliation composition to an approved live authoritative read-only reconciliation path;
-- [ ] authenticated webhook route using raw-body HMAC validation;
-- [ ] create/bind D1 and apply reviewed source-controlled migrations;
-- [ ] create/bind Queue + DLQ and implement producer/consumer handlers;
-- [ ] atomic durable delivery claim/transition persistence;
-- [ ] live issues/PR/review/CI/merge-state projections;
-- [ ] fixture/live adapter parity tests against real read-only snapshots;
-- [ ] observable reconciliation/DLQ failures in the live UI/state projection.
+### 2E — normalized live dashboard snapshot — READY FOR REVIEW
 
-### Must not do
+Issue #101 / PR #102 implements the missing UI-facing normalized live dashboard boundary.
+
+Exact PR #102 head:
+
+`a324f6e906cae97f6de473ccdd87744bec68376e`
+
+Exact-head CI #199 / run `31827655423`: **SUCCESS**.
+
+Delivered in PR #102:
+
+- [x] one normalized dashboard snapshot over the existing GitHub App read runtime;
+- [x] exactly the six managed repositories;
+- [x] one canonical observation timestamp per snapshot;
+- [x] real open issue counts;
+- [x] real open PR counts;
+- [x] real default-branch/main SHA;
+- [x] PR identity/title/URL;
+- [x] exact-head Checks;
+- [x] exact-head workflow runs;
+- [x] review observations;
+- [x] GitHub merge-state observation;
+- [x] `Cache-Control: no-store` Worker endpoint at `GET /api/github/dashboard`;
+- [x] sanitized upstream failure responses;
+- [x] request-scoped exact-repository installation-session reuse;
+- [x] React single same-origin dashboard fetch;
+- [x] `AbortController` cleanup/race protection;
+- [x] explicit live/disabled/error UI states;
+- [x] live `Open PR` rendered as a real semantic `<a>`;
+- [x] A55/mobile layout preserved;
+- [x] deterministic fake-provider/session tests; CI performs no live GitHub network request.
+
+### 2F — fail-closed readiness rule — ACTIVE
+
+The live observational dashboard must not fabricate human approval readiness.
+
+Until branch-policy evidence is complete and representable:
+
+- observed exact-head CI failure → `CI_FAILED`;
+- latest effective `CHANGES_REQUESTED` → `NEEDS_ANDRIS`;
+- draft/running/missing/ambiguous evidence → `WAITING`;
+- observed CI pass plus GitHub `MERGEABLE/CLEAN` without complete policy evidence → still `WAITING`;
+- observational live dashboard → **must not emit `MERGE_READY`**.
+
+Commit statuses remain `NOT_REQUESTED` in the current live-dashboard scope.
+
+### 2G — immediate next live gate
+
+Do **not** enable live reads merely because PR #102 is Ready.
+
+Required sequence:
+
+- [ ] explicit owner `squash merge #102`;
+- [ ] verify resulting exact `main`;
+- [ ] verify exact-main push CI success;
+- [ ] fresh production preflight against current Worker/domain/bindings;
+- [ ] separately authorize the production live-read activation;
+- [ ] change only the exact approved `CONTROL_LIVE_READ_ENABLED` runtime/config boundary;
+- [ ] deploy through the existing-domain redeploy gate;
+- [ ] verify `control.rozkalns.net` returns normalized live data for only six managed repositories;
+- [ ] verify real `Open PR` links;
+- [ ] verify no GitHub write capability/path appeared;
+- [ ] keep incomplete branch-policy evidence fail-closed;
+- [ ] record exact version/deployment/domain evidence and consume the authorization.
+
+Until that gate completes, production remains **fixture-only**.
+
+### Remaining Phase 2 durability/integration work
+
+These are not prerequisites for merging #102 but remain before the full event-driven Phase 2 exit gate:
+
+- [ ] authenticated live GitHub webhook activation/event subscriptions;
+- [ ] webhook secret binding;
+- [ ] Queue binding;
+- [ ] DLQ binding;
+- [ ] producer/consumer runtime handlers;
+- [ ] bounded retry exhaustion and observable DLQ state;
+- [ ] atomic durable delivery transitions in production;
+- [ ] UI projection of reconciliation/DLQ failures;
+- [ ] determine whether any managed repository genuinely requires legacy Commit statuses;
+- [ ] determine whether complete policy coverage truly requires a separately authorized Administration/classic-protection canary.
+
+### Phase 2 must not do
 
 - no GitHub source writes;
-- no Merge button mutation yet;
-- no RPi5 mutation;
-- no production deployment implied by integration work;
-- no AI execution.
+- no live Merge mutation;
+- no review/comment/rerun mutation;
+- no RPi5/root mutation;
+- no deployment implied by source merge;
+- no AI execution;
+- no permission expansion for convenience.
 
-### Exit gate
+### Phase 2 exit gate
 
-Live dashboard state matches GitHub deterministically, invalid/replayed events fail safely, and event loss is visible through durable/DLQ error state while no GitHub write permission/path exists.
+Phase 2 is complete only when:
 
-## Phase 3 — human decision actions
+- live dashboard state deterministically matches GitHub for the managed repositories;
+- stale/unknown/partial evidence fails closed;
+- invalid/replayed deliveries fail safely;
+- event loss/retry exhaustion is observable;
+- no GitHub write permission/path exists.
 
-Goal: make `Needs Andris` genuinely useful.
+---
 
-### Deliverables
+## Phase 3 — authenticated human decision actions
 
-- authenticated `Merge`;
-- `Needs changes`/request-change flow;
-- `Later` defer flow;
-- stale-head approval binding;
-- live CI/review revalidation before writes;
-- expected-head merge protection where supported;
-- idempotency/audit records;
-- optional `Retry CI` only if exact permission/semantics are proven.
+Goal: make `Needs Andris` perform real, auditable GitHub decisions from phone.
+
+**Status: NOT STARTED.**
+
+### Prerequisites
+
+- Phase 2 live read-only state is stable;
+- Cloudflare Access protects the human control surface;
+- Worker cryptographically validates Access JWT issuer/JWKS/audience;
+- dedicated GitHub App write permissions are reviewed only for already-implemented actions;
+- every action re-reads live GitHub state immediately before mutation.
+
+### Planned actions
+
+- [ ] authenticated `Merge`;
+- [ ] `Needs changes` / exact request-change flow;
+- [ ] `Later` defer flow;
+- [ ] stale-head approval binding;
+- [ ] exact-head CI/review revalidation before writes;
+- [ ] expected-head merge protection where supported;
+- [ ] idempotency + audit records;
+- [ ] optional `Retry CI` only after exact semantics/minimum permission are proven.
 
 ### Must not do
 
-- no production deploy action implied by Merge;
-- no DB/host/root action;
-- no broad GitHub App source-write permission;
-- no AI coding runtime.
+- Merge authorization is never production deploy authorization;
+- no production DB/host/root action from a GitHub decision;
+- no broad Contents-write permission by default;
+- no mutation from cached-only evidence.
 
 ### Exit gate
 
-A real PR can be safely decided from phone; stale approvals are rejected; action evidence is auditable; Merge cannot bypass CI/review policy.
+A real PR can be safely decided from the phone, stale approvals are rejected, the mutation is auditable, and GitHub policy cannot be bypassed.
+
+---
 
 ## Phase 4 — notifications + deterministic continuation
 
-Goal: reduce normal interaction to meaningful gates.
+Goal: reduce normal interaction to meaningful human gates.
 
-### Deliverables
+**Status: FUTURE.**
 
-- Telegram and/or web push;
-- deep link to exact decision card;
-- transition-based deduplication/noise control;
-- project/campaign pause controls where safe;
-- deterministic next-eligible task/campaign state;
-- pilot of ChatGPT Scheduled Task + connected GitHub app background bridge.
+### Planned deliverables
 
-### Pilot rule
+- [ ] Telegram and/or web push;
+- [ ] deep links to exact decision cards;
+- [ ] transition-based deduplication/noise control;
+- [ ] safe project/campaign pause controls;
+- [ ] deterministic next-eligible task/campaign state;
+- [ ] optional ChatGPT Scheduled Task + connected GitHub-app pilot.
 
-Do not assume Scheduled Tasks can perform unattended GitHub writes. Prove the required action set in the real account. If unsupported, keep the bridge read/notify/continue-state only.
+Do not assume unattended connected-app writes are supported. If they are not, keep the bridge read/notify/continuation-state only.
 
-### Exit gate
-
-A real workflow can reach `Needs Andris`, notify once, accept a decision, record it and move to a deterministic next state without old chat memory.
+---
 
 ## Phase 5 — production visibility
 
-Goal: show production truth without weakening production boundaries.
+Goal: show production truth without weakening the existing RPi5 production boundary.
 
-### Deliverables
+**Status: FUTURE.**
 
-- sanitized read-only RPi5 adapter;
-- GitHub main SHA vs production SHA;
-- deploy class;
-- runtime/health/rollback evidence projection;
-- drift/blocker display.
+### Planned deliverables
+
+- [ ] sanitized read-only RPi5 adapter;
+- [ ] GitHub main SHA vs production SHA;
+- [ ] deploy class;
+- [ ] runtime/health/rollback evidence;
+- [ ] drift/blocker display.
 
 ### Must not do
 
-- no direct SSH/sudo mutation from Control Center;
+- no direct Control SSH/sudo mutation;
 - no production DB writes;
 - no bypass of `RPi5_main` controller/helper gates.
 
-### Exit gate
-
-Control Center accurately explains production readiness/drift while all mutations remain owned by the existing production control plane.
+---
 
 ## Final optional phase — AI/agent runtime
 
 Only after the approval/control product is proven valuable.
+
+MVP and Phases 0–5 must not depend on OpenAI API, Claude API, AI Gateway, Sandbox SDK or autonomous coding workers.
