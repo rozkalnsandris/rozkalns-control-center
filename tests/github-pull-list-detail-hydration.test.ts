@@ -6,6 +6,7 @@ import {
   type GitHubCredentialLeaseEvidence,
   type GitHubInstallationReadScope,
   type GitHubInstallationReadTransport,
+  type GitHubReadRequest,
   type GitHubReadResult,
 } from "../src/integrations/github/app-installation-read-contract.js";
 import {
@@ -68,7 +69,10 @@ function detailPayload(detailHeadSha = headSha) {
 function provider(detailHeadSha = headSha, calls: string[] = []) {
   const readScope = scope();
   const restTransport: GitHubInstallationReadTransport = {
-    async get<T>(_scope, request): Promise<GitHubReadResult<T>> {
+    async get<T>(
+      _scope: GitHubInstallationReadScope,
+      request: GitHubReadRequest,
+    ): Promise<GitHubReadResult<T>> {
       calls.push(request.path);
       let pages: readonly unknown[];
       if (request.path === `/repos/${repository}/pulls?state=open&per_page=100`) {
