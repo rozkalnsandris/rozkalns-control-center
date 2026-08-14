@@ -79,7 +79,7 @@ function assertExactHeadEvidence(
   }
 }
 
-function observedWorkflowState(pull: PullRequestRead, ci: CiState, review: ReviewState): WorkflowState {
+function observedWorkflowState(ci: CiState, review: ReviewState): WorkflowState {
   if (ci === "FAIL") return "CI_FAILED";
   if (review === "CHANGES_REQUESTED") return "NEEDS_ANDRIS";
   return "WAITING";
@@ -120,7 +120,7 @@ async function readDecision(
   assertExactHeadEvidence(pull, mergeState, checkRuns, workflowRuns);
   const ci = aggregateObservedCiState(checkRuns, workflowRuns);
   const review = aggregateReviewState(reviews);
-  const state = observedWorkflowState(pull, ci, review);
+  const state = observedWorkflowState(ci, review);
 
   return {
     id: `github:${policy.id}:pr:${pull.number}`,
