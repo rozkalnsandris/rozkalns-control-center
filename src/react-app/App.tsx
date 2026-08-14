@@ -35,7 +35,7 @@ const mockActionLabels: Record<MockAction, string> = {
 export default function App() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [unavailable, setUnavailable] = useState(false);
-  const [notice, setNotice] = useState("Actions disabled");
+  const [notice, setNotice] = useState("No GitHub action can execute");
 
   useEffect(() => {
     const controller = new AbortController();
