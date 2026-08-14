@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   ACCOUNT_ID,
@@ -59,7 +60,6 @@ function printPlan() {
 }
 
 function runLocalValidation() {
-  const { spawnSync } = awaitableChildProcess();
   const result = spawnSync("npm", ["run", "check"], {
     cwd: process.cwd(),
     stdio: "inherit",
@@ -68,10 +68,6 @@ function runLocalValidation() {
   if (result.error || result.status !== 0) {
     stop("LOCAL_VALIDATION_FAILED", "npm run check failed before domain attach");
   }
-}
-
-function awaitableChildProcess() {
-  return { spawnSync: globalThis.__CONTROL_SPAWN_SYNC__ };
 }
 
 async function attachDomain(token) {
