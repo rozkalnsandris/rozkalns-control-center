@@ -1,0 +1,60 @@
+name: Production D1 Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact current main SHA authorized for this one-shot migration
+        required: true
+        type: string
+      expected_ci_run_id:
+        description: Exact successful main push CI run ID for expected_sha
+        required: true
+        type: string
+      owner_authorization:
+        description: Exact owner authorization string bound to SHA and CI run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-d1-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: ${{ github.actor == 'rozkalnsandris' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - name: Checkout exact dispatch SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16.0
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run source-controlled one-shot D1 gate
+        env:
+          CONTROL_EXPECTED_SHA: ${{ inputs.expected_sha }}
+          CONTROL_EXPECTED_CI_RUN_ID: ${{ inputs.expected_ci_run_id }}
+          CONTROL_OWNER_AUTHORIZATION: ${{ inputs.owner_authorization }}
+          CONTROL_GITHUB_ENVIRONMENT: production
+          CLOUDFLARE_ACCOUNT_ID: "70e29dbca0e8363358659102d2b74178"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_MIGRATION_TOKEN }}
+        run: |
+          node scripts/cloudflare-d1-migration-gate.mjs \
+            --mode apply \
+            --expected-sha "$CONTROL_EXPECTED_SHA" \
+            --expected-ci-run-id "$CONTROL_EXPECTED_CI_RUN_ID"
