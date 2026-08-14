@@ -38,6 +38,8 @@ Current Cloudflare documentation confirms:
 - `wrangler secret put` creates and immediately deploys a new Worker version, so it is not an acceptable operation under a read-only/no-deploy gate;
 - version upload and traffic deployment are separate operations and require their own later authorization.
 
+Current GitHub REST documentation additionally requires every API request to carry a valid `User-Agent` and documents `403 Forbidden` for an invalid User-Agent. Cloudflare's own Workers examples for GitHub API calls explicitly add a `User-Agent` header. The runtime adapter therefore owns one fixed non-secret GitHub API identity, `Rozkalns-Control`, and injects it into every outbound GitHub request before calling the Worker fetch implementation.
+
 ## Runtime bindings
 
 Non-secret configuration is source-controlled:
@@ -63,6 +65,8 @@ The existing session layer remains responsible for:
 - repository/permission narrowing;
 - returned scope verification;
 - keeping raw JWT and installation-token material inside the integration/session boundary.
+
+`createCloudflareGitHubCredentialFetch()` is the shared outbound HTTP adapter for installation-token exchange, authenticated REST reads and authenticated GraphQL reads. It preserves plain-function fetch receiver semantics and adds the fixed `User-Agent: Rozkalns-Control` header required by GitHub before forwarding the exact request. It does not change authorization, endpoint, method, body, repository/permission scope, redirect policy or retry behavior.
 
 The Cloudflare adapter does not log or return key material, JWTs, installation credentials or remote response bodies.
 
@@ -96,6 +100,7 @@ Deterministic tests prove:
 - generated RSA key material can produce a signature verified with RSA/SHA-256;
 - missing or unusable key material fails closed with sanitized errors;
 - non-secret client/installation bindings are validated;
+- the shared fetch adapter preserves plain-function receiver semantics and injects the exact GitHub User-Agent into token-exchange, REST and GraphQL requests;
 - one repository context is narrowed to one managed repository with exactly the six approved read permissions;
 - excluded repositories, invalid timestamps and mismatched reconciliation context fail before network access;
 - `wrangler.jsonc` contains only the approved non-secret values plus the required secret name;
