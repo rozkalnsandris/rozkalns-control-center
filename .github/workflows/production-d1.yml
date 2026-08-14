@@ -1,77 +1,17 @@
-name: Production D1
+name: Retired Production D1 Canary
 
 on:
-  issue_comment:
-    types: [created]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: production-d1
-  cancel-in-progress: false
-
 jobs:
-  apply:
-    name: authorized D1 migration
-    if: >-
-      github.run_attempt == '1' &&
-      github.event.issue.number == 74 &&
-      !github.event.issue.pull_request &&
-      github.event.comment.user.id == 277435981 &&
-      startsWith(github.event.comment.body, 'authorize Phase 2 remote D1 migration rozkalns-control-production ')
+  retired:
+    name: retired one-shot production D1 canary
+    if: ${{ false }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    environment: production
-
+    timeout-minutes: 1
     steps:
-      - name: Parse exact owner authorization
-        id: authorization
-        shell: bash
-        env:
-          AUTHORIZATION: ${{ github.event.comment.body }}
-          EVENT_MAIN_SHA: ${{ github.sha }}
-        run: |
-          set -Eeuo pipefail
-          pattern='^authorize Phase 2 remote D1 migration rozkalns-control-production ([0-9a-f]{40}) ci ([1-9][0-9]*)$'
-          if [[ ! "$AUTHORIZATION" =~ $pattern ]]; then
-            echo 'STOP=OWNER_AUTHORIZATION_INVALID' >&2
-            exit 1
-          fi
-          expected_sha="${BASH_REMATCH[1]}"
-          expected_ci="${BASH_REMATCH[2]}"
-          if [[ "$expected_sha" != "$EVENT_MAIN_SHA" ]]; then
-            echo 'STOP=AUTHORIZATION_SHA_STALE' >&2
-            exit 1
-          fi
-          printf 'sha=%s\n' "$expected_sha" >> "$GITHUB_OUTPUT"
-          printf 'ci=%s\n' "$expected_ci" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout exact current main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: main
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.16.0
-          cache: npm
-
-      - name: Install locked dependencies
-        run: npm ci
-
-      - name: Run guarded production D1 gate
-        env:
-          CLOUDFLARE_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
-          CONTROL_OWNER_AUTHORIZATION: ${{ github.event.comment.body }}
-          EXPECTED_SHA: ${{ steps.authorization.outputs.sha }}
-          EXPECTED_CI: ${{ steps.authorization.outputs.ci }}
-        run: >-
-          npm run cf:d1-migration-gate --
-          --mode apply
-          --expected-sha "$EXPECTED_SHA"
-          --expected-ci-run-id "$EXPECTED_CI"
+      - name: Retired
+        run: echo 'The #74 first-production-D1 canary is completed and cannot be replayed. Use the reviewed Control authorization registry for future operations.'
