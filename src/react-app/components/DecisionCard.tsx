@@ -64,10 +64,19 @@ function actionClass(action: MockAction) {
   return "action-button action-button--secondary";
 }
 
+function referenceLabel(item: DecisionReadModel) {
+  const parts: string[] = [];
+  if (item.issueNumber !== null) parts.push(`Issue #${item.issueNumber}`);
+  if (item.prNumber !== null) parts.push(`PR #${item.prNumber}`);
+  return parts.join(" · ");
+}
+
 export function DecisionCard({ item, project, onMockAction }: DecisionCardProps) {
   const titleId = `${item.id}-title`;
   const reasonId = `${item.id}-reason`;
   const evidenceLabel = `Evidence · ${evidenceState(item)} · ${reconciledLabel(item.lastReconciledAt)} UTC`;
+  const reference = referenceLabel(item);
+  const title = item.prTitle ?? item.issueTitle ?? "Untitled change";
 
   return (
     <article className="decision-card" aria-labelledby={titleId} aria-describedby={reasonId}>
@@ -81,10 +90,8 @@ export function DecisionCard({ item, project, onMockAction }: DecisionCardProps)
 
       <div className="decision-card__heading">
         <div>
-          <p className="decision-card__reference">
-            Issue #{item.issueNumber}{item.prNumber ? ` · PR #${item.prNumber}` : ""}
-          </p>
-          <h3 id={titleId}>{item.prTitle ?? item.issueTitle}</h3>
+          {reference ? <p className="decision-card__reference">{reference}</p> : null}
+          <h3 id={titleId}>{title}</h3>
         </div>
         <span className="changed-files" aria-label={`${item.changedFiles} changed files`}>
           {item.changedFiles} files
@@ -124,17 +131,23 @@ export function DecisionCard({ item, project, onMockAction }: DecisionCardProps)
       </details>
 
       {item.allowedActions.length > 0 ? (
-        <div className="action-row" aria-label={`Mock actions for ${project.displayName}`}>
-          {item.allowedActions.map((action) => (
-            <button
-              className={actionClass(action)}
-              key={action}
-              type="button"
-              onClick={() => onMockAction(action, item)}
-            >
-              {actionLabels[action]}
-            </button>
-          ))}
+        <div className="action-row" aria-label={`Available actions for ${project.displayName}`}>
+          {item.allowedActions.map((action) =>
+            action === "OPEN_PR" && item.prUrl ? (
+              <a className={actionClass(action)} href={item.prUrl} key={action}>
+                {actionLabels[action]}
+              </a>
+            ) : (
+              <button
+                className={actionClass(action)}
+                key={action}
+                type="button"
+                onClick={() => onMockAction(action, item)}
+              >
+                {actionLabels[action]}
+              </button>
+            ),
+          )}
         </div>
       ) : null}
     </article>
