@@ -17,6 +17,7 @@ import {
   assertSubdomainDisabled,
   cfGet,
   childEnvironment,
+  cleanEnv,
   listDeployments,
   listDomains,
   listVersions,
@@ -31,7 +32,6 @@ const AUTH_PREFIX = `authorize Phase 2 Cloudflare live read ${HOSTNAME} `;
 const APP_CLIENT_ID = "Iv23likDoFtVeWBJfdFS";
 const INSTALLATION_ID = "153121564";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const DOMAIN_ID_PATTERN = /^[0-9a-f]{40}$/;
 const MANAGED_REPOSITORIES = [
   "rozkalnsandris/hermes-tech",
   "rozkalnsandris/hermes-deals",
@@ -81,6 +81,7 @@ function plan() {
   console.log("WORKER_DEPLOY=NOT_EXECUTED_IN_PLAN");
   console.log("PUBLIC_ROUTING_CHANGE=NO");
   console.log("CREDENTIAL_MODEL=SINGLE_TEMPORARY_SETUP_TOKEN");
+  console.log("ACCESS_CANARY_AUTH=SHORT_LIVED_USER_TOKEN_REQUIRED");
   console.log(
     `OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id> version <current-version-id> deployment <current-deployment-id> domain <domain-id>`,
   );
@@ -89,6 +90,25 @@ function plan() {
 
 function assertVersionId(value, code, label) {
   if (!UUID_PATTERN.test(value)) stop(code, `${label} must be a lowercase UUID`);
+}
+
+function assertDomainId(value) {
+  const hasControlCharacter =
+    typeof value === "string" &&
+    Array.from(value).some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127;
+    });
+
+  if (typeof value !== "string" || value.length === 0 || value.length > 256 || hasControlCharacter) {
+    stop("DOMAIN_ID_INVALID", "domain id must be a non-empty bounded opaque identifier");
+  }
+}
+
+function sanitizedChildEnvironment(apiToken = "") {
+  const env = apiToken ? childEnvironment(apiToken) : cleanEnv();
+  delete env.CONTROL_ACCESS_TOKEN;
+  return env;
 }
 
 function assertPlainTextBinding(detail, name, expected, codePrefix) {
@@ -202,15 +222,18 @@ function versionIdSet(versions, codePrefix) {
   return new Set(ids);
 }
 
-async function readPublicDashboard(codePrefix) {
+async function readPublicDashboard(codePrefix, accessToken) {
   let response;
   try {
     response = await fetch(`https://${HOSTNAME}/api/github/dashboard`, {
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "cf-access-token": accessToken,
+      },
       signal: AbortSignal.timeout(15000),
     });
   } catch {
-    stop(`${codePrefix}_PUBLIC_DASHBOARD_READ`, "public dashboard request failed");
+    stop(`${codePrefix}_PUBLIC_DASHBOARD_READ`, "Access-authenticated public dashboard request failed");
   }
 
   if (!response.headers.get("cache-control")?.includes("no-store")) {
@@ -221,7 +244,7 @@ async function readPublicDashboard(codePrefix) {
   if (!contentType.toLowerCase().includes("application/json")) {
     stop(
       `${codePrefix}_PUBLIC_DASHBOARD_MEDIA_TYPE`,
-      `dashboard response must be application/json; got ${contentType || "missing content-type"}`,
+      `Access-authenticated dashboard response must be application/json; got ${contentType || "missing content-type"}`,
     );
   }
 
@@ -234,15 +257,15 @@ async function readPublicDashboard(codePrefix) {
   return { response, body };
 }
 
-async function assertFixturePublicCanary(codePrefix) {
-  const { response, body } = await readPublicDashboard(codePrefix);
+async function assertFixturePublicCanary(codePrefix, accessToken) {
+  const { response, body } = await readPublicDashboard(codePrefix, accessToken);
   if (response.status !== 503 || body?.error !== "LIVE_READ_DISABLED") {
-    stop(`${codePrefix}_FIXTURE_CANARY`, "current public Worker is not the reviewed fixture-only runtime");
+    stop(`${codePrefix}_FIXTURE_CANARY`, "current Access-protected Worker is not the reviewed fixture-only runtime");
   }
 }
 
-async function assertLivePublicCanary(codePrefix) {
-  const { response, body } = await readPublicDashboard(codePrefix);
+async function assertLivePublicCanary(codePrefix, accessToken) {
+  const { response, body } = await readPublicDashboard(codePrefix, accessToken);
   if (response.status !== 200) stop(`${codePrefix}_LIVE_CANARY_STATUS`, `live dashboard returned HTTP ${response.status}`);
   if (typeof body?.generatedAt !== "string" || !Array.isArray(body?.projects) || !Array.isArray(body?.decisions)) {
     stop(`${codePrefix}_LIVE_CANARY_SHAPE`, "live dashboard did not return the normalized dashboard shape");
@@ -264,14 +287,16 @@ async function apply(args) {
   assertBaseInputs(args.sha, args.ci);
   assertVersionId(args.currentVersion, "CURRENT_VERSION_ID_INVALID", "current version id");
   assertVersionId(args.currentDeployment, "CURRENT_DEPLOYMENT_ID_INVALID", "current deployment id");
-  if (!DOMAIN_ID_PATTERN.test(args.domainId)) stop("DOMAIN_ID_INVALID", "domain id must be exactly 40 lowercase hex characters");
+  assertDomainId(args.domainId);
 
   const account = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
   const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? "";
+  const accessToken = process.env.CONTROL_ACCESS_TOKEN ?? "";
   const authorization = process.env.CONTROL_OWNER_AUTHORIZATION ?? "";
 
   if (account !== ACCOUNT_ID) stop("ACCOUNT_ID_INVALID", "Cloudflare account does not match reviewed production account");
   if (!apiToken) stop("API_TOKEN_REQUIRED", "temporary rozkalns-control-setup Cloudflare API token is required");
+  if (!accessToken) stop("ACCESS_TOKEN_REQUIRED", "short-lived Cloudflare Access user token is required for protected dashboard canaries");
 
   const expectedAuthorization =
     `${AUTH_PREFIX}${args.sha} ci ${args.ci} version ${args.currentVersion} ` +
@@ -283,19 +308,19 @@ async function apply(args) {
   assertRepo(args.sha);
   await assertLiveSourceConfig();
   await assertCi(args.sha, args.ci);
-  run("npm", ["run", "check"], { inherit: true });
+  run("npm", ["run", "check"], { inherit: true, env: sanitizedChildEnvironment() });
 
   const beforeIds = versionIdSet(await listVersions(apiToken), "PREWRITE");
   await assertExpectedActive(apiToken, args.currentVersion, args.currentDeployment, false, "PREWRITE");
   await assertExactDomain(apiToken, args.domainId, "PREWRITE");
-  await assertFixturePublicCanary("PREWRITE");
+  await assertFixturePublicCanary("PREWRITE", accessToken);
 
   assertRepo(args.sha);
   await assertLiveSourceConfig();
   await assertCi(args.sha, args.ci);
   await assertExpectedActive(apiToken, args.currentVersion, args.currentDeployment, false, "FINAL_PREWRITE");
   await assertExactDomain(apiToken, args.domainId, "FINAL_PREWRITE");
-  await assertFixturePublicCanary("FINAL_PREWRITE");
+  await assertFixturePublicCanary("FINAL_PREWRITE", accessToken);
 
   const finalBeforeIds = versionIdSet(await listVersions(apiToken), "FINAL_PREWRITE");
   if (beforeIds.size !== finalBeforeIds.size || [...beforeIds].some((id) => !finalBeforeIds.has(id))) {
@@ -318,7 +343,7 @@ async function apply(args) {
       "--experimental-auto-create=false",
       "--install-skills=false",
     ],
-    { inherit: true, env: childEnvironment(apiToken) },
+    { inherit: true, env: sanitizedChildEnvironment(apiToken) },
   );
 
   const afterVersions = await listVersions(apiToken);
@@ -337,7 +362,7 @@ async function apply(args) {
   assertVersionBindings(await versionDetail(apiToken, newVersionId), true, "POST_VERIFY");
   await assertSubdomainDisabled(apiToken, "POST_VERIFY");
   const domain = await assertExactDomain(apiToken, args.domainId, "POST_VERIFY");
-  await assertLivePublicCanary("POST_VERIFY");
+  await assertLivePublicCanary("POST_VERIFY", accessToken);
 
   console.log("LIVE_READ_ENABLE_GATE=PASS");
   console.log("AUTHORIZATION_CONSUMED=YES");
@@ -348,6 +373,7 @@ async function apply(args) {
   console.log(`DOMAIN_ID=${domain.id}`);
   console.log("PUBLIC_UI_MODE=LIVE_READ_ONLY");
   console.log("CONTROL_LIVE_READ_ENABLED=TRUE");
+  console.log("ACCESS_PROTECTION=PRESERVED");
   console.log("GITHUB_MUTATION=DISABLED");
   console.log("WEBHOOK_RUNTIME=DISABLED");
   console.log("WORKERS_DEV=DISABLED");

@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const liveReadGate = "scripts/cloudflare-live-read-enable-gate.mjs";
+const accountId = "70e29dbca0e8363358659102d2b74178";
 
 function plan() {
   return spawnSync(process.execPath, [liveReadGate], {
@@ -23,6 +24,7 @@ test("live-read enable plan is credential-free and non-mutating", () => {
   assert.match(result.stdout, /GITHUB_MUTATION=DISABLED/);
   assert.match(result.stdout, /CLOUDFLARE_MUTATION=NO/);
   assert.match(result.stdout, /PUBLIC_ROUTING_CHANGE=NO/);
+  assert.match(result.stdout, /ACCESS_CANARY_AUTH=SHORT_LIVED_USER_TOKEN_REQUIRED/);
   assert.match(result.stdout, /NO_BLIND_RETRY_AFTER_DEPLOY_STARTED=YES/);
   assert.match(
     result.stdout,
@@ -54,8 +56,60 @@ test("live-read gate binds authorization to exact main, CI and current Cloudflar
   assert.match(source, /assertRepo\(args\.sha\)/);
   assert.match(source, /assertCi\(args\.sha, args\.ci\)/);
   assert.match(source, /assertExpectedActive\(apiToken, args\.currentVersion, args\.currentDeployment, false, "PREWRITE"\)/);
-  assert.match(source, /assertFixturePublicCanary\("PREWRITE"\)/);
+  assert.match(source, /assertFixturePublicCanary\("PREWRITE", accessToken\)/);
   assert.match(source, /FINAL_PREWRITE_VERSION_SET_CHANGED/);
+});
+
+test("Custom Domain id is treated as a bounded opaque identifier and remains exact-matched", async () => {
+  const source = await readFile(liveReadGate, "utf8");
+
+  assert.match(source, /function assertDomainId/);
+  assert.match(source, /value\.length > 256/);
+  assert.match(source, /domain\?\.id === expectedDomainId/);
+  assert.doesNotMatch(source, /DOMAIN_ID_PATTERN/);
+  assert.doesNotMatch(source, /40 lowercase hex characters/);
+
+  const opaque32 = spawnSync(
+    process.execPath,
+    [
+      liveReadGate,
+      "--mode",
+      "apply",
+      "--expected-sha",
+      "0".repeat(40),
+      "--expected-ci-run-id",
+      "1",
+      "--expected-current-version-id",
+      "00000000-0000-0000-0000-000000000000",
+      "--expected-current-deployment-id",
+      "11111111-1111-1111-1111-111111111111",
+      "--expected-domain-id",
+      "a".repeat(32),
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: { CLOUDFLARE_ACCOUNT_ID: accountId },
+    },
+  );
+  assert.notEqual(opaque32.status, 0);
+  assert.match(opaque32.stderr, /API_TOKEN_REQUIRED/);
+  assert.doesNotMatch(opaque32.stderr, /DOMAIN_ID_INVALID/);
+});
+
+test("Access-protected dashboard canary uses only a short-lived user token and scrubs it from child processes", async () => {
+  const source = await readFile(liveReadGate, "utf8");
+
+  assert.match(source, /process\.env\.CONTROL_ACCESS_TOKEN/);
+  assert.match(source, /ACCESS_TOKEN_REQUIRED/);
+  assert.match(source, /"cf-access-token": accessToken/);
+  assert.match(source, /delete env\.CONTROL_ACCESS_TOKEN/);
+  assert.match(source, /sanitizedChildEnvironment\(\)/);
+  assert.match(source, /sanitizedChildEnvironment\(apiToken\)/);
+  assert.match(source, /assertLivePublicCanary\("POST_VERIFY", accessToken\)/);
+  assert.doesNotMatch(source, /CF-Access-Client-Secret/);
+  assert.doesNotMatch(source, /CF-Access-Client-Id/);
+  assert.doesNotMatch(source, /Service Auth|bypass/i);
 });
 
 test("live-read gate has one strict deploy and no independent routing, secret or D1 write", async () => {
@@ -86,12 +140,13 @@ test("public dashboard canary requires JSON media type before parsing and proves
   assert.ok(mediaTypeGuard >= 0 && jsonParse > mediaTypeGuard);
   assert.match(source, /PUBLIC_DASHBOARD_MEDIA_TYPE/);
   assert.match(source, /application\/json/);
-  assert.match(source, /assertLivePublicCanary\("POST_VERIFY"\)/);
+  assert.match(source, /assertLivePublicCanary\("POST_VERIFY", accessToken\)/);
   assert.match(source, /repositories\).*MANAGED_REPOSITORIES/s);
   assert.match(source, /workflowState === "MERGE_READY"/);
   assert.match(source, /action !== "OPEN_PR"/);
   assert.match(source, /LIVE_READ_ENABLE_GATE=PASS/);
   assert.match(source, /PUBLIC_UI_MODE=LIVE_READ_ONLY/);
+  assert.match(source, /ACCESS_PROTECTION=PRESERVED/);
   assert.match(source, /GITHUB_MUTATION=DISABLED/);
 });
 
@@ -111,7 +166,7 @@ test("apply fails before network when privileged account input is absent", () =>
       "--expected-current-deployment-id",
       "11111111-1111-1111-1111-111111111111",
       "--expected-domain-id",
-      "a".repeat(40),
+      "opaque-domain-id",
     ],
     { cwd: process.cwd(), encoding: "utf8", env: {} },
   );
