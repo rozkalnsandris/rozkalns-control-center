@@ -90,8 +90,8 @@ test("central production D1 workflow is owner-only, default-branch bound and lea
   assert.match(workflow, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_D1_TOKEN \}\}/);
   assert.match(workflow, /CONTROL_OWNER_AUTHORIZATION: \$\{\{ github\.event\.comment\.body \}\}/);
   assert.match(workflow, /--mode apply/);
-  assert.match(workflow, /--expected-sha \"\$EXPECTED_SHA\"/);
-  assert.match(workflow, /--expected-ci-run-id \"\$EXPECTED_CI\"/);
+  assert.match(workflow, /--expected-sha "\$EXPECTED_SHA"/);
+  assert.match(workflow, /--expected-ci-run-id "\$EXPECTED_CI"/);
 });
 
 test("D1 system namespaces are tolerated during first-bootstrap schema inspection", async () => {
