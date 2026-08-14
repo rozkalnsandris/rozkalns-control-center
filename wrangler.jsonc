@@ -12,7 +12,8 @@
   },
   "vars": {
     "GITHUB_APP_CLIENT_ID": "Iv23likDoFtVeWBJfdFS",
-    "GITHUB_APP_INSTALLATION_ID": "153121564"
+    "GITHUB_APP_INSTALLATION_ID": "153121564",
+    "CONTROL_LIVE_READ_ENABLED": "false"
   },
   "secrets": {
     "required": ["GITHUB_APP_PRIVATE_KEY_PEM"]

@@ -29,7 +29,9 @@ test("GitHub App rollout manifest and declared runtime bindings remain least-pri
   assert.deepEqual(config.vars, {
     GITHUB_APP_CLIENT_ID: "Iv23likDoFtVeWBJfdFS",
     GITHUB_APP_INSTALLATION_ID: "153121564",
+    CONTROL_LIVE_READ_ENABLED: "false",
   });
+  assert.equal(config.vars?.CONTROL_LIVE_READ_ENABLED, "false");
   assert.deepEqual(config.secrets?.required, ["GITHUB_APP_PRIVATE_KEY_PEM"]);
   assert.doesNotMatch(wrangler, /-----BEGIN|ghs_/);
 
