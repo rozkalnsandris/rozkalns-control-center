@@ -5,6 +5,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { classifyInitialD1SchemaRows } from "./d1-schema-policy.mjs";
 
 const REPO = "rozkalnsandris/rozkalns-control-center";
 const HOST = "lenovo";
@@ -15,6 +16,7 @@ const JURISDICTION = "eu";
 const MIGRATION = "0001_reconciliation_core.sql";
 const MIGRATION_SHA256 = "95d388b6405cce25f5b36caa78ec08b8d74cb17186a3e788802cc5251742efc3";
 const WRANGLER_VERSION = "4.120.0";
+const NODE_MINIMUM = "22.12.0";
 const AUTH_PREFIX = `authorize Phase 2 remote D1 migration ${DB_NAME} `;
 const CF = "https://api.cloudflare.com/client/v4";
 const GH = "https://api.github.com";
@@ -69,7 +71,7 @@ function assertInputs(a) {
   if (!/^[0-9a-f]{40}$/.test(a.sha)) stop("EXPECTED_SHA_INVALID", "expected SHA must be 40 lowercase hex characters");
   if (!/^[1-9][0-9]*$/.test(a.ci)) stop("CI_RUN_ID_INVALID", "CI run id must be a positive integer");
   const node = process.versions.node.split(".").map(Number);
-  if (node[0] < 22 || (node[0] === 22 && node[1] < 12)) stop("NODE_VERSION_INVALID", "Node 22.12.0+ is required");
+  if (node[0] < 22 || (node[0] === 22 && node[1] < 12)) stop("NODE_VERSION_INVALID", `Node ${NODE_MINIMUM}+ is required`);
   if (hostname().split(".")[0].toLowerCase() !== HOST) stop("WRONG_HOST", `apply requires ${HOST}`);
 }
 
@@ -113,10 +115,9 @@ async function cf(account, token, path, init = {}) {
   return p.result;
 }
 
-async function assertDb(account, token, requireEmpty = false) {
+async function assertDb(account, token) {
   const db = await cf(account, token, `/d1/database/${DB_ID}`);
   if (db?.uuid !== DB_ID || db?.name !== DB_NAME || db?.jurisdiction !== JURISDICTION) stop("D1_RESOURCE_IDENTITY_INVALID", "D1 identity does not match reviewed production target");
-  if (requireEmpty && (!Number.isInteger(db?.num_tables) || db.num_tables !== 0)) stop("PREWRITE_DATABASE_NOT_EMPTY", "D1 must prove num_tables=0 before first migration");
 }
 
 async function select(account, token, sql) {
@@ -133,20 +134,14 @@ function schemaSql() {
 
 async function assertProjectAbsent(account, token) {
   const rows = await select(account, token, `SELECT type, name, tbl_name FROM sqlite_schema WHERE name IN (${schemaSql()}) ORDER BY type, name`);
-  if (rows.length !== 0) stop("PREWRITE_PROJECT_SCHEMA_PRESENT", "project schema objects already exist");
+  if (rows.length !== 0) stop("PREWRITE_PROJECT_SCHEMA_PRESENT", "reviewed project schema or migration history already exists");
 }
 
-function migrationNames(text) {
-  return [...new Set(text.match(/\b\d{4}_[A-Za-z0-9._-]+\.sql\b/g) ?? [])].sort();
-}
-
-function listMigrations(account, token) {
-  return migrationNames(run(wrangler(), ["d1", "migrations", "list", DB_NAME, "--remote", "--config", "wrangler.jsonc", "--experimental-provision=false", "--experimental-auto-create=false", "--install-skills=false"], { env: cleanEnv({ CLOUDFLARE_API_TOKEN: token, CLOUDFLARE_ACCOUNT_ID: account }) }));
-}
-
-function assertPending(account, token) {
-  const names = listMigrations(account, token);
-  if (names.length !== 1 || names[0] !== MIGRATION) stop("PENDING_MIGRATION_SET_INVALID", "Wrangler did not report exactly the reviewed pending migration");
+async function assertInitialUserSchemaEmpty(account, token) {
+  const rows = await select(account, token, "SELECT type, name, tbl_name FROM sqlite_schema ORDER BY type, name");
+  const classification = classifyInitialD1SchemaRows(rows);
+  if (!classification.valid) stop("PREWRITE_SCHEMA_EVIDENCE_INVALID", "D1 schema evidence was malformed or unsupported");
+  if (classification.unexpected.length !== 0) stop("PREWRITE_UNEXPECTED_USER_SCHEMA", "D1 contains unexpected application schema objects before first migration");
 }
 
 async function postVerify(account, token) {
@@ -158,7 +153,6 @@ async function postVerify(account, token) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) stop("POST_VERIFY_SCHEMA_INVALID", "reviewed project schema mismatch");
   const count = await select(account, token, "SELECT COUNT(*) AS row_count FROM webhook_deliveries");
   if (count.length !== 1 || Number(count[0]?.row_count) !== 0) stop("POST_VERIFY_DELIVERY_ROWS", "webhook_deliveries must be empty");
-  if (listMigrations(account, token).length !== 0) stop("POST_VERIFY_PENDING_MIGRATIONS", "Wrangler still reports pending migrations");
 }
 
 function plan() {
@@ -170,7 +164,10 @@ function plan() {
   console.log(`DATABASE_JURISDICTION=${JURISDICTION}`);
   console.log(`MIGRATION=${MIGRATION}`);
   console.log(`MIGRATION_SHA256=${MIGRATION_SHA256}`);
+  console.log(`NODE_MINIMUM=${NODE_MINIMUM}`);
   console.log(`WRANGLER=${WRANGLER_VERSION}`);
+  console.log("PREWRITE_D1_VERIFICATION=GET_AND_SELECT_ONLY");
+  console.log("PREWRITE_WRANGLER_MIGRATIONS_LIST=DISABLED");
   console.log("REMOTE_D1_MUTATION=NO");
   console.log(`OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id>`);
   console.log("NO_BLIND_RETRY_AFTER_APPLY_STARTED=YES");
@@ -190,15 +187,15 @@ async function apply(a) {
   await assertSource();
   await assertCi(a.sha, a.ci);
   run("npm", ["run", "check"], { inherit: true });
-  await assertDb(account, token, true);
+  await assertDb(account, token);
   await assertProjectAbsent(account, token);
-  assertPending(account, token);
+  await assertInitialUserSchemaEmpty(account, token);
 
   assertRepo(a.sha);
   await assertCi(a.sha, a.ci);
-  await assertDb(account, token, true);
+  await assertDb(account, token);
   await assertProjectAbsent(account, token);
-  assertPending(account, token);
+  await assertInitialUserSchemaEmpty(account, token);
 
   console.log("APPLY_STARTED=YES");
   console.log("AUTHORIZATION_CONSUMED=YES");
@@ -224,6 +221,7 @@ async function apply(a) {
   console.log("REMOTE_D1_MIGRATION_GATE=PASS");
   console.log("AUTHORIZATION_CONSUMED=YES");
   console.log("MIGRATION_HISTORY=PROVEN");
+  console.log("PENDING_MIGRATIONS=0_PROVEN_BY_SOURCE_HISTORY_MATCH");
   console.log("WEBHOOK_DELIVERIES_ROWS=0");
   console.log("QUEUE_DLQ_WEBHOOK_WORKER_DEPLOY_TRAFFIC_ROUTING=NOT_AUTHORIZED");
 }
