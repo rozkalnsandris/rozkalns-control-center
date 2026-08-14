@@ -1,4 +1,5 @@
 import { buildHealthPayload } from "../shared/health";
+import { isGitHubLiveReadModeEnabled } from "../shared/public-runtime";
 import { handleGitHubReconciliationRequest } from "./github-reconciliation-route";
 import { handleGitHubWebhookRequest } from "./github-webhook-route";
 
@@ -11,6 +12,9 @@ const worker: ExportedHandler<Env> = {
     }
 
     if (url.pathname === "/api/github/reconcile") {
+      if (!isGitHubLiveReadModeEnabled(env.CONTROL_GITHUB_LIVE_READS)) {
+        return new Response("Not Found", { status: 404 });
+      }
       return handleGitHubReconciliationRequest(request, env, new Date().toISOString());
     }
 
