@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { GitHubActiveBranchRulesReaderError } from "../src/integrations/github/active-branch-rules-reader.js";
 import { GitHubAuthoritativeReadProviderError } from "../src/integrations/github/authoritative-read-provider.js";
+import { GitHubTransportStageDiagnosticError } from "../src/integrations/github/credential-stage-diagnostics.js";
 import { GitHubGraphqlMergeStateError } from "../src/integrations/github/graphql-merge-state-transport.js";
 import { GitHubRestReadError } from "../src/integrations/github/rest-read-transport.js";
 import { handleGitHubReconciliationRequest } from "../src/worker/github-reconciliation-route.js";
@@ -34,6 +35,24 @@ async function expectFailure(error: Error, status: number, code: string) {
   assert.equal(response.status, status);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(await response.json(), { error: code });
+}
+
+async function expectTransportStage(error: Error, stage: "token-exchange" | "rest" | "graphql") {
+  const response = await handleGitHubReconciliationRequest(
+    request(),
+    bindings,
+    OBSERVED_AT,
+    async () => {
+      throw error;
+    },
+  );
+
+  assert.equal(response.status, 502);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), {
+    error: "GITHUB_TRANSPORT_FAILED",
+    stage,
+  });
 }
 
 test("reconciliation route projects bounded REST failure categories", async () => {
@@ -123,6 +142,15 @@ test("reconciliation route projects bounded GraphQL failure categories", async (
   );
 });
 
+test("reconciliation route projects transport failures into bounded stages", async () => {
+  await expectTransportStage(
+    new GitHubTransportStageDiagnosticError("token-exchange"),
+    "token-exchange",
+  );
+  await expectTransportStage(new GitHubRestReadError("TRANSPORT_FAILURE"), "rest");
+  await expectTransportStage(new GitHubGraphqlMergeStateError("TRANSPORT_FAILURE"), "graphql");
+});
+
 test("reconciliation route projects bounded authoritative provider failure categories", async () => {
   await expectFailure(
     new GitHubAuthoritativeReadProviderError("MALFORMED_RESPONSE"),
@@ -174,6 +202,33 @@ test("diagnostic projection never exposes typed error metadata or arbitrary upst
   assert.equal(body.includes("2026-08-14T21:06:00.000Z"), false);
   assert.equal(body.includes("429"), false);
   assert.deepEqual(JSON.parse(body), { error: "GITHUB_RATE_LIMITED" });
+});
+
+test("transport stage projection exposes only the bounded stage", async () => {
+  const error = new GitHubTransportStageDiagnosticError("token-exchange");
+  Object.defineProperty(error, "message", {
+    value: "PRIVATE KEY jwt-token https://api.github.com/upstream-body",
+  });
+
+  const response = await handleGitHubReconciliationRequest(
+    request(),
+    bindings,
+    OBSERVED_AT,
+    async () => {
+      throw error;
+    },
+  );
+
+  const body = await response.text();
+  assert.equal(response.status, 502);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(body.includes("PRIVATE KEY"), false);
+  assert.equal(body.includes("jwt-token"), false);
+  assert.equal(body.includes("api.github.com"), false);
+  assert.deepEqual(JSON.parse(body), {
+    error: "GITHUB_TRANSPORT_FAILED",
+    stage: "token-exchange",
+  });
 });
 
 test("provider diagnostic projection never exposes provider messages", async () => {

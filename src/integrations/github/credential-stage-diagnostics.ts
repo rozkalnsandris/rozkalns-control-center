@@ -14,6 +14,18 @@ import {
   type GitHubRestReadFailureCode,
 } from "./rest-read-transport.js";
 
+export type GitHubTransportDiagnosticStage = "token-exchange";
+
+export class GitHubTransportStageDiagnosticError extends Error {
+  readonly stage: GitHubTransportDiagnosticStage;
+
+  constructor(stage: GitHubTransportDiagnosticStage) {
+    super("GitHub transport failed at a bounded diagnostic stage");
+    this.name = "GitHubTransportStageDiagnosticError";
+    this.stage = stage;
+  }
+}
+
 function restFailureCode(error: GitHubAppSessionError): GitHubRestReadFailureCode {
   switch (error.code) {
     case "TOKEN_UNAUTHORIZED":
@@ -32,7 +44,7 @@ function restFailureCode(error: GitHubAppSessionError): GitHubRestReadFailureCod
     case "TOKEN_UNUSABLE":
       return "CREDENTIAL_UNUSABLE";
     case "TOKEN_EXCHANGE_FAILED":
-      return error.status === null ? "TRANSPORT_FAILURE" : "UNEXPECTED_STATUS";
+      return "UNEXPECTED_STATUS";
     case "READ_TRANSPORT_FAILED":
     case "GRAPHQL_TRANSPORT_FAILED":
       return "TRANSPORT_FAILURE";
@@ -62,7 +74,7 @@ function graphqlFailureCode(error: GitHubAppSessionError): GitHubGraphqlMergeSta
     case "TOKEN_UNUSABLE":
       return "CREDENTIAL_UNUSABLE";
     case "TOKEN_EXCHANGE_FAILED":
-      return error.status === null ? "TRANSPORT_FAILURE" : "UNEXPECTED_STATUS";
+      return "UNEXPECTED_STATUS";
     case "READ_TRANSPORT_FAILED":
     case "GRAPHQL_TRANSPORT_FAILED":
       return "TRANSPORT_FAILURE";
@@ -72,6 +84,10 @@ function graphqlFailureCode(error: GitHubAppSessionError): GitHubGraphqlMergeSta
     default:
       return "CREDENTIAL_UNAVAILABLE";
   }
+}
+
+function tokenExchangeTransportFailure(error: GitHubAppSessionError): boolean {
+  return error.code === "TOKEN_EXCHANGE_FAILED" && error.status === null;
 }
 
 export function createGitHubCredentialDiagnosticRestTransport(
@@ -84,6 +100,9 @@ export function createGitHubCredentialDiagnosticRestTransport(
         session = await acquireSession(scope, observedAt);
       } catch (error) {
         if (error instanceof GitHubAppSessionError) {
+          if (tokenExchangeTransportFailure(error)) {
+            throw new GitHubTransportStageDiagnosticError("token-exchange");
+          }
           throw new GitHubRestReadError(restFailureCode(error), { status: error.status });
         }
         throw new GitHubRestReadError("CREDENTIAL_UNAVAILABLE");
@@ -104,6 +123,9 @@ export function createGitHubCredentialDiagnosticGraphqlTransport(
         session = await acquireSession(scope, observedAt);
       } catch (error) {
         if (error instanceof GitHubAppSessionError) {
+          if (tokenExchangeTransportFailure(error)) {
+            throw new GitHubTransportStageDiagnosticError("token-exchange");
+          }
           throw new GitHubGraphqlMergeStateError(graphqlFailureCode(error), { status: error.status });
         }
         throw new GitHubGraphqlMergeStateError("CREDENTIAL_UNAVAILABLE");

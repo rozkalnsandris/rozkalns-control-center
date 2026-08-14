@@ -12,6 +12,7 @@ import {
 } from "../integrations/github/cloudflare-worker-runtime.js";
 import { GitHubActiveBranchRulesReaderError } from "../integrations/github/active-branch-rules-reader.js";
 import { GitHubAuthoritativeReadProviderError } from "../integrations/github/authoritative-read-provider.js";
+import { GitHubTransportStageDiagnosticError } from "../integrations/github/credential-stage-diagnostics.js";
 import {
   GitHubGraphqlMergeStateError,
   type GitHubGraphqlMergeStateFailureCode,
@@ -27,6 +28,7 @@ const QUERY_KEYS = ["repository", "issue", "pull"] as const;
 type QueryKey = (typeof QUERY_KEYS)[number];
 type GitHubReadFailureCode = GitHubRestReadFailureCode | GitHubGraphqlMergeStateFailureCode;
 type GitHubProjectionFailureCode = "INVALID_REQUEST" | "MALFORMED_RESPONSE";
+type GitHubTransportStage = "token-exchange" | "rest" | "graphql";
 
 export interface LiveGitHubReconciliationInput {
   readonly bindings: CloudflareGitHubRuntimeBindings;
@@ -69,6 +71,10 @@ function jsonResponse(body: unknown, status = 200, extraHeaders?: HeadersInit): 
 
 function routeError(code: string, status: number, extraHeaders?: HeadersInit): Response {
   return jsonResponse({ error: code }, status, extraHeaders);
+}
+
+function transportStageError(stage: GitHubTransportStage): Response {
+  return jsonResponse({ error: "GITHUB_TRANSPORT_FAILED", stage }, 502);
 }
 
 function exactQueryValue(params: URLSearchParams, key: QueryKey): string {
@@ -192,7 +198,17 @@ function mapFailure(error: unknown): Response {
     return routeError("RUNTIME_UNAVAILABLE", 503);
   }
 
-  if (error instanceof GitHubRestReadError || error instanceof GitHubGraphqlMergeStateError) {
+  if (error instanceof GitHubTransportStageDiagnosticError) {
+    return transportStageError(error.stage);
+  }
+
+  if (error instanceof GitHubRestReadError) {
+    if (error.code === "TRANSPORT_FAILURE") return transportStageError("rest");
+    return mapGitHubReadFailure(error.code);
+  }
+
+  if (error instanceof GitHubGraphqlMergeStateError) {
+    if (error.code === "TRANSPORT_FAILURE") return transportStageError("graphql");
     return mapGitHubReadFailure(error.code);
   }
 

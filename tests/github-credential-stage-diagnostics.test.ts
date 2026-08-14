@@ -10,6 +10,7 @@ import { GitHubAppSessionError } from "../src/integrations/github/app-installati
 import {
   createGitHubCredentialDiagnosticGraphqlTransport,
   createGitHubCredentialDiagnosticRestTransport,
+  GitHubTransportStageDiagnosticError,
 } from "../src/integrations/github/credential-stage-diagnostics.js";
 import { GitHubGraphqlMergeStateError } from "../src/integrations/github/graphql-merge-state-transport.js";
 import { GitHubRestReadError } from "../src/integrations/github/rest-read-transport.js";
@@ -68,7 +69,6 @@ async function expectGraphqlCode(
 test("preserves bounded GitHub App credential-stage outcomes for REST and GraphQL", async () => {
   const cases = [
     [new GitHubAppSessionError("SIGNING_FAILED"), "CREDENTIAL_UNAVAILABLE", "CREDENTIAL_UNAVAILABLE"],
-    [new GitHubAppSessionError("TOKEN_EXCHANGE_FAILED"), "TRANSPORT_FAILURE", "TRANSPORT_FAILURE"],
     [new GitHubAppSessionError("TOKEN_EXCHANGE_FAILED", 500), "UNEXPECTED_STATUS", "UNEXPECTED_STATUS"],
     [new GitHubAppSessionError("TOKEN_UNAUTHORIZED", 401), "UNAUTHORIZED", "UNAUTHORIZED"],
     [new GitHubAppSessionError("TOKEN_FORBIDDEN", 403), "FORBIDDEN", "FORBIDDEN"],
@@ -83,6 +83,32 @@ test("preserves bounded GitHub App credential-stage outcomes for REST and GraphQ
     await expectRestCode(sessionError, restCode);
     await expectGraphqlCode(sessionError, graphqlCode);
   }
+});
+
+test("token exchange transport failures preserve only the bounded stage", async () => {
+  const restTransport = createGitHubCredentialDiagnosticRestTransport(async () => {
+    throw new GitHubAppSessionError("TOKEN_EXCHANGE_FAILED");
+  });
+
+  await assert.rejects(
+    () => restTransport.get(scope, restRequest, observedAt),
+    (error) =>
+      error instanceof GitHubTransportStageDiagnosticError &&
+      error.stage === "token-exchange" &&
+      !error.message.includes("api.github.com"),
+  );
+
+  const graphqlTransport = createGitHubCredentialDiagnosticGraphqlTransport(async () => {
+    throw new GitHubAppSessionError("TOKEN_EXCHANGE_FAILED");
+  });
+
+  await assert.rejects(
+    () => graphqlTransport.read(scope, { repository, pullNumber: 1 }, observedAt),
+    (error) =>
+      error instanceof GitHubTransportStageDiagnosticError &&
+      error.stage === "token-exchange" &&
+      !error.message.includes("api.github.com"),
+  );
 });
 
 test("unknown credential acquisition failures remain generic and do not expose raw details", async () => {
