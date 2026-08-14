@@ -12,12 +12,39 @@ type SchemaClassification = {
   unexpected: Array<{ type: string; name: string; tbl_name: string }>;
 };
 
+type MigrationBootstrapClassification = {
+  valid: boolean;
+  state: "ABSENT" | "CANONICAL_EMPTY_HISTORY" | "INVALID";
+  reason:
+    | null
+    | "EVIDENCE_INVALID"
+    | "APPLICATION_SCHEMA_PRESENT"
+    | "MIGRATION_SCHEMA_INVALID"
+    | "MIGRATION_HISTORY_NOT_EMPTY";
+};
+
 async function loadSchemaPolicy() {
   const moduleUrl = pathToFileURL(resolve("scripts/d1-schema-policy.mjs")).href;
   return (await import(moduleUrl)) as {
     classifyInitialD1SchemaRows(rows: unknown): SchemaClassification;
+    classifyInitialD1MigrationBootstrap(input: unknown): MigrationBootstrapClassification;
   };
 }
+
+const canonicalHistorySchema = [
+  {
+    type: "table",
+    name: "d1_migrations",
+    tbl_name: "d1_migrations",
+    sql: 'CREATE TABLE "d1_migrations"( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL )',
+  },
+  {
+    type: "index",
+    name: "sqlite_autoindex_d1_migrations_1",
+    tbl_name: "d1_migrations",
+    sql: null,
+  },
+];
 
 test("remote D1 gate defaults to a credential-free non-mutating plan", () => {
   const result = spawnSync(process.execPath, [gate], { encoding: "utf8", env: {} });
@@ -26,6 +53,7 @@ test("remote D1 gate defaults to a credential-free non-mutating plan", () => {
   assert.match(result.stdout, /MODE=PLAN/);
   assert.match(result.stdout, /NODE_MINIMUM=22\.12\.0/);
   assert.match(result.stdout, /PREWRITE_D1_VERIFICATION=GET_AND_SELECT_ONLY/);
+  assert.match(result.stdout, /PREWRITE_ACCEPTS_CANONICAL_EMPTY_D1_MIGRATION_HISTORY=YES/);
   assert.match(result.stdout, /PREWRITE_WRANGLER_MIGRATIONS_LIST=DISABLED/);
   assert.match(result.stdout, /REMOTE_D1_MUTATION=NO/);
   assert.match(result.stdout, /NO_BLIND_RETRY_AFTER_APPLY_STARTED=YES/);
@@ -84,10 +112,87 @@ test("malformed schema evidence fails closed", async () => {
   }
 });
 
+test("first migration accepts a completely absent migration-history table", async () => {
+  const { classifyInitialD1MigrationBootstrap } = await loadSchemaPolicy();
+  assert.deepEqual(
+    classifyInitialD1MigrationBootstrap({ schemaRows: [], historyRows: null }),
+    { valid: true, state: "ABSENT", reason: null },
+  );
+});
+
+test("first migration accepts only canonical Wrangler empty migration history", async () => {
+  const { classifyInitialD1MigrationBootstrap } = await loadSchemaPolicy();
+  assert.deepEqual(
+    classifyInitialD1MigrationBootstrap({
+      schemaRows: canonicalHistorySchema,
+      historyRows: [],
+    }),
+    { valid: true, state: "CANONICAL_EMPTY_HISTORY", reason: null },
+  );
+});
+
+test("non-empty migration history fails closed", async () => {
+  const { classifyInitialD1MigrationBootstrap } = await loadSchemaPolicy();
+  assert.deepEqual(
+    classifyInitialD1MigrationBootstrap({
+      schemaRows: canonicalHistorySchema,
+      historyRows: [{ name: "0000_unreviewed.sql" }],
+    }),
+    { valid: false, state: "INVALID", reason: "MIGRATION_HISTORY_NOT_EMPTY" },
+  );
+});
+
+test("noncanonical or extended migration-history schema fails closed", async () => {
+  const { classifyInitialD1MigrationBootstrap } = await loadSchemaPolicy();
+
+  const noncanonical = structuredClone(canonicalHistorySchema);
+  noncanonical[0].sql =
+    'CREATE TABLE "d1_migrations"( id INTEGER PRIMARY KEY, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL )';
+  assert.deepEqual(
+    classifyInitialD1MigrationBootstrap({ schemaRows: noncanonical, historyRows: [] }),
+    { valid: false, state: "INVALID", reason: "MIGRATION_SCHEMA_INVALID" },
+  );
+
+  const extended = [
+    ...canonicalHistorySchema,
+    {
+      type: "trigger",
+      name: "d1_migrations_extra",
+      tbl_name: "d1_migrations",
+      sql: "CREATE TRIGGER d1_migrations_extra AFTER INSERT ON d1_migrations BEGIN SELECT 1; END",
+    },
+  ];
+  assert.deepEqual(
+    classifyInitialD1MigrationBootstrap({ schemaRows: extended, historyRows: [] }),
+    { valid: false, state: "INVALID", reason: "MIGRATION_SCHEMA_INVALID" },
+  );
+});
+
+test("reviewed application schema presence fails closed before first migration", async () => {
+  const { classifyInitialD1MigrationBootstrap } = await loadSchemaPolicy();
+  assert.deepEqual(
+    classifyInitialD1MigrationBootstrap({
+      schemaRows: [
+        ...canonicalHistorySchema,
+        {
+          type: "table",
+          name: "webhook_deliveries",
+          tbl_name: "webhook_deliveries",
+          sql: "CREATE TABLE webhook_deliveries(id TEXT PRIMARY KEY)",
+        },
+      ],
+      historyRows: [],
+    }),
+    { valid: false, state: "INVALID", reason: "APPLICATION_SCHEMA_PRESENT" },
+  );
+});
+
 test("prewrite and postverify guards are fail closed without num_tables", async () => {
   const source = await readFile(gate, "utf8");
   for (const guard of [
     "PREWRITE_PROJECT_SCHEMA_PRESENT",
+    "PREWRITE_MIGRATION_HISTORY_NOT_EMPTY",
+    "PREWRITE_MIGRATION_HISTORY_SCHEMA_INVALID",
     "PREWRITE_SCHEMA_EVIDENCE_INVALID",
     "PREWRITE_UNEXPECTED_USER_SCHEMA",
     "D1_QUERY_NOT_READ_ONLY",
