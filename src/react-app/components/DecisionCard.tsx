@@ -52,9 +52,22 @@ function reconciledLabel(timestamp: string) {
   }).format(new Date(timestamp));
 }
 
+function evidenceState(item: DecisionReadModel) {
+  if (!item.expectedHeadSha && !item.currentHeadSha) return "head pending";
+  if (item.expectedHeadSha && item.expectedHeadSha === item.currentHeadSha) return "heads match";
+  return "head mismatch";
+}
+
+function actionClass(action: MockAction) {
+  if (action === "MERGE") return "action-button action-button--primary";
+  if (action === "OPEN_PR") return "action-button action-button--tertiary";
+  return "action-button action-button--secondary";
+}
+
 export function DecisionCard({ item, project, onMockAction }: DecisionCardProps) {
   const titleId = `${item.id}-title`;
   const reasonId = `${item.id}-reason`;
+  const evidenceLabel = `Evidence · ${evidenceState(item)} · ${reconciledLabel(item.lastReconciledAt)} UTC`;
 
   return (
     <article className="decision-card" aria-labelledby={titleId} aria-describedby={reasonId}>
@@ -88,30 +101,33 @@ export function DecisionCard({ item, project, onMockAction }: DecisionCardProps)
         <StatusPill label={humanize(item.deployImpact)} tone={toneForDeploy(item.deployImpact)} />
       </div>
 
-      <dl className="evidence-grid">
-        <div>
-          <dt>Expected head</dt>
-          <dd><code>{shortSha(item.expectedHeadSha)}</code></dd>
-        </div>
-        <div>
-          <dt>Observed head</dt>
-          <dd><code>{shortSha(item.currentHeadSha)}</code></dd>
-        </div>
-        <div>
-          <dt>Main</dt>
-          <dd><code>{shortSha(item.mainSha)}</code></dd>
-        </div>
-        <div>
-          <dt>Reconciled</dt>
-          <dd>{reconciledLabel(item.lastReconciledAt)} UTC</dd>
-        </div>
-      </dl>
+      <details className="evidence-details">
+        <summary>{evidenceLabel}</summary>
+        <dl className="evidence-grid">
+          <div>
+            <dt>Expected head</dt>
+            <dd><code>{shortSha(item.expectedHeadSha)}</code></dd>
+          </div>
+          <div>
+            <dt>Observed head</dt>
+            <dd><code>{shortSha(item.currentHeadSha)}</code></dd>
+          </div>
+          <div>
+            <dt>Main</dt>
+            <dd><code>{shortSha(item.mainSha)}</code></dd>
+          </div>
+          <div>
+            <dt>Reconciled</dt>
+            <dd>{reconciledLabel(item.lastReconciledAt)} UTC</dd>
+          </div>
+        </dl>
+      </details>
 
       {item.allowedActions.length > 0 ? (
         <div className="action-row" aria-label={`Mock actions for ${project.displayName}`}>
           {item.allowedActions.map((action) => (
             <button
-              className={action === "MERGE" ? "action-button action-button--primary" : "action-button"}
+              className={actionClass(action)}
               key={action}
               type="button"
               onClick={() => onMockAction(action, item)}

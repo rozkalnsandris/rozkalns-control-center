@@ -35,7 +35,7 @@ const mockActionLabels: Record<MockAction, string> = {
 export default function App() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [unavailable, setUnavailable] = useState(false);
-  const [notice, setNotice] = useState("Fixture mode is active. No GitHub action can execute from this screen.");
+  const [notice, setNotice] = useState("Actions disabled");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -55,10 +55,10 @@ export default function App() {
   }, []);
 
   function handleMockAction(action: MockAction, item: DecisionReadModel) {
-    setNotice(
-      `${mockActionLabels[action]} selected for fixture ${item.id}. Phase 1 is read-only; nothing was sent to GitHub or production.`,
-    );
+    setNotice(`${mockActionLabels[action]} selected for fixture ${item.id} · demo only`);
   }
+
+  const workerLabel = health?.status === "ok" ? "Worker ready" : unavailable ? "Worker unavailable" : "Worker checking";
 
   return (
     <div className="app-shell">
@@ -68,7 +68,7 @@ export default function App() {
         <div className="brand-mark" aria-hidden="true">RC</div>
         <div className="brand-copy">
           <p>Rozkalns Control</p>
-          <span>Mobile approval plane</span>
+          <span>Decision control</span>
         </div>
         <StatusPill label="FIXTURE MODE" tone="info" />
       </header>
@@ -79,19 +79,20 @@ export default function App() {
             <p className="eyebrow">Phase 1 · Read-only prototype</p>
             <h1 id="page-title">What needs your decision?</h1>
             <p className="summary">
-              Human gates first. Everything below is deterministic demo data and cannot mutate GitHub, Cloudflare or RPi5.
+              Human gates first. Demo data only; this screen cannot change GitHub, Cloudflare or RPi5.
             </p>
-          </div>
-          <div className="hero__system" aria-label="Prototype system status">
-            <span className="system-dot" aria-hidden="true" />
-            <span>
-              Worker {health?.status === "ok" ? "ready" : unavailable ? "unavailable" : "checking"}
-            </span>
           </div>
         </section>
 
-        <div className="fixture-notice" role="status" aria-live="polite">
-          <strong>Demo safety:</strong> {notice}
+        <div className="control-status-strip" role="status" aria-live="polite">
+          <span className="control-status-strip__health">
+            <span className="system-dot" aria-hidden="true" />
+            {workerLabel}
+          </span>
+          <span className="control-status-strip__separator" aria-hidden="true">·</span>
+          <span>Fixture mode</span>
+          <span className="control-status-strip__separator" aria-hidden="true">·</span>
+          <span className="control-status-strip__notice">{notice}</span>
         </div>
 
         <section className="summary-strip" aria-label="Control summary">
