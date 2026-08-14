@@ -6,7 +6,7 @@ The controller is pinned to the reviewed production D1 identity, the exact sourc
 
 ## Corrected first-bootstrap prewrite contract
 
-Cloudflare D1 maintains reserved/system schema objects. A fresh application database therefore must not be classified by the raw D1 `num_tables` value. The first-bootstrap gate instead performs SELECT-only inspection of `sqlite_schema` and tolerates only the documented SQLite/D1 system namespaces `sqlite_%`, `d1_%` and `_cf_%`. Any malformed schema evidence or unexpected application table, view, index or trigger fails closed.
+Cloudflare D1 maintains reserved/system schema objects. A fresh application database therefore must not be classified by the raw D1 `num_tables` value. The first-bootstrap gate instead performs SELECT-only inspection of `sqlite_schema` and treats an object as system-owned only when its `tbl_name` belongs to the documented SQLite/D1 system namespaces `sqlite_%`, `d1_%` or `_cf_%`. Any malformed schema evidence or unexpected application table, view, index or trigger fails closed.
 
 The reviewed project objects are checked separately and must all be absent before first apply:
 

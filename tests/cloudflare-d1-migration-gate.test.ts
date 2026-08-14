@@ -55,6 +55,7 @@ test("D1 system namespaces are tolerated during first-bootstrap schema inspectio
     { type: "table", name: "sqlite_sequence", tbl_name: "sqlite_sequence" },
     { type: "table", name: "_cf_KV", tbl_name: "_cf_KV" },
     { type: "index", name: "sqlite_autoindex__cf_KV_1", tbl_name: "_cf_KV" },
+    { type: "index", name: "provider_internal_index", tbl_name: "_cf_KV" },
     { type: "table", name: "d1_internal", tbl_name: "d1_internal" },
   ]);
   assert.deepEqual(result, { valid: true, unexpected: [] });

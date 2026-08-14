@@ -27,7 +27,7 @@ export function classifyInitialD1SchemaRows(rows) {
       return { valid: false, unexpected: [] };
     }
 
-    if (!hasSystemPrefix(name) || !hasSystemPrefix(tableName)) {
+    if (!hasSystemPrefix(tableName)) {
       unexpected.push({ type, name, tbl_name: tableName });
     }
   }
