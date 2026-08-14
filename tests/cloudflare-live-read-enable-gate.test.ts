@@ -25,6 +25,8 @@ test("live-read enable plan is credential-free and non-mutating", () => {
   assert.match(result.stdout, /CLOUDFLARE_MUTATION=NO/);
   assert.match(result.stdout, /PUBLIC_ROUTING_CHANGE=NO/);
   assert.match(result.stdout, /ACCESS_CANARY_AUTH=SHORT_LIVED_USER_TOKEN_REQUIRED/);
+  assert.match(result.stdout, /PREWRITE_ACCESS_CANARY=HEALTH_ROUTE/);
+  assert.match(result.stdout, /POSTVERIFY_ACCESS_CANARY=LIVE_DASHBOARD_ROUTE/);
   assert.match(result.stdout, /NO_BLIND_RETRY_AFTER_DEPLOY_STARTED=YES/);
   assert.match(
     result.stdout,
@@ -56,8 +58,10 @@ test("live-read gate binds authorization to exact main, CI and current Cloudflar
   assert.match(source, /assertRepo\(args\.sha\)/);
   assert.match(source, /assertCi\(args\.sha, args\.ci\)/);
   assert.match(source, /assertExpectedActive\(apiToken, args\.currentVersion, args\.currentDeployment, false, "PREWRITE"\)/);
-  assert.match(source, /assertFixturePublicCanary\("PREWRITE", accessToken\)/);
+  assert.match(source, /assertPrewriteHealthCanary\("PREWRITE", accessToken\)/);
+  assert.match(source, /assertPrewriteHealthCanary\("FINAL_PREWRITE", accessToken\)/);
   assert.match(source, /FINAL_PREWRITE_VERSION_SET_CHANGED/);
+  assert.doesNotMatch(source, /assertFixturePublicCanary/);
 });
 
 test("Custom Domain id is treated as a bounded opaque identifier and remains exact-matched", async () => {
@@ -97,7 +101,7 @@ test("Custom Domain id is treated as a bounded opaque identifier and remains exa
   assert.doesNotMatch(opaque32.stderr, /DOMAIN_ID_INVALID/);
 });
 
-test("Access-protected dashboard canary uses only a short-lived user token and scrubs it from child processes", async () => {
+test("Access-protected canaries use only a short-lived user token and scrub it from child processes", async () => {
   const source = await readFile(liveReadGate, "utf8");
 
   assert.match(source, /process\.env\.CONTROL_ACCESS_TOKEN/);
@@ -106,10 +110,23 @@ test("Access-protected dashboard canary uses only a short-lived user token and s
   assert.match(source, /delete env\.CONTROL_ACCESS_TOKEN/);
   assert.match(source, /sanitizedChildEnvironment\(\)/);
   assert.match(source, /sanitizedChildEnvironment\(apiToken\)/);
+  assert.match(source, /assertPrewriteHealthCanary\("PREWRITE", accessToken\)/);
   assert.match(source, /assertLivePublicCanary\("POST_VERIFY", accessToken\)/);
   assert.doesNotMatch(source, /CF-Access-Client-Secret/);
   assert.doesNotMatch(source, /CF-Access-Client-Id/);
   assert.doesNotMatch(source, /Service Auth|bypass/i);
+});
+
+test("prewrite canary uses the stable health route while postverify keeps the live dashboard boundary", async () => {
+  const source = await readFile(liveReadGate, "utf8");
+
+  assert.match(source, /readAccessJson\(codePrefix, "\/api\/health", accessToken, "HEALTH"\)/);
+  assert.match(source, /body\?\.status !== "ok"/);
+  assert.match(source, /body\?\.service !== WORKER_NAME/);
+  assert.match(source, /body\?\.phase !== "phase-0"/);
+  assert.match(source, /readAccessJson\(codePrefix, "\/api\/github\/dashboard", accessToken, "DASHBOARD"\)/);
+  assert.match(source, /assertLivePublicCanary\("POST_VERIFY", accessToken\)/);
+  assert.doesNotMatch(source, /assertFixturePublicCanary/);
 });
 
 test("live-read gate has one strict deploy and no independent routing, secret or D1 write", async () => {
@@ -132,13 +149,13 @@ test("live-read gate has one strict deploy and no independent routing, secret or
   assert.match(source, /POST_DEPLOY_STATE=REVIEW_REQUIRED/);
 });
 
-test("public dashboard canary requires JSON media type before parsing and proves read-only live shape", async () => {
+test("Access JSON boundary is checked before parsing and postverify proves read-only live shape", async () => {
   const source = await readFile(liveReadGate, "utf8");
 
   const mediaTypeGuard = source.indexOf('headers.get("content-type")');
   const jsonParse = source.indexOf("response.json()", mediaTypeGuard);
   assert.ok(mediaTypeGuard >= 0 && jsonParse > mediaTypeGuard);
-  assert.match(source, /PUBLIC_DASHBOARD_MEDIA_TYPE/);
+  assert.match(source, /PUBLIC_\$\{label\}_MEDIA_TYPE/);
   assert.match(source, /application\/json/);
   assert.match(source, /assertLivePublicCanary\("POST_VERIFY", accessToken\)/);
   assert.match(source, /repositories\).*MANAGED_REPOSITORIES/s);
