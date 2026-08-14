@@ -6,7 +6,15 @@ This runbook covers the one-time transition of `control.rozkalns.net` from the a
 
 The reviewed source target has `CONTROL_LIVE_READ_ENABLED="true"` in `wrangler.jsonc`. The GitHub App private key remains a Worker secret; the client id and installation id remain non-secret plain-text bindings. The production D1 binding is preserved and this gate performs no D1 write.
 
+The SPA assets configuration keeps `not_found_handling="single-page-application"` for browser navigation, but explicitly sets `assets.run_worker_first=["/api/*"]`. This makes every Control API request invoke the Worker before Static Assets/SPA fallback and prevents API navigation from being satisfied by `index.html`.
+
 The historical `cloudflare-ui-redeploy-gate.mjs` remains fixture-only and intentionally continues to require `CONTROL_LIVE_READ_ENABLED=false`; it must not be weakened or reused for this transition.
+
+## JSON response boundary
+
+Cloudflare control-plane reads and the public dashboard canary are JSON protocols. The rollout helpers therefore fail closed unless the response declares an `application/json` media type before calling `response.json()`.
+
+A non-JSON response, including an HTML SPA shell or an intermediary error page, is treated as a controlled gate failure. The gate reports only the HTTP/media-type boundary and does not dump the response body, credentials or upstream HTML into rollout evidence.
 
 ## Gate
 
@@ -37,10 +45,12 @@ Before the sole write, and again immediately before it, the gate fails closed un
 - supplied CI is successful exact-main push CI;
 - reviewed source has live read enabled while workers.dev and Preview URLs remain disabled;
 - reviewed GitHub App client/installation ids, secret contract, D1 binding and SPA assets contract are unchanged;
+- `/api/*` is explicitly Worker-first while SPA fallback remains enabled for UI navigation;
 - authorized Worker version/deployment is still the latest active deployment at exactly 100%;
 - the current active Worker version still has `CONTROL_LIVE_READ_ENABLED=false` plus the reviewed GitHub App and required secret/D1 bindings;
 - exactly the authorized existing Custom Domain is attached;
-- public `GET /api/github/dashboard` still returns `503 LIVE_READ_DISABLED` with `Cache-Control: no-store`;
+- public `GET /api/github/dashboard` still returns JSON `503 LIVE_READ_DISABLED` with `Cache-Control: no-store`;
+- Cloudflare API and public dashboard reads do not cross the JSON media-type boundary;
 - Worker version inventory does not change during preflight.
 
 ## Sole intended write
@@ -78,8 +88,8 @@ A successful transition proves:
 - reviewed GitHub App client/installation ids, private-key secret and production D1 bindings remain present;
 - workers.dev and Preview URLs remain disabled;
 - the exact same Custom Domain id remains uniquely attached;
-- public routing is unchanged;
-- public `/api/github/dashboard` returns HTTP 200, `no-store`, the normalized dashboard shape and exactly the six managed repositories;
+- public routing is unchanged except for the reviewed request-order rule that sends `/api/*` through the same Worker before SPA assets;
+- public `/api/github/dashboard` returns `application/json`, HTTP 200, `no-store`, the normalized dashboard shape and exactly the six managed repositories;
 - the live observational snapshot exposes no `MERGE_READY` state and no action other than `OPEN_PR`.
 
 Successful terminal evidence includes:
