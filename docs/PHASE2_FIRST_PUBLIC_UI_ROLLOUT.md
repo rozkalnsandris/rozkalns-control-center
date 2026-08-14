@@ -21,6 +21,17 @@ Production source must preserve all of the following before either live gate is 
 
 The source PR that introduces these gates performs no Cloudflare mutation.
 
+## Credential contract for both live gates
+
+Both Gate A and Gate B follow the normative `docs/CREDENTIAL_AND_TOKEN_MODEL.md` policy for **new** Cloudflare live/setup controllers:
+
+- one temporary setup credential only: canonical token `rozkalns-control-setup`;
+- provide it to the controller as hidden `CLOUDFLARE_API_TOKEN` input;
+- the same token may be used for the controller's read-only Cloudflare pre/post verification and its one separately authorized write;
+- never paste or echo the token into chat, GitHub, logs, screenshots, D1, or repository files;
+- credential possession never implies owner authorization;
+- historical two-token gates remain historical and are not the model for these new UI rollout gates.
+
 ## Gate A — non-routable exact-main UI deploy
 
 Plan mode is credential-free and mutation-free:
