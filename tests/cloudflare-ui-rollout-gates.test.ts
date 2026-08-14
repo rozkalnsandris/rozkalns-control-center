@@ -5,6 +5,7 @@ import test from "node:test";
 
 const deployGate = "scripts/cloudflare-ui-deploy-gate.mjs";
 const domainGate = "scripts/cloudflare-ui-domain-gate.mjs";
+const redeployGate = "scripts/cloudflare-ui-redeploy-gate.mjs";
 const sharedGate = "scripts/cloudflare-ui-rollout-shared.mjs";
 
 function plan(script: string) {
@@ -38,16 +39,17 @@ test("first public UI rollout plan modes are credential-free and non-mutating", 
   assert.match(domain.stdout, /NO_BLIND_RETRY_AFTER_DOMAIN_ATTACH_STARTED=YES/);
 });
 
-test("production source remains fixture-only and does not declare public routing", async () => {
-  const [configText, worker] = await Promise.all([
+test("production source targets live read-only without declaring public routing, while fixture redeploy stays fail-closed", async () => {
+  const [configText, worker, historicalRedeploy] = await Promise.all([
     readFile("wrangler.jsonc", "utf8"),
     readFile("src/worker/index.ts", "utf8"),
+    readFile(redeployGate, "utf8"),
   ]);
   const config = JSON.parse(configText) as Record<string, unknown> & {
     vars?: Record<string, string>;
   };
 
-  assert.equal(config.vars?.CONTROL_LIVE_READ_ENABLED, "false");
+  assert.equal(config.vars?.CONTROL_LIVE_READ_ENABLED, "true");
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
   for (const forbidden of ["route", "routes", "triggers", "custom_domain", "custom_domains"]) {
@@ -61,6 +63,8 @@ test("production source remains fixture-only and does not declare public routing
   assert.match(worker, /Cache-Control/);
   assert.match(worker, /secret:\s*null/);
   assert.match(worker, /acceptor:\s*null/);
+
+  assert.match(historicalRedeploy, /assertFixtureSourceConfig\(\)/);
 });
 
 test("both new UI rollout gates use only the normative single setup token", async () => {
