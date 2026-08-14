@@ -17,6 +17,8 @@
     "cf:first-version-gate": "node scripts/cloudflare-first-version-gate.mjs",
     "cf:second-version-gate": "node scripts/cloudflare-second-version-gate.mjs",
     "cf:d1-migration-gate": "node scripts/cloudflare-d1-migration-gate.mjs",
+    "cf:public-fixture-deploy-gate": "node scripts/cloudflare-public-fixture-deploy-gate.mjs",
+    "cf:public-fixture-domain-gate": "node scripts/cloudflare-public-fixture-domain-gate.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
     "verify:actions": "node scripts/verify-actions-pinning.mjs",
     "verify:public": "node scripts/verify-public-repo-safety.mjs",
