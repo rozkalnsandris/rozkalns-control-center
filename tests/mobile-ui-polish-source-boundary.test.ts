@@ -6,11 +6,12 @@ const APP = "src/react-app/App.tsx";
 const CARD = "src/react-app/components/DecisionCard.tsx";
 const CSS = "src/react-app/index.css";
 
-test("public fixture UI keeps the 320–430px mobile-first decision contract", async () => {
-  const [app, card, css] = await Promise.all([
+test("public UI keeps the 320–430px mobile-first decision contract while adding one normalized live read", async () => {
+  const [app, card, css, liveCss] = await Promise.all([
     readFile(APP, "utf8"),
     readFile(CARD, "utf8"),
     readFile(CSS, "utf8"),
+    readFile("src/react-app/live-dashboard.css", "utf8"),
   ]);
 
   assert.match(css, /min-width:\s*320px/);
@@ -18,11 +19,17 @@ test("public fixture UI keeps the 320–430px mobile-first decision contract", a
   assert.match(css, /\.topbar > \.status-pill/);
   assert.match(css, /\.action-button--primary[\s\S]*grid-column:\s*1 \/ -1/);
   assert.match(css, /\.action-button--tertiary[\s\S]*grid-column:\s*1 \/ -1/);
+  assert.match(liveCss, /\.action-button\[href\]/);
 
   assert.equal(app.includes("control-status-strip"), true);
   assert.equal(app.includes("Decision control"), true);
   assert.equal(app.includes("hero__system"), false);
   assert.equal(app.includes("fixture-notice"), false);
+  assert.equal(app.includes('fetch("/api/github/dashboard"'), true);
+  assert.equal(app.includes("AbortController"), true);
+  assert.equal(app.includes("LIVE READ-ONLY"), true);
+  assert.equal(app.includes("Live data unavailable · fixture data shown"), true);
+  assert.equal(app.includes("api.github.com"), false);
 
   assert.equal(card.includes('<details className="evidence-details">'), true);
   assert.equal(card.includes("<summary>{evidenceLabel}</summary>"), true);
@@ -31,12 +38,10 @@ test("public fixture UI keeps the 320–430px mobile-first decision contract", a
   assert.equal(card.includes("action-button--primary"), true);
   assert.equal(card.includes("action-button--secondary"), true);
   assert.equal(card.includes("action-button--tertiary"), true);
-
-  for (const source of [app, card]) {
-    assert.equal(source.includes("/api/github"), false);
-    assert.equal(source.includes("api.github.com"), false);
-    assert.equal(source.includes("wrangler"), false);
-  }
+  assert.equal(card.includes("fetch("), false);
+  assert.equal(card.includes("api.github.com"), false);
+  assert.equal(card.includes('<a className={actionClass(action)} href={item.prUrl}'), true);
+  assert.equal(card.includes('target="_blank"'), false);
 
   assert.equal(card.includes("onMockAction(action, item)"), true);
   assert.equal(card.includes('type="button"'), true);

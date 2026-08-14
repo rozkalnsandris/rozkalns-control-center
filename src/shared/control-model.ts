@@ -32,10 +32,11 @@ export interface DecisionReadModel {
   id: string;
   projectId: string;
   workflowState: WorkflowState;
-  issueNumber: number;
-  issueTitle: string;
+  issueNumber: number | null;
+  issueTitle: string | null;
   prNumber: number | null;
   prTitle: string | null;
+  prUrl?: string | null;
   ci: CiState;
   review: ReviewState;
   deployImpact: DeployImpact;
@@ -48,11 +49,13 @@ export interface DecisionReadModel {
   allowedActions: MockAction[];
 }
 
-export interface ControlFixtureSet {
+export interface ControlDashboardData {
   generatedAt: string;
   projects: ProjectReadModel[];
   decisions: DecisionReadModel[];
 }
+
+export type ControlFixtureSet = ControlDashboardData;
 
 export interface DashboardSummary {
   needsAndris: number;
@@ -62,28 +65,28 @@ export interface DashboardSummary {
   enabledProjects: number;
 }
 
-export function summarizeDashboard(fixtures: ControlFixtureSet): DashboardSummary {
+export function summarizeDashboard(data: ControlDashboardData): DashboardSummary {
   return {
-    needsAndris: fixtures.decisions.filter((item) => item.workflowState === "NEEDS_ANDRIS").length,
-    workingOrWaiting: fixtures.decisions.filter(
+    needsAndris: data.decisions.filter((item) => item.workflowState === "NEEDS_ANDRIS").length,
+    workingOrWaiting: data.decisions.filter(
       (item) => item.workflowState === "WORKING" || item.workflowState === "WAITING",
     ).length,
-    ciFailed: fixtures.decisions.filter((item) => item.workflowState === "CI_FAILED").length,
-    mergeReady: fixtures.decisions.filter((item) => item.workflowState === "MERGE_READY").length,
-    enabledProjects: fixtures.projects.filter((project) => project.enabled).length,
+    ciFailed: data.decisions.filter((item) => item.workflowState === "CI_FAILED").length,
+    mergeReady: data.decisions.filter((item) => item.workflowState === "MERGE_READY").length,
+    enabledProjects: data.projects.filter((project) => project.enabled).length,
   };
 }
 
 export function decisionsForState(
-  fixtures: ControlFixtureSet,
+  data: ControlDashboardData,
   ...states: WorkflowState[]
 ): DecisionReadModel[] {
   const wanted = new Set(states);
-  return fixtures.decisions.filter((item) => wanted.has(item.workflowState));
+  return data.decisions.filter((item) => wanted.has(item.workflowState));
 }
 
-export function projectById(fixtures: ControlFixtureSet, projectId: string): ProjectReadModel {
-  const project = fixtures.projects.find((candidate) => candidate.id === projectId);
-  if (!project) throw new Error(`Unknown project fixture: ${projectId}`);
+export function projectById(data: ControlDashboardData, projectId: string): ProjectReadModel {
+  const project = data.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new Error(`Unknown project: ${projectId}`);
   return project;
 }
