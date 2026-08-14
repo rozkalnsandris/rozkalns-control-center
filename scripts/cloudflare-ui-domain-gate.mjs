@@ -49,12 +49,13 @@ function plan() {
   console.log("DOMAIN_ATTACH=NOT_EXECUTED_IN_PLAN");
   console.log("WORKERS_DEV=DISABLED");
   console.log("PREVIEW_URLS=DISABLED");
+  console.log("CREDENTIAL_MODEL=SINGLE_TEMPORARY_SETUP_TOKEN");
   console.log(`OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id> version <exact-version-id>`);
   console.log("NO_BLIND_RETRY_AFTER_DOMAIN_ATTACH_STARTED=YES");
 }
 
-async function accountDomainsForTarget(readToken) {
-  const domains = await cfGet(readToken, `/workers/domains?hostname=${encodeURIComponent(HOSTNAME)}`);
+async function accountDomainsForTarget(apiToken) {
+  const domains = await cfGet(apiToken, `/workers/domains?hostname=${encodeURIComponent(HOSTNAME)}`);
   if (!Array.isArray(domains)) stop("TARGET_DOMAIN_INVENTORY_INVALID", "target domain inventory was not an array");
   return domains;
 }
@@ -65,13 +66,13 @@ function assertTargetAbsent(domains, codePrefix) {
   }
 }
 
-async function assertExpectedActiveVersion(readToken, expectedVersionId, codePrefix) {
-  const active = singleDeploymentVersion(await listDeployments(readToken), codePrefix);
+async function assertExpectedActiveVersion(apiToken, expectedVersionId, codePrefix) {
+  const active = singleDeploymentVersion(await listDeployments(apiToken), codePrefix);
   if (active.versionId !== expectedVersionId) {
     stop(`${codePrefix}_ACTIVE_VERSION_MISMATCH`, "active deployment does not match the separately authorized Worker version");
   }
-  assertRequiredBindings(await versionDetail(readToken, expectedVersionId), codePrefix);
-  await assertSubdomainDisabled(readToken, codePrefix);
+  assertRequiredBindings(await versionDetail(apiToken, expectedVersionId), codePrefix);
+  await assertSubdomainDisabled(apiToken, codePrefix);
   return active;
 }
 
@@ -82,14 +83,11 @@ async function apply(args) {
   }
 
   const account = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
-  const readToken = process.env.CLOUDFLARE_READ_TOKEN ?? "";
-  const writeToken = process.env.CLOUDFLARE_WRITE_TOKEN ?? "";
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? "";
   const authorization = process.env.CONTROL_OWNER_AUTHORIZATION ?? "";
 
   if (account !== ACCOUNT_ID) stop("ACCOUNT_ID_INVALID", "Cloudflare account does not match reviewed production account");
-  if (!readToken) stop("READ_TOKEN_REQUIRED", "Workers Scripts Read token is required");
-  if (!writeToken) stop("WRITE_TOKEN_REQUIRED", "Workers Scripts Write token is required");
-  if (readToken === writeToken) stop("TOKEN_SEPARATION_REQUIRED", "read and write tokens must be distinct");
+  if (!apiToken) stop("API_TOKEN_REQUIRED", "temporary rozkalns-control-setup Cloudflare API token is required");
   if (authorization !== `${AUTH_PREFIX}${args.sha} ci ${args.ci} version ${args.version}`) {
     stop("OWNER_AUTHORIZATION_INVALID", "domain authorization must match exact main SHA, CI and deployed version");
   }
@@ -97,27 +95,27 @@ async function apply(args) {
   assertRepo(args.sha);
   await assertFixtureSourceConfig();
   await assertCi(args.sha, args.ci);
-  const beforeActive = await assertExpectedActiveVersion(readToken, args.version, "PREWRITE");
-  const serviceDomains = await listDomains(readToken);
+  const beforeActive = await assertExpectedActiveVersion(apiToken, args.version, "PREWRITE");
+  const serviceDomains = await listDomains(apiToken);
   if (serviceDomains.length !== 0) stop("PREWRITE_WORKER_DOMAIN_PRESENT", "Worker already has a Custom Domain");
-  assertTargetAbsent(await accountDomainsForTarget(readToken), "PREWRITE");
+  assertTargetAbsent(await accountDomainsForTarget(apiToken), "PREWRITE");
 
   assertRepo(args.sha);
   await assertFixtureSourceConfig();
   await assertCi(args.sha, args.ci);
-  const finalActive = await assertExpectedActiveVersion(readToken, args.version, "FINAL_PREWRITE");
+  const finalActive = await assertExpectedActiveVersion(apiToken, args.version, "FINAL_PREWRITE");
   if (finalActive.deploymentId !== beforeActive.deploymentId) {
     stop("FINAL_PREWRITE_DEPLOYMENT_CHANGED", "active deployment changed during domain preflight");
   }
-  if ((await listDomains(readToken)).length !== 0) stop("FINAL_PREWRITE_WORKER_DOMAIN_PRESENT", "Worker gained a Custom Domain during preflight");
-  assertTargetAbsent(await accountDomainsForTarget(readToken), "FINAL_PREWRITE");
+  if ((await listDomains(apiToken)).length !== 0) stop("FINAL_PREWRITE_WORKER_DOMAIN_PRESENT", "Worker gained a Custom Domain during preflight");
+  assertTargetAbsent(await accountDomainsForTarget(apiToken), "FINAL_PREWRITE");
 
   console.log("DOMAIN_ATTACH_STARTED=YES");
   console.log("AUTHORIZATION_CONSUMED=YES");
   console.log("NO_BLIND_RETRY_IF_STOP_AFTER_DOMAIN_ATTACH_STARTED=YES");
   attachStarted = true;
 
-  const attached = await cfWrite(writeToken, "/workers/domains", "PUT", {
+  const attached = await cfWrite(apiToken, "/workers/domains", "PUT", {
     hostname: HOSTNAME,
     service: WORKER_NAME,
     zone_name: ZONE_NAME,
@@ -126,7 +124,7 @@ async function apply(args) {
     stop("DOMAIN_ATTACH_RESPONSE_INVALID", "Custom Domain attach response did not match the reviewed target");
   }
 
-  const afterDomains = await accountDomainsForTarget(readToken);
+  const afterDomains = await accountDomainsForTarget(apiToken);
   const matches = afterDomains.filter(
     (domain) =>
       domain?.hostname === HOSTNAME &&
@@ -139,7 +137,7 @@ async function apply(args) {
     stop("POST_VERIFY_DOMAIN_INVALID", "target Custom Domain was not uniquely proven after attach");
   }
 
-  const afterActive = await assertExpectedActiveVersion(readToken, args.version, "POST_VERIFY");
+  const afterActive = await assertExpectedActiveVersion(apiToken, args.version, "POST_VERIFY");
   if (afterActive.deploymentId !== beforeActive.deploymentId) {
     stop("POST_VERIFY_DEPLOYMENT_CHANGED", "domain attach unexpectedly changed the active Worker deployment");
   }
