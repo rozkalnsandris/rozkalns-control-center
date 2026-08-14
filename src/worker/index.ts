@@ -2,6 +2,8 @@ import { buildHealthPayload } from "../shared/health";
 import { handleGitHubReconciliationRequest } from "./github-reconciliation-route";
 import { handleGitHubWebhookRequest } from "./github-webhook-route";
 
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
+
 const worker: ExportedHandler<Env> = {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -11,6 +13,12 @@ const worker: ExportedHandler<Env> = {
     }
 
     if (url.pathname === "/api/github/reconcile") {
+      if (env.CONTROL_LIVE_READ_ENABLED !== "true") {
+        return Response.json(
+          { error: "LIVE_READ_DISABLED" },
+          { status: 503, headers: NO_STORE_HEADERS },
+        );
+      }
       return handleGitHubReconciliationRequest(request, env, new Date().toISOString());
     }
 
