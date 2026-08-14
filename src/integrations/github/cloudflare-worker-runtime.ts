@@ -123,6 +123,12 @@ export function createCloudflareGitHubAppJwtSigner(privateKeyPemInput: string): 
   };
 }
 
+export function createCloudflareGitHubCredentialFetch(
+  fetchImplementation: GitHubAppCredentialFetch = fetch,
+): GitHubAppCredentialFetch {
+  return (request) => fetchImplementation(request);
+}
+
 function selectedRepository(scope: GitHubInstallationReadScope, repositoryInput: string): string {
   if (typeof repositoryInput !== "string" || repositoryInput.trim() === "") {
     throw new CloudflareGitHubRuntimeError("INVALID_REPOSITORY");
@@ -162,7 +168,7 @@ export function createCloudflareGitHubReadRuntime(
   const clientId = nonEmptyBinding(options.bindings.GITHUB_APP_CLIENT_ID);
   const installationId = installationIdBinding(options.bindings.GITHUB_APP_INSTALLATION_ID);
   const signer = createCloudflareGitHubAppJwtSigner(options.bindings.GITHUB_APP_PRIVATE_KEY_PEM);
-  const fetchRequest = options.fetchRequest ?? fetch;
+  const fetchRequest = createCloudflareGitHubCredentialFetch(options.fetchRequest);
 
   const dependencies = {
     identity: { clientId },
