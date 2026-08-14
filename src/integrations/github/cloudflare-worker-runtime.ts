@@ -28,6 +28,7 @@ import {
 export const GITHUB_APP_PRIVATE_KEY_SECRET_NAME = "GITHUB_APP_PRIVATE_KEY_PEM" as const;
 export const GITHUB_APP_CLIENT_ID_BINDING_NAME = "GITHUB_APP_CLIENT_ID" as const;
 export const GITHUB_APP_INSTALLATION_ID_BINDING_NAME = "GITHUB_APP_INSTALLATION_ID" as const;
+export const GITHUB_API_USER_AGENT = "Rozkalns-Control" as const;
 
 export interface CloudflareGitHubRuntimeBindings {
   readonly GITHUB_APP_PRIVATE_KEY_PEM: string;
@@ -126,7 +127,10 @@ export function createCloudflareGitHubAppJwtSigner(privateKeyPemInput: string): 
 export function createCloudflareGitHubCredentialFetch(
   fetchImplementation: GitHubAppCredentialFetch = fetch,
 ): GitHubAppCredentialFetch {
-  return (request) => fetchImplementation(request);
+  return (request) => {
+    request.headers.set("User-Agent", GITHUB_API_USER_AGENT);
+    return fetchImplementation(request);
+  };
 }
 
 function selectedRepository(scope: GitHubInstallationReadScope, repositoryInput: string): string {
