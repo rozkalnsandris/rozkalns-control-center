@@ -5,7 +5,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { classifyInitialD1SchemaRows } from "./d1-schema-policy.mjs";
+import { classifyD1MigrationBootstrapSchemaRows, classifyInitialD1SchemaRows } from "./d1-schema-policy.mjs";
 
 const REPO = "rozkalnsandris/rozkalns-control-center";
 const HOST = "lenovo";
@@ -20,12 +20,12 @@ const NODE_MINIMUM = "22.12.0";
 const AUTH_PREFIX = `authorize Phase 2 remote D1 migration ${DB_NAME} `;
 const CF = "https://api.cloudflare.com/client/v4";
 const GH = "https://api.github.com";
-const PROJECT_SCHEMA = [
-  "d1_migrations",
+const APPLICATION_SCHEMA = [
   "webhook_deliveries",
   "idx_webhook_deliveries_repository_updated_at",
   "idx_webhook_deliveries_state_updated_at",
 ];
+const PROJECT_SCHEMA = ["d1_migrations", ...APPLICATION_SCHEMA];
 
 function stop(code, message) {
   console.error(`STOP=${code}`);
@@ -128,13 +128,23 @@ async function select(account, token, sql) {
   return result[0].results;
 }
 
-function schemaSql() {
-  return PROJECT_SCHEMA.map((x) => `'${x}'`).join(", ");
+function schemaSql(names) {
+  return names.map((x) => `'${x}'`).join(", ");
 }
 
-async function assertProjectAbsent(account, token) {
-  const rows = await select(account, token, `SELECT type, name, tbl_name FROM sqlite_schema WHERE name IN (${schemaSql()}) ORDER BY type, name`);
-  if (rows.length !== 0) stop("PREWRITE_PROJECT_SCHEMA_PRESENT", "reviewed project schema or migration history already exists");
+async function assertApplicationSchemaAbsent(account, token) {
+  const rows = await select(account, token, `SELECT type, name, tbl_name FROM sqlite_schema WHERE name IN (${schemaSql(APPLICATION_SCHEMA)}) ORDER BY type, name`);
+  if (rows.length !== 0) stop("PREWRITE_APPLICATION_SCHEMA_PRESENT", "reviewed application schema already exists");
+}
+
+async function assertMigrationBootstrapState(account, token) {
+  const schemaRows = await select(account, token, "SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE name = 'd1_migrations' OR tbl_name = 'd1_migrations' ORDER BY type, name");
+  const classification = classifyD1MigrationBootstrapSchemaRows(schemaRows);
+  if (!classification.valid) stop("PREWRITE_MIGRATION_HISTORY_SCHEMA_INVALID", "migration history schema is not the canonical Wrangler bootstrap state");
+  if (!classification.present) return;
+
+  const history = await select(account, token, "SELECT id, name, applied_at FROM d1_migrations ORDER BY id");
+  if (history.length !== 0) stop("PREWRITE_MIGRATION_HISTORY_NOT_EMPTY", "migration history already contains applied migrations");
 }
 
 async function assertInitialUserSchemaEmpty(account, token) {
@@ -147,7 +157,7 @@ async function assertInitialUserSchemaEmpty(account, token) {
 async function postVerify(account, token) {
   const history = await select(account, token, "SELECT name FROM d1_migrations ORDER BY id");
   if (history.length !== 1 || history[0]?.name !== MIGRATION) stop("POST_VERIFY_MIGRATION_HISTORY", "migration history mismatch");
-  const rows = await select(account, token, `SELECT type, name, tbl_name FROM sqlite_schema WHERE name IN (${schemaSql()}) ORDER BY type, name`);
+  const rows = await select(account, token, `SELECT type, name, tbl_name FROM sqlite_schema WHERE name IN (${schemaSql(PROJECT_SCHEMA)}) ORDER BY type, name`);
   const actual = rows.map((r) => `${r?.type}:${r?.name}:${r?.tbl_name}`).sort();
   const expected = ["index:idx_webhook_deliveries_repository_updated_at:webhook_deliveries", "index:idx_webhook_deliveries_state_updated_at:webhook_deliveries", "table:d1_migrations:d1_migrations", "table:webhook_deliveries:webhook_deliveries"].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) stop("POST_VERIFY_SCHEMA_INVALID", "reviewed project schema mismatch");
@@ -167,6 +177,7 @@ function plan() {
   console.log(`NODE_MINIMUM=${NODE_MINIMUM}`);
   console.log(`WRANGLER=${WRANGLER_VERSION}`);
   console.log("PREWRITE_D1_VERIFICATION=GET_AND_SELECT_ONLY");
+  console.log("PREWRITE_MIGRATION_BOOTSTRAP=ABSENT_OR_CANONICAL_EMPTY");
   console.log("PREWRITE_WRANGLER_MIGRATIONS_LIST=DISABLED");
   console.log("REMOTE_D1_MUTATION=NO");
   console.log(`OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id>`);
@@ -188,13 +199,15 @@ async function apply(a) {
   await assertCi(a.sha, a.ci);
   run("npm", ["run", "check"], { inherit: true });
   await assertDb(account, token);
-  await assertProjectAbsent(account, token);
+  await assertApplicationSchemaAbsent(account, token);
+  await assertMigrationBootstrapState(account, token);
   await assertInitialUserSchemaEmpty(account, token);
 
   assertRepo(a.sha);
   await assertCi(a.sha, a.ci);
   await assertDb(account, token);
-  await assertProjectAbsent(account, token);
+  await assertApplicationSchemaAbsent(account, token);
+  await assertMigrationBootstrapState(account, token);
   await assertInitialUserSchemaEmpty(account, token);
 
   console.log("APPLY_STARTED=YES");

@@ -8,24 +8,54 @@ The controller is pinned to the reviewed production D1 identity, the exact sourc
 
 Cloudflare D1 maintains reserved/system schema objects. A fresh application database therefore must not be classified by the raw D1 `num_tables` value. The first-bootstrap gate instead performs SELECT-only inspection of `sqlite_schema` and treats an object as system-owned only when its `tbl_name` belongs to the documented SQLite/D1 system namespaces `sqlite_%`, `d1_%` or `_cf_%`. Any malformed schema evidence or unexpected application table, view, index or trigger fails closed.
 
-The reviewed project objects are checked separately and must all be absent before first apply:
+The reviewed application objects must all be absent before first apply:
 
-- `d1_migrations`;
 - `webhook_deliveries`;
 - `idx_webhook_deliveries_repository_updated_at`;
 - `idx_webhook_deliveries_state_updated_at`.
 
-The source migration directory must still contain exactly `0001_reconciliation_core.sql` with the reviewed SHA-256. With that exact one-file source set and `d1_migrations` absent, the initial migration is necessarily unapplied without asking Wrangler to initialize migration state.
+The migration-history bootstrap may be in exactly one of two states:
+
+1. `d1_migrations` is absent; or
+2. `d1_migrations` already exists as the canonical empty Wrangler `4.120.0` migration-history table.
+
+For the second state, the gate verifies with SELECT-only evidence that:
+
+- the only schema objects owned by `d1_migrations` are the table itself and `sqlite_autoindex_d1_migrations_1`;
+- the normalized table SQL is exactly the canonical Wrangler shape:
+  `CREATE TABLE "d1_migrations"( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL )`;
+- the autoindex has no standalone SQL definition;
+- `SELECT id, name, applied_at FROM d1_migrations ORDER BY id` returns zero rows.
+
+Any noncanonical history schema, extra history-owned object, or non-empty migration history fails closed.
+
+The source migration directory must still contain exactly `0001_reconciliation_core.sql` with the reviewed SHA-256. With that exact one-file source set and either an absent history table or a canonical empty history table, the initial migration is proven unapplied without asking Wrangler to mutate migration state during prewrite.
 
 ### Why prewrite does not use `wrangler d1 migrations list --remote`
 
-Repository-pinned Wrangler `4.120.0` calls `initMigrationsTable()` before listing migrations. That creates `d1_migrations` with `CREATE TABLE IF NOT EXISTS`, so `migrations list --remote` is not a read-only prewrite operation for an uninitialized D1 database.
+Repository-pinned Wrangler `4.120.0` calls `initMigrationsTable()` before listing migrations. That can create `d1_migrations` with `CREATE TABLE IF NOT EXISTS`, so `migrations list --remote` is not a read-only prewrite operation for an uninitialized D1 database.
 
-For this reason the controller must not run `wrangler d1 migrations list` before or after the guarded write. Before write it proves pending state from the exact one-file source set plus absence of `d1_migrations`. After write it proves no-pending state by requiring `d1_migrations` to contain exactly that source migration name.
+For this reason the controller must not run `wrangler d1 migrations list` before or after the guarded write. Before write it proves pending state from the exact one-file source set plus the migration-history bootstrap evidence above. After write it proves no-pending state by requiring `d1_migrations` to contain exactly that source migration name.
+
+## Production reconciliation evidence before this correction
+
+A SELECT-only reconciliation on 2026-08-14 proved the production database was in the second allowed bootstrap state:
+
+- D1 UUID `8504e986-faf0-450c-bfb5-41b5dbf8be09`;
+- database name `rozkalns-control-production`;
+- jurisdiction `eu`;
+- canonical `d1_migrations` table present;
+- migration history empty;
+- `webhook_deliveries` absent;
+- both reviewed indexes absent;
+- remaining schema limited to Cloudflare/SQLite system objects;
+- all reconciliation SELECTs reported `changed_db=false` and `rows_written=0`.
+
+No `APPLY_STARTED=YES` marker was emitted during the attempt that discovered this state, so no guarded migration write began and that authorization was not consumed.
 
 ## One-shot write boundary
 
-Immediately before write the controller repeats the exact repository, CI, D1 identity, project-schema absence and SELECT-only application-schema checks. Only after all checks pass does it emit:
+Immediately before write the controller repeats the exact repository, CI, D1 identity, application-schema absence, migration-history bootstrap and SELECT-only application-schema checks. Only after all checks pass does it emit:
 
 - `APPLY_STARTED=YES`;
 - `AUTHORIZATION_CONSUMED=YES`;
