@@ -1,20 +1,18 @@
-import {
-  GitHubAppSessionError,
-  type GitHubInstallationAuthorizedGraphqlQuerySessionProvider,
-  type GitHubInstallationAuthorizedReadSessionProvider,
-} from "./app-installation-session.js";
+import { GitHubAppSessionError } from "./app-installation-session.js";
+import type { GitHubInstallationReadTransport } from "./app-installation-read-contract.js";
 import {
   createGitHubGraphqlMergeStateTransport,
   GitHubGraphqlMergeStateError,
   type GitHubGraphqlMergeStateFailureCode,
   type GitHubGraphqlMergeStateTransport,
+  type GitHubInstallationAuthorizedGraphqlQuerySessionProvider,
 } from "./graphql-merge-state-transport.js";
 import {
   createGitHubRestReadTransport,
   GitHubRestReadError,
+  type GitHubInstallationAuthorizedReadSessionProvider,
   type GitHubRestReadFailureCode,
 } from "./rest-read-transport.js";
-import type { GitHubInstallationReadTransport } from "./app-installation-read-contract.js";
 
 function restFailureCode(error: GitHubAppSessionError): GitHubRestReadFailureCode {
   switch (error.code) {
