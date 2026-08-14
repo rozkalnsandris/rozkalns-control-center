@@ -6,7 +6,7 @@ async function source(path: string) {
   return readFile(path, "utf8");
 }
 
-test("live dashboard remains bounded to read-only GitHub observation and disabled production config", async () => {
+test("live dashboard remains bounded to read-only GitHub observation and reviewed live-read production target", async () => {
   const [dashboard, route, worker, runtime, wrangler] = await Promise.all([
     source("src/shared/live-dashboard.ts"),
     source("src/worker/github-dashboard-route.ts"),
@@ -25,7 +25,7 @@ test("live dashboard remains bounded to read-only GitHub observation and disable
   assert.match(dashboard, /allowedActions:\s*\["OPEN_PR"\]/);
   assert.match(runtime, /memoizeGitHubInstallationSessionProvider/);
   assert.doesNotMatch(runtime, /"administration"|"statuses"/);
-  assert.match(wrangler, /"CONTROL_LIVE_READ_ENABLED": "false"/);
+  assert.match(wrangler, /"CONTROL_LIVE_READ_ENABLED": "true"/);
 });
 
 test("live dashboard UI uses one same-origin snapshot request and keeps mutation actions mock-only", async () => {
