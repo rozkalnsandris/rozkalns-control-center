@@ -9,6 +9,7 @@ import { classifyD1MigrationBootstrapSchemaRows, classifyInitialD1SchemaRows } f
 
 const REPO = "rozkalnsandris/rozkalns-control-center";
 const HOST = "lenovo";
+const EXPECTED_WORKFLOW_REF = `${REPO}/.github/workflows/production-d1.yml@refs/heads/main`;
 const ACCOUNT = "70e29dbca0e8363358659102d2b74178";
 const DB_NAME = "rozkalns-control-production";
 const DB_ID = "8504e986-faf0-450c-bfb5-41b5dbf8be09";
@@ -67,12 +68,32 @@ function wrangler() {
   return resolve("node_modules", ".bin", process.platform === "win32" ? "wrangler.cmd" : "wrangler");
 }
 
+function assertExecutionContext(sha) {
+  if (process.env.GITHUB_ACTIONS !== "true") {
+    if (hostname().split(".")[0].toLowerCase() !== HOST) stop("WRONG_HOST", `local apply requires ${HOST}`);
+    return;
+  }
+
+  const valid =
+    process.env.GITHUB_REPOSITORY === REPO &&
+    process.env.GITHUB_EVENT_NAME === "issue_comment" &&
+    process.env.GITHUB_REF === "refs/heads/main" &&
+    process.env.GITHUB_SHA === sha &&
+    process.env.GITHUB_WORKFLOW_REF === EXPECTED_WORKFLOW_REF &&
+    process.env.RUNNER_ENVIRONMENT === "github-hosted" &&
+    process.env.RUNNER_OS === "Linux";
+
+  if (!valid) {
+    stop("EXECUTION_CONTEXT_INVALID", "GitHub apply requires the reviewed default-branch production D1 workflow on a GitHub-hosted Linux runner");
+  }
+}
+
 function assertInputs(a) {
   if (!/^[0-9a-f]{40}$/.test(a.sha)) stop("EXPECTED_SHA_INVALID", "expected SHA must be 40 lowercase hex characters");
   if (!/^[1-9][0-9]*$/.test(a.ci)) stop("CI_RUN_ID_INVALID", "CI run id must be a positive integer");
   const node = process.versions.node.split(".").map(Number);
   if (node[0] < 22 || (node[0] === 22 && node[1] < 12)) stop("NODE_VERSION_INVALID", `Node ${NODE_MINIMUM}+ is required`);
-  if (hostname().split(".")[0].toLowerCase() !== HOST) stop("WRONG_HOST", `apply requires ${HOST}`);
+  assertExecutionContext(a.sha);
 }
 
 function assertRepo(sha) {
@@ -167,7 +188,9 @@ async function postVerify(account, token) {
 
 function plan() {
   console.log("MODE=PLAN");
-  console.log(`HOST=${HOST}`);
+  console.log(`LOCAL_HOST=${HOST}`);
+  console.log("GITHUB_ACTIONS_CONTEXT=github-hosted Linux issue_comment default-branch workflow");
+  console.log(`GITHUB_WORKFLOW_REF=${EXPECTED_WORKFLOW_REF}`);
   console.log(`ACCOUNT_ID=${ACCOUNT}`);
   console.log(`DATABASE_NAME=${DB_NAME}`);
   console.log(`DATABASE_UUID=${DB_ID}`);
@@ -191,7 +214,7 @@ async function apply(a) {
   const token = process.env.CLOUDFLARE_API_TOKEN ?? "";
   const authorization = process.env.CONTROL_OWNER_AUTHORIZATION ?? "";
   if (account !== ACCOUNT) stop("ACCOUNT_ID_INVALID", "Cloudflare account does not match reviewed production account");
-  if (!token) stop("CLOUDFLARE_API_TOKEN_REQUIRED", "temporary setup token is required");
+  if (!token) stop("CLOUDFLARE_API_TOKEN_REQUIRED", "production D1 token is required");
   if (authorization !== `${AUTH_PREFIX}${a.sha} ci ${a.ci}`) stop("OWNER_AUTHORIZATION_INVALID", "one-shot authorization must match exact SHA and CI run");
 
   assertRepo(a.sha);
