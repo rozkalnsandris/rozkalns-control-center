@@ -97,10 +97,16 @@ async function json(url, options, code) {
     stop(code, "network request failed");
   }
   if (!response.ok) stop(code, `HTTP ${response.status}`);
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    stop(`${code}_NON_JSON`, `expected application/json response; got ${contentType || "missing content-type"}`);
+  }
+
   try {
     return await response.json();
   } catch {
-    stop(code, "response was not valid JSON");
+    stop(code, "response declared JSON but could not be parsed");
   }
 }
 

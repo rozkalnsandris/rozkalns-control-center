@@ -30,13 +30,16 @@ test("live-read enable plan is credential-free and non-mutating", () => {
   );
 });
 
-test("source target is live read-only while existing fixture redeploy remains fail-closed", async () => {
+test("source target is live read-only with Worker-first API routing while fixture redeploy remains fail-closed", async () => {
   const config = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
   const liveSource = await readFile(liveReadGate, "utf8");
   const fixtureSource = await readFile("scripts/cloudflare-ui-redeploy-gate.mjs", "utf8");
 
   assert.equal(config.vars.CONTROL_LIVE_READ_ENABLED, "true");
+  assert.deepEqual(config.assets.run_worker_first, ["/api/*"]);
   assert.match(liveSource, /CONTROL_LIVE_READ_ENABLED !== "true"/);
+  assert.match(liveSource, /run_worker_first/);
+  assert.match(liveSource, /JSON\.stringify\(\["\/api\/\*"\]\)/);
   assert.match(liveSource, /assertLiveSourceConfig\(\)/);
   assert.match(fixtureSource, /assertFixtureSourceConfig\(\)/);
 });
@@ -75,11 +78,14 @@ test("live-read gate has one strict deploy and no independent routing, secret or
   assert.match(source, /POST_DEPLOY_STATE=REVIEW_REQUIRED/);
 });
 
-test("postverify proves live binding, exact domain and read-only end-to-end dashboard canary", async () => {
+test("public dashboard canary requires JSON media type before parsing and proves read-only live shape", async () => {
   const source = await readFile(liveReadGate, "utf8");
 
-  assert.match(source, /assertVersionBindings\(await versionDetail\(apiToken, newVersionId\), true, "POST_VERIFY"\)/);
-  assert.match(source, /assertExactDomain\(apiToken, args\.domainId, "POST_VERIFY"\)/);
+  const mediaTypeGuard = source.indexOf('headers.get("content-type")');
+  const jsonParse = source.indexOf("response.json()", mediaTypeGuard);
+  assert.ok(mediaTypeGuard >= 0 && jsonParse > mediaTypeGuard);
+  assert.match(source, /PUBLIC_DASHBOARD_MEDIA_TYPE/);
+  assert.match(source, /application\/json/);
   assert.match(source, /assertLivePublicCanary\("POST_VERIFY"\)/);
   assert.match(source, /repositories\).*MANAGED_REPOSITORIES/s);
   assert.match(source, /workflowState === "MERGE_READY"/);

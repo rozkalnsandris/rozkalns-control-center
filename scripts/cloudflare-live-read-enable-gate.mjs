@@ -124,8 +124,12 @@ async function assertLiveSourceConfig() {
   if (config?.vars?.CONTROL_LIVE_READ_ENABLED !== "true") {
     stop("LIVE_READ_NOT_ENABLED", "live-read rollout requires CONTROL_LIVE_READ_ENABLED=true in reviewed source");
   }
-  if (config?.assets?.directory !== "./dist/client" || config?.assets?.not_found_handling !== "single-page-application") {
-    stop("ASSETS_CONFIG_INVALID", "reviewed SPA Static Assets configuration changed");
+  if (
+    config?.assets?.directory !== "./dist/client" ||
+    config?.assets?.not_found_handling !== "single-page-application" ||
+    JSON.stringify(config?.assets?.run_worker_first) !== JSON.stringify(["/api/*"])
+  ) {
+    stop("ASSETS_CONFIG_INVALID", "reviewed SPA/API Static Assets routing configuration changed");
   }
   for (const forbidden of ["route", "routes", "triggers", "custom_domain", "custom_domains"]) {
     if (Object.hasOwn(config, forbidden)) stop("SOURCE_ROUTING_PRESENT", `${forbidden} is forbidden in live-read rollout source config`);
@@ -213,11 +217,19 @@ async function readPublicDashboard(codePrefix) {
     stop(`${codePrefix}_PUBLIC_DASHBOARD_CACHE`, "dashboard response must remain no-store");
   }
 
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    stop(
+      `${codePrefix}_PUBLIC_DASHBOARD_MEDIA_TYPE`,
+      `dashboard response must be application/json; got ${contentType || "missing content-type"}`,
+    );
+  }
+
   let body;
   try {
     body = await response.json();
   } catch {
-    stop(`${codePrefix}_PUBLIC_DASHBOARD_JSON`, "dashboard response was not valid JSON");
+    stop(`${codePrefix}_PUBLIC_DASHBOARD_JSON`, "dashboard response declared JSON but could not be parsed");
   }
   return { response, body };
 }
