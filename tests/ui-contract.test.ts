@@ -42,6 +42,7 @@ test("compact portrait phone profile remains safe for Galaxy A55-class screens",
   assert.match(compactCss, /@media \(max-width: 430px\)/);
   assert.match(compactCss, /@supports \(height: 100dvh\)/);
   assert.match(compactCss, /env\(safe-area-inset-top\)/);
-  assert.match(compactCss, /\.action-row\s*\{[\s\S]*?grid-template-columns:\s*1fr;/);
+  assert.match(compactCss, /\.topbar\s*\{[\s\S]*?grid-template-columns:\s*40px minmax\(0, 1fr\) auto;/);
+  assert.match(compactCss, /\.action-row\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/);
   assert.match(compactCss, /\.action-button\s*\{[\s\S]*?min-height:\s*52px;/);
 });
