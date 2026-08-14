@@ -23,27 +23,17 @@ function actionsEnv(runAttempt: string): NodeJS.ProcessEnv {
   };
 }
 
-test("production D1 workflow keeps reruns outside the environment job", async () => {
+test("completed production D1 workflow is retired before any privileged boundary", async () => {
   const source = await readFile(workflow, "utf8");
-  assert.match(source, /github\.run_attempt == '1' &&/);
-  assert.match(source, /environment: production/);
-  assert.match(source, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_D1_TOKEN \}\}/);
-  assert.match(source, /cancel-in-progress: false/);
+  assert.match(source, /name: Retired Production D1 Canary/);
+  assert.match(source, /workflow_dispatch:/);
+  assert.match(source, /if: \$\{\{ false \}\}/);
+  assert.doesNotMatch(source, /issue_comment:/);
+  assert.doesNotMatch(source, /environment: production/);
+  assert.doesNotMatch(source, /CLOUDFLARE_D1_TOKEN|secrets\./);
 });
 
-test("first GitHub Actions attempt passes execution-context validation before credential checks", () => {
-  const result = spawnSync(
-    process.execPath,
-    [gate, "--mode", "apply", "--expected-sha", sha, "--expected-ci-run-id", ci],
-    { encoding: "utf8", env: actionsEnv("1") },
-  );
-
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /STOP=CLOUDFLARE_API_TOKEN_REQUIRED/);
-  assert.doesNotMatch(result.stderr, /ACTIONS_RERUN_FORBIDDEN|EXECUTION_CONTEXT_INVALID/);
-});
-
-test("GitHub Actions rerun is rejected before credential or network use", () => {
+test("historical controller still rejects GitHub Actions reruns before credential or network use", () => {
   const result = spawnSync(
     process.execPath,
     [gate, "--mode", "apply", "--expected-sha", sha, "--expected-ci-run-id", ci],
