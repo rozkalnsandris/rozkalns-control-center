@@ -38,7 +38,7 @@ export const controlOperationPolicies = Object.freeze({
   workflow_dispatch: Object.freeze({
     id: "workflow_dispatch",
     liveEnabled: false,
-    requiredGitHubPermissions: Object.freeze(["actions:write"]),
+    requiredGitHubPermissions: Object.freeze(["actions:write"] as const),
     targetSelection: "source_controlled_allowlist",
   }),
 }) satisfies Readonly<Record<ControlOperationId, ControlOperationPolicy>>;
