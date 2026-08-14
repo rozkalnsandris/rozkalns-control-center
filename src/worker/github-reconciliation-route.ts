@@ -10,11 +10,20 @@ import {
   type CloudflareGitHubReadRuntime,
   type CloudflareGitHubRuntimeBindings,
 } from "../integrations/github/cloudflare-worker-runtime.js";
+import {
+  GitHubGraphqlMergeStateError,
+  type GitHubGraphqlMergeStateFailureCode,
+} from "../integrations/github/graphql-merge-state-transport.js";
+import {
+  GitHubRestReadError,
+  type GitHubRestReadFailureCode,
+} from "../integrations/github/rest-read-transport.js";
 
 const ROUTE_PATH = "/api/github/reconcile" as const;
 const QUERY_KEYS = ["repository", "issue", "pull"] as const;
 
 type QueryKey = (typeof QUERY_KEYS)[number];
+type GitHubReadFailureCode = GitHubRestReadFailureCode | GitHubGraphqlMergeStateFailureCode;
 
 export interface LiveGitHubReconciliationInput {
   readonly bindings: CloudflareGitHubRuntimeBindings;
@@ -121,6 +130,39 @@ export async function executeLiveGitHubReconciliation(
   });
 }
 
+function mapGitHubReadFailure(code: GitHubReadFailureCode): Response {
+  switch (code) {
+    case "CREDENTIAL_UNAVAILABLE":
+      return routeError("GITHUB_CREDENTIAL_UNAVAILABLE", 503);
+    case "CREDENTIAL_UNUSABLE":
+      return routeError("GITHUB_CREDENTIAL_UNUSABLE", 503);
+    case "RATE_LIMITED":
+      return routeError("GITHUB_RATE_LIMITED", 503);
+    case "UNAUTHORIZED":
+      return routeError("GITHUB_UNAUTHORIZED", 502);
+    case "FORBIDDEN":
+      return routeError("GITHUB_FORBIDDEN", 502);
+    case "NOT_FOUND":
+    case "RESOURCE_NOT_FOUND":
+      return routeError("GITHUB_RESOURCE_NOT_FOUND", 502);
+    case "TRANSPORT_FAILURE":
+      return routeError("GITHUB_TRANSPORT_FAILED", 502);
+    case "MALFORMED_RESPONSE":
+    case "PAGINATION_BOUNDARY_VIOLATION":
+    case "PAGINATION_CYCLE":
+    case "PAGINATION_BUDGET_EXHAUSTED":
+      return routeError("GITHUB_RESPONSE_INVALID", 502);
+    case "GRAPHQL_ERROR":
+      return routeError("GITHUB_GRAPHQL_FAILED", 502);
+    case "UNEXPECTED_STATUS":
+      return routeError("GITHUB_UNEXPECTED_STATUS", 502);
+    case "INVALID_REQUEST":
+      return routeError("GITHUB_READ_INVALID", 502);
+    default:
+      return routeError("LIVE_READ_FAILED", 502);
+  }
+}
+
 function mapFailure(error: unknown): Response {
   if (error instanceof RouteInputError) {
     return routeError("INVALID_REQUEST", 400);
@@ -134,6 +176,10 @@ function mapFailure(error: unknown): Response {
 
   if (error instanceof CloudflareGitHubRuntimeError) {
     return routeError("RUNTIME_UNAVAILABLE", 503);
+  }
+
+  if (error instanceof GitHubRestReadError || error instanceof GitHubGraphqlMergeStateError) {
+    return mapGitHubReadFailure(error.code);
   }
 
   return routeError("LIVE_READ_FAILED", 502);
