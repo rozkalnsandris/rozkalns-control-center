@@ -10,6 +10,8 @@ import {
   type CloudflareGitHubReadRuntime,
   type CloudflareGitHubRuntimeBindings,
 } from "../integrations/github/cloudflare-worker-runtime.js";
+import { GitHubActiveBranchRulesReaderError } from "../integrations/github/active-branch-rules-reader.js";
+import { GitHubAuthoritativeReadProviderError } from "../integrations/github/authoritative-read-provider.js";
 import {
   GitHubGraphqlMergeStateError,
   type GitHubGraphqlMergeStateFailureCode,
@@ -24,6 +26,7 @@ const QUERY_KEYS = ["repository", "issue", "pull"] as const;
 
 type QueryKey = (typeof QUERY_KEYS)[number];
 type GitHubReadFailureCode = GitHubRestReadFailureCode | GitHubGraphqlMergeStateFailureCode;
+type GitHubProjectionFailureCode = "INVALID_REQUEST" | "MALFORMED_RESPONSE";
 
 export interface LiveGitHubReconciliationInput {
   readonly bindings: CloudflareGitHubRuntimeBindings;
@@ -163,6 +166,17 @@ function mapGitHubReadFailure(code: GitHubReadFailureCode): Response {
   }
 }
 
+function mapGitHubProjectionFailure(code: GitHubProjectionFailureCode): Response {
+  switch (code) {
+    case "MALFORMED_RESPONSE":
+      return routeError("GITHUB_RESPONSE_INVALID", 502);
+    case "INVALID_REQUEST":
+      return routeError("GITHUB_READ_INVALID", 502);
+    default:
+      return routeError("LIVE_READ_FAILED", 502);
+  }
+}
+
 function mapFailure(error: unknown): Response {
   if (error instanceof RouteInputError) {
     return routeError("INVALID_REQUEST", 400);
@@ -180,6 +194,13 @@ function mapFailure(error: unknown): Response {
 
   if (error instanceof GitHubRestReadError || error instanceof GitHubGraphqlMergeStateError) {
     return mapGitHubReadFailure(error.code);
+  }
+
+  if (
+    error instanceof GitHubAuthoritativeReadProviderError ||
+    error instanceof GitHubActiveBranchRulesReaderError
+  ) {
+    return mapGitHubProjectionFailure(error.code);
   }
 
   return routeError("LIVE_READ_FAILED", 502);
