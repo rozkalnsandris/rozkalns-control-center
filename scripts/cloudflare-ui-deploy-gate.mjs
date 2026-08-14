@@ -52,6 +52,7 @@ function plan() {
   console.log("WORKERS_DEV=DISABLED");
   console.log("PREVIEW_URLS=DISABLED");
   console.log("CUSTOM_DOMAIN=ABSENT_REQUIRED");
+  console.log("CREDENTIAL_MODEL=SINGLE_TEMPORARY_SETUP_TOKEN");
   console.log(`OWNER_AUTHORIZATION_FORMAT=${AUTH_PREFIX}<exact-main-sha> ci <exact-ci-run-id>`);
   console.log("NO_BLIND_RETRY_AFTER_DEPLOY_STARTED=YES");
 }
@@ -59,14 +60,11 @@ function plan() {
 async function apply(args) {
   assertBaseInputs(args.sha, args.ci);
   const account = process.env.CLOUDFLARE_ACCOUNT_ID ?? "";
-  const readToken = process.env.CLOUDFLARE_READ_TOKEN ?? "";
-  const writeToken = process.env.CLOUDFLARE_WRITE_TOKEN ?? "";
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? "";
   const authorization = process.env.CONTROL_OWNER_AUTHORIZATION ?? "";
 
   if (account !== ACCOUNT_ID) stop("ACCOUNT_ID_INVALID", "Cloudflare account does not match reviewed production account");
-  if (!readToken) stop("READ_TOKEN_REQUIRED", "Workers Scripts Read token is required");
-  if (!writeToken) stop("WRITE_TOKEN_REQUIRED", "Workers Scripts Write token is required");
-  if (readToken === writeToken) stop("TOKEN_SEPARATION_REQUIRED", "read and write tokens must be distinct");
+  if (!apiToken) stop("API_TOKEN_REQUIRED", "temporary rozkalns-control-setup Cloudflare API token is required");
   if (authorization !== `${AUTH_PREFIX}${args.sha} ci ${args.ci}`) {
     stop("OWNER_AUTHORIZATION_INVALID", "one-shot authorization must match exact main SHA and CI run");
   }
@@ -76,18 +74,18 @@ async function apply(args) {
   await assertCi(args.sha, args.ci);
   run("npm", ["run", "check"], { inherit: true });
 
-  const beforeVersions = await listVersions(readToken);
-  const beforeDeployments = await listDeployments(readToken);
+  const beforeVersions = await listVersions(apiToken);
+  const beforeDeployments = await listDeployments(apiToken);
   assertHistoricalPreDeployBaseline(beforeVersions, beforeDeployments);
-  await assertSubdomainDisabled(readToken, "PREWRITE");
-  assertNoWorkerDomains(await listDomains(readToken), "PREWRITE");
+  await assertSubdomainDisabled(apiToken, "PREWRITE");
+  assertNoWorkerDomains(await listDomains(apiToken), "PREWRITE");
 
   assertRepo(args.sha);
   await assertFixtureSourceConfig();
   await assertCi(args.sha, args.ci);
-  assertHistoricalPreDeployBaseline(await listVersions(readToken), await listDeployments(readToken));
-  await assertSubdomainDisabled(readToken, "FINAL_PREWRITE");
-  assertNoWorkerDomains(await listDomains(readToken), "FINAL_PREWRITE");
+  assertHistoricalPreDeployBaseline(await listVersions(apiToken), await listDeployments(apiToken));
+  await assertSubdomainDisabled(apiToken, "FINAL_PREWRITE");
+  assertNoWorkerDomains(await listDomains(apiToken), "FINAL_PREWRITE");
 
   console.log("DEPLOY_STARTED=YES");
   console.log("AUTHORIZATION_CONSUMED=YES");
@@ -105,10 +103,10 @@ async function apply(args) {
       "--experimental-auto-create=false",
       "--install-skills=false",
     ],
-    { inherit: true, env: childEnvironment(writeToken) },
+    { inherit: true, env: childEnvironment(apiToken) },
   );
 
-  const afterVersions = await listVersions(readToken);
+  const afterVersions = await listVersions(apiToken);
   const beforeIds = new Set([BOOTSTRAP_VERSION_ID, SECOND_VERSION_ID]);
   const newVersions = afterVersions.filter(
     (version) => typeof version?.id === "string" && !beforeIds.has(version.id),
@@ -118,7 +116,7 @@ async function apply(args) {
   }
   const newVersionId = newVersions[0].id;
 
-  const active = singleDeploymentVersion(await listDeployments(readToken), "POST_VERIFY");
+  const active = singleDeploymentVersion(await listDeployments(apiToken), "POST_VERIFY");
   if (active.versionId !== newVersionId) {
     stop("POST_VERIFY_ACTIVE_VERSION", "new current-main version is not receiving 100% of Worker deployment traffic");
   }
@@ -126,9 +124,9 @@ async function apply(args) {
     stop("POST_VERIFY_DEPLOYMENT_ID", "deployment id did not change after deploy");
   }
 
-  assertRequiredBindings(await versionDetail(readToken, newVersionId), "POST_VERIFY");
-  await assertSubdomainDisabled(readToken, "POST_VERIFY");
-  assertNoWorkerDomains(await listDomains(readToken), "POST_VERIFY");
+  assertRequiredBindings(await versionDetail(apiToken, newVersionId), "POST_VERIFY");
+  await assertSubdomainDisabled(apiToken, "POST_VERIFY");
+  assertNoWorkerDomains(await listDomains(apiToken), "POST_VERIFY");
 
   console.log("UI_DEPLOY_GATE=PASS");
   console.log("AUTHORIZATION_CONSUMED=YES");

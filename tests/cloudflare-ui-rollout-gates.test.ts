@@ -24,6 +24,7 @@ test("first public UI rollout plan modes are credential-free and non-mutating", 
   assert.match(deploy.stdout, /LIVE_GITHUB_RECONCILIATION=DISABLED/);
   assert.match(deploy.stdout, /CLOUDFLARE_MUTATION=NO/);
   assert.match(deploy.stdout, /PUBLIC_ROUTING_CHANGE=NO/);
+  assert.match(deploy.stdout, /CREDENTIAL_MODEL=SINGLE_TEMPORARY_SETUP_TOKEN/);
   assert.match(deploy.stdout, /NO_BLIND_RETRY_AFTER_DEPLOY_STARTED=YES/);
 
   const domain = plan(domainGate);
@@ -33,6 +34,7 @@ test("first public UI rollout plan modes are credential-free and non-mutating", 
   assert.match(domain.stdout, /CUSTOM_DOMAIN=control\.rozkalns\.net/);
   assert.match(domain.stdout, /CLOUDFLARE_MUTATION=NO/);
   assert.match(domain.stdout, /DOMAIN_ATTACH=NOT_EXECUTED_IN_PLAN/);
+  assert.match(domain.stdout, /CREDENTIAL_MODEL=SINGLE_TEMPORARY_SETUP_TOKEN/);
   assert.match(domain.stdout, /NO_BLIND_RETRY_AFTER_DOMAIN_ATTACH_STARTED=YES/);
 });
 
@@ -61,6 +63,21 @@ test("production source remains fixture-only and does not declare public routing
   assert.match(worker, /acceptor:\s*null/);
 });
 
+test("both new UI rollout gates use only the normative single setup token", async () => {
+  const [deploy, domain] = await Promise.all([
+    readFile(deployGate, "utf8"),
+    readFile(domainGate, "utf8"),
+  ]);
+
+  for (const source of [deploy, domain]) {
+    assert.match(source, /process\.env\.CLOUDFLARE_API_TOKEN/);
+    assert.match(source, /API_TOKEN_REQUIRED/);
+    assert.doesNotMatch(source, /CLOUDFLARE_READ_TOKEN/);
+    assert.doesNotMatch(source, /CLOUDFLARE_WRITE_TOKEN/);
+    assert.doesNotMatch(source, /TOKEN_SEPARATION_REQUIRED/);
+  }
+});
+
 test("deploy gate is exact-main and exact-CI bound before one strict Wrangler deploy", async () => {
   const source = await readFile(deployGate, "utf8");
 
@@ -69,7 +86,7 @@ test("deploy gate is exact-main and exact-CI bound before one strict Wrangler de
   assert.match(source, /assertCi\(args\.sha, args\.ci\)/);
   assert.match(source, /assertFixtureSourceConfig\(\)/);
   assert.match(source, /assertHistoricalPreDeployBaseline/);
-  assert.match(source, /TOKEN_SEPARATION_REQUIRED/);
+  assert.match(source, /childEnvironment\(apiToken\)/);
   assert.match(source, /"deploy",\s*\n\s*"--name"/);
   assert.match(source, /"--strict"/);
   assert.match(source, /"--experimental-provision=false"/);
@@ -115,16 +132,15 @@ test("domain gate binds exact deployed version and has one reviewed Workers-doma
   assert.match(source, /authorize Phase 2 Cloudflare UI domain \$\{HOSTNAME\} /);
   assert.match(source, /--expected-version-id/);
   assert.match(source, /assertExpectedActiveVersion/);
-  assert.match(source, /TOKEN_SEPARATION_REQUIRED/);
   assert.match(source, /hostname:\s*HOSTNAME/);
   assert.match(source, /service:\s*WORKER_NAME/);
   assert.match(source, /zone_name:\s*ZONE_NAME/);
-  assert.match(source, /cfWrite\(writeToken, "\/workers\/domains", "PUT"/);
+  assert.match(source, /cfWrite\(apiToken, "\/workers\/domains", "PUT"/);
   assert.doesNotMatch(source, /cfWrite\([^\n]*"DELETE"/);
   assert.doesNotMatch(source, /wranglerPath|"deploy"|"versions"/);
 
   const marker = source.indexOf('console.log("DOMAIN_ATTACH_STARTED=YES")');
-  const write = source.indexOf('cfWrite(writeToken, "/workers/domains", "PUT"', marker);
+  const write = source.indexOf('cfWrite(apiToken, "/workers/domains", "PUT"', marker);
   assert.ok(marker >= 0 && write > marker);
   assert.match(source, /AUTHORIZATION_CONSUMED=YES/);
   assert.match(source, /POST_DOMAIN_ATTACH_STATE=REVIEW_REQUIRED/);
