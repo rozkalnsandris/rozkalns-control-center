@@ -4,3 +4,89 @@
   justify-content: center;
   text-align: center;
 }
+
+/* Issue #139: keep the live read-only dashboard dense without changing its
+ * normalized data or action contract. Detailed reasoning remains available in
+ * the evidence disclosure, while the default card exposes scan-critical state.
+ */
+.section-empty-state {
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid #315944;
+  border-radius: 13px;
+  color: #b9f4d2;
+  background: #10251a;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.decision-card,
+.decision-list--compact .decision-card {
+  padding: 11px 12px;
+}
+
+.decision-card__heading {
+  margin-top: 7px;
+}
+
+.decision-card__reason {
+  margin: 8px 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.decision-card .signal-row {
+  gap: 5px;
+  margin: 8px 0;
+}
+
+.decision-card .status-pill {
+  min-height: 24px;
+  padding: 2px 7px;
+  font-size: 0.62rem;
+}
+
+.decision-card .evidence-details summary {
+  min-height: 48px;
+  padding-block: 6px;
+  font-size: 0.69rem;
+}
+
+.evidence-reason {
+  margin: 0;
+  padding: 0 10px 9px;
+  color: #cbd1da;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.evidence-reason span {
+  display: block;
+  margin-bottom: 3px;
+  color: #8993a1;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.decision-card .action-row {
+  margin-top: 8px;
+}
+
+.decision-card .action-button {
+  min-height: 48px;
+}
+
+@media (min-width: 640px) {
+  .decision-card,
+  .decision-list--compact .decision-card {
+    padding: 13px;
+  }
+}
+
+@media (min-width: 960px) {
+  .decision-list--compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
