@@ -1,5 +1,5 @@
 import {
-  authenticateGitHubWebhook,
+  authenticateGitHubWebhookRequest,
   InvalidWebhookError,
   type VerifiedGitHubWebhook,
 } from "../shared/github-webhook.js";
@@ -87,14 +87,19 @@ export async function handleGitHubWebhookRequest(
     return routeError("INVALID_REQUEST", 400);
   }
 
-  let webhook: VerifiedGitHubWebhook;
+  let authenticated;
   try {
-    webhook = await authenticateGitHubWebhook(rawBody, request.headers, options.secret);
+    authenticated = await authenticateGitHubWebhookRequest(rawBody, request.headers, options.secret);
   } catch (error) {
     if (error instanceof InvalidWebhookError) return routeError("WEBHOOK_REJECTED", 403);
     return routeError("WEBHOOK_REJECTED", 403);
   }
 
+  if (authenticated.kind === "PING") {
+    return jsonResponse({ status: "PING" }, 200);
+  }
+
+  const webhook = authenticated.webhook;
   if (!resolveManagedProjectPolicy(webhook.repository)) {
     return routeError("WEBHOOK_REJECTED", 403);
   }
