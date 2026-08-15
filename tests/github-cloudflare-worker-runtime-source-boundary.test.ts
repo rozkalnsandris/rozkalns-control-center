@@ -6,7 +6,7 @@ async function source(path: string) {
   return readFile(path, "utf8");
 }
 
-test("Cloudflare GitHub runtime is wired only through the reviewed read-only Worker reconciliation route", async () => {
+test("Cloudflare GitHub read runtime stays bounded while production Queue wiring is explicit", async () => {
   const [runtime, route, worker, wrangler] = await Promise.all([
     source("src/integrations/github/cloudflare-worker-runtime.ts"),
     source("src/worker/github-reconciliation-route.ts"),
@@ -37,11 +37,14 @@ test("Cloudflare GitHub runtime is wired only through the reviewed read-only Wor
   assert.match(wrangler, /"GITHUB_APP_PRIVATE_KEY_PEM"/);
   assert.match(wrangler, /"binding": "CONTROL_DB"/);
   assert.match(wrangler, /"database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09"/);
-  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_[A-Za-z0-9]/);
-  assert.doesNotMatch(wrangler, /"queues"|"routes"|"route"/);
+  assert.match(wrangler, /"binding": "RECONCILIATION_QUEUE"/);
+  assert.match(wrangler, /"queue": "rozkalns-control-reconciliation"/);
+  assert.match(wrangler, /"dead_letter_queue": "rozkalns-control-reconciliation-dlq"/);
+  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_[A-Za-z0-9]|test-webhook-secret/i);
+  assert.doesNotMatch(wrangler, /"routes"|"route"/);
 });
 
-test("GitHub webhook Worker boundary authenticates raw bytes but remains runtime-disabled without durability", async () => {
+test("GitHub webhook Worker boundary authenticates raw bytes and remains fail-closed through reviewed runtime assembly", async () => {
   const [route, worker, wrangler] = await Promise.all([
     source("src/worker/github-webhook-route.ts"),
     source("src/worker/index.ts"),
@@ -49,7 +52,8 @@ test("GitHub webhook Worker boundary authenticates raw bytes but remains runtime
   ]);
 
   assert.match(route, /request\.arrayBuffer\(\)/);
-  assert.match(route, /authenticateGitHubWebhook\(rawBody, request\.headers, options\.secret\)/);
+  assert.match(route, /authenticateGitHubWebhookRequest\(rawBody, request\.headers, options\.secret\)/);
+  assert.match(route, /authenticated\.kind === "PING"/);
   assert.match(route, /resolveManagedProjectPolicy\(webhook\.repository\)/);
   assert.match(route, /MAX_GITHUB_WEBHOOK_BODY_BYTES = 1024 \* 1024/);
   assert.match(route, /DURABILITY_NOT_READY/);
@@ -58,11 +62,16 @@ test("GitHub webhook Worker boundary authenticates raw bytes but remains runtime
 
   assert.match(worker, /github-webhook-route/);
   assert.match(worker, /url\.pathname === "\/api\/github\/webhook"/);
+  assert.match(worker, /resolveWebhookQueueRuntime\(env\)/);
+  assert.match(worker, /resolution\.status === "READY"/);
   assert.match(worker, /secret:\s*null/);
   assert.match(worker, /acceptor:\s*null/);
   assert.doesNotMatch(worker, /GITHUB_WEBHOOK_SECRET|CONTROL_DB/);
 
-  assert.doesNotMatch(wrangler, /GITHUB_WEBHOOK_SECRET/);
+  assert.match(wrangler, /"GITHUB_WEBHOOK_SECRET"/);
   assert.match(wrangler, /"binding": "CONTROL_DB"/);
-  assert.doesNotMatch(wrangler, /"queues"|"routes"|"route"/);
+  assert.match(wrangler, /"binding": "RECONCILIATION_QUEUE"/);
+  assert.match(wrangler, /"rozkalns-control-reconciliation-dlq"/);
+  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_[A-Za-z0-9]|test-webhook-secret/i);
+  assert.doesNotMatch(wrangler, /"routes"|"route"/);
 });

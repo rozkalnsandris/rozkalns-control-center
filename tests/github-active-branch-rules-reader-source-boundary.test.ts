@@ -6,11 +6,10 @@ async function source(path: string): Promise<string> {
   return readFile(path, "utf8");
 }
 
-test("active branch-rules reader remains Metadata-only and disconnected from the public Worker route", async () => {
-  const [reader, worker, wrangler] = await Promise.all([
+test("active branch-rules reader remains Metadata-only and not directly wired into Worker routing", async () => {
+  const [reader, worker] = await Promise.all([
     source("src/integrations/github/active-branch-rules-reader.ts"),
     source("src/worker/index.ts"),
-    source("wrangler.jsonc"),
   ]);
 
   assert.match(reader, /rules\/branches\/\$\{encodedBranch\}\?per_page=100/);
@@ -21,7 +20,4 @@ test("active branch-rules reader remains Metadata-only and disconnected from the
   assert.doesNotMatch(reader, /\b(?:POST|PUT|PATCH|DELETE)\b/);
 
   assert.doesNotMatch(worker, /active-branch-rules-reader|readGitHubActiveBranchPolicyEvidence/);
-  assert.match(wrangler, /"binding": "CONTROL_DB"/);
-  assert.match(wrangler, /"database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09"/);
-  assert.doesNotMatch(wrangler, /"queues"/);
 });

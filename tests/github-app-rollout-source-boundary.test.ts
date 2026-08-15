@@ -6,7 +6,7 @@ async function source(path: string) {
   return readFile(path, "utf8");
 }
 
-test("GitHub App rollout manifest and declared live-read runtime bindings remain least-privilege", async () => {
+test("GitHub App rollout manifest and declared production runtime bindings remain least-privilege", async () => {
   const [rollout, worker, wrangler] = await Promise.all([
     source("src/integrations/github/app-read-rollout-plan.ts"),
     source("src/worker/index.ts"),
@@ -30,10 +30,12 @@ test("GitHub App rollout manifest and declared live-read runtime bindings remain
     GITHUB_APP_CLIENT_ID: "Iv23likDoFtVeWBJfdFS",
     GITHUB_APP_INSTALLATION_ID: "153121564",
     CONTROL_LIVE_READ_ENABLED: "true",
+    CONTROL_WEBHOOK_RUNTIME_ENABLED: "true",
   });
   assert.equal(config.vars?.CONTROL_LIVE_READ_ENABLED, "true");
-  assert.deepEqual(config.secrets?.required, ["GITHUB_APP_PRIVATE_KEY_PEM"]);
-  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_/);
+  assert.equal(config.vars?.CONTROL_WEBHOOK_RUNTIME_ENABLED, "true");
+  assert.deepEqual(config.secrets?.required, ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]);
+  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_|test-webhook-secret/i);
 
   assert.doesNotMatch(worker, /app-read-rollout-plan|GitHubReadRollout|cloudflare-worker-runtime|GITHUB_APP_/);
 });

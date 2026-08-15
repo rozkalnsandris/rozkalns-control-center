@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("production activation gate is exact, one-shot and fail-closed", async () => {
-  const [gate, wrangler, runbook] = await Promise.all([
+  const [gate, wrangler, runbook, shared] = await Promise.all([
     readFile("scripts/cloudflare-webhook-queue-activation-gate.mjs", "utf8"),
     readFile("wrangler.jsonc", "utf8"),
     readFile("docs/PHASE2_WEBHOOK_QUEUE_PRODUCTION_ACTIVATION.md", "utf8"),
+    readFile("scripts/cloudflare-ui-rollout-shared.mjs", "utf8"),
   ]);
 
   assert.match(gate, /mode: "plan"/);
@@ -31,7 +32,8 @@ test("production activation gate is exact, one-shot and fail-closed", async () =
   assert.match(gate, /await cleanupSecretFile\(\)/);
 
   assert.match(gate, /Rozkalns Control GitHub webhook/);
-  assert.match(gate, /control\.rozkalns\.net/);
+  assert.match(shared, /export const HOSTNAME = "control\.rozkalns\.net"/);
+  assert.match(gate, /const WEBHOOK_ACCESS_DOMAIN = `\$\{HOSTNAME\}\$\{WEBHOOK_PATH\}`/);
   assert.match(gate, /\/api\/github\/webhook/);
   assert.match(gate, /decision: "bypass"/);
   assert.match(gate, /include: \[\{ everyone: \{\} \}\]/);

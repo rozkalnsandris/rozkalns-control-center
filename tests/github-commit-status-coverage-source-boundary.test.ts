@@ -7,11 +7,10 @@ async function source(path: string): Promise<string> {
 }
 
 test("commit-status coverage remains a pure source-only least-privilege boundary", async () => {
-  const [readContract, projection, worker, wrangler] = await Promise.all([
+  const [readContract, projection, worker] = await Promise.all([
     source("src/shared/source-control-read.ts"),
     source("src/shared/github-projection.ts"),
     source("src/worker/index.ts"),
-    source("wrangler.jsonc"),
   ]);
 
   assert.match(readContract, /CommitStatusEvidenceCoverage = "OBSERVED" \| "NOT_REQUESTED"/);
@@ -25,5 +24,4 @@ test("commit-status coverage remains a pure source-only least-privilege boundary
   assert.doesNotMatch(combined, /api\.github\.com|Authorization|Bearer|fetch\(/);
   assert.doesNotMatch(combined, /\b(?:POST|PUT|PATCH|DELETE)\b/);
   assert.doesNotMatch(worker, /commitStatusCoverage|listCommitStatuses|api\.github\.com/);
-  assert.doesNotMatch(wrangler, /"queues"/);
 });
