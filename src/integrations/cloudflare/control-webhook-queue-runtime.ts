@@ -22,7 +22,6 @@ import {
   WebhookReconciliationAcceptor,
   type ReconciliationQueueProducerLike,
 } from "./webhook-reconciliation-acceptor.js";
-import type { VerifiedGitHubWebhookAcceptor } from "../../worker/github-webhook-route.js";
 
 export const CONTROL_WEBHOOK_RUNTIME_FLAG = "CONTROL_WEBHOOK_RUNTIME_ENABLED" as const;
 export const RECONCILIATION_QUEUE_BINDING = "RECONCILIATION_QUEUE" as const;
@@ -57,7 +56,7 @@ export class ControlWebhookQueueRuntimeError extends Error {
 
 export interface ControlWebhookQueueRuntime {
   readonly webhookSecret: string;
-  readonly webhookAcceptor: VerifiedGitHubWebhookAcceptor;
+  readonly webhookAcceptor: WebhookReconciliationAcceptor;
   readonly observabilityReader: WebhookDeliveryObservabilityReader;
   consumeQueueBatch(
     batch: QueueMessageBatchLike,
