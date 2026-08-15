@@ -84,7 +84,7 @@ function boundedOpaqueString(value: unknown, maxLength: number): string | null {
   return value;
 }
 
-function decodeBase64Url(segment: string, code: CloudflareAccessJwtErrorCode): Uint8Array<ArrayBuffer> {
+function decodeBase64Url(segment: string, code: CloudflareAccessJwtErrorCode): Uint8Array {
   if (segment.length === 0 || segment.length % 4 === 1 || !/^[A-Za-z0-9_-]+$/.test(segment)) fail(code);
 
   const padded = `${segment.replace(/-/g, "+").replace(/_/g, "/")}${"=".repeat((4 - (segment.length % 4)) % 4)}`;
@@ -96,9 +96,15 @@ function decodeBase64Url(segment: string, code: CloudflareAccessJwtErrorCode): U
   }
   if (binary.length > MAX_SEGMENT_BYTES) fail(code);
 
-  const bytes: Uint8Array<ArrayBuffer> = new Uint8Array(binary.length);
+  const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return bytes;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer as ArrayBuffer;
 }
 
 function parseJsonSegment(segment: string, code: CloudflareAccessJwtErrorCode): unknown {
@@ -275,8 +281,8 @@ export class CloudflareAccessJwtVerifier {
     }
     const key = await importSigningKey(jwk);
 
-    const signature = decodeBase64Url(encodedSignature, "ACCESS_JWT_MALFORMED");
-    const signingInput: Uint8Array<ArrayBuffer> = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`);
+    const signature = toArrayBuffer(decodeBase64Url(encodedSignature, "ACCESS_JWT_MALFORMED"));
+    const signingInput = toArrayBuffer(new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`));
     let signatureValid = false;
     try {
       signatureValid = await crypto.subtle.verify(
