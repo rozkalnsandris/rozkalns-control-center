@@ -46,11 +46,21 @@ test("dashboard route rejects queries, non-GET methods and unrelated paths befor
     return snapshot;
   };
 
-  const queryResponse = await handleGitHubDashboardRequest(request("/api/github/dashboard?repository=other"), bindings, OBSERVED_AT, execute);
+  const queryResponse = await handleGitHubDashboardRequest(
+    request("/api/github/dashboard?repository=other"),
+    bindings,
+    OBSERVED_AT,
+    execute,
+  );
   assert.equal(queryResponse.status, 400);
   assert.deepEqual(await queryResponse.json(), { error: "INVALID_REQUEST" });
 
-  const postResponse = await handleGitHubDashboardRequest(request("/api/github/dashboard", "POST"), bindings, OBSERVED_AT, execute);
+  const postResponse = await handleGitHubDashboardRequest(
+    request("/api/github/dashboard", "POST"),
+    bindings,
+    OBSERVED_AT,
+    execute,
+  );
   assert.equal(postResponse.status, 405);
   assert.equal(postResponse.headers.get("allow"), "GET");
 
@@ -71,29 +81,20 @@ test("dashboard route sanitizes upstream failures", async () => {
   assert.deepEqual(JSON.parse(body), { error: "LIVE_DASHBOARD_FAILED" });
 });
 
-test("live dashboard executor composes the Cloudflare runtime with the normalized reader", async () => {
-  const runtime = { createRepositoryReadContext() { return { provider: {} as never }; } } as never;
-  let createCalls = 0;
+test("live dashboard executor delegates to the bounded Cloudflare dashboard reader", async () => {
   let readCalls = 0;
 
   const result = await executeLiveGitHubDashboard(
     { bindings, observedAt: OBSERVED_AT },
     {
-      createRuntime: (options) => {
-        createCalls += 1;
-        assert.deepEqual(options.bindings, bindings);
-        return runtime;
-      },
-      readDashboard: async (receivedRuntime, observedAt) => {
+      readDashboard: async (input) => {
         readCalls += 1;
-        assert.equal(receivedRuntime, runtime);
-        assert.equal(observedAt, OBSERVED_AT);
+        assert.deepEqual(input, { bindings, observedAt: OBSERVED_AT });
         return snapshot;
       },
     },
   );
 
-  assert.equal(createCalls, 1);
   assert.equal(readCalls, 1);
   assert.deepEqual(result, snapshot);
 });
