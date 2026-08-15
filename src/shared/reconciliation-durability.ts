@@ -8,7 +8,7 @@ export type DeliveryLifecycleState =
 
 const allowedTransitions: Readonly<Record<DeliveryLifecycleState, readonly DeliveryLifecycleState[]>> = {
   RECEIVED: ["ENQUEUED"],
-  ENQUEUED: ["PROCESSING"],
+  ENQUEUED: ["PROCESSING", "DEAD_LETTERED"],
   PROCESSING: ["RETRY_PENDING", "SUCCEEDED", "DEAD_LETTERED"],
   RETRY_PENDING: ["PROCESSING", "DEAD_LETTERED"],
   SUCCEEDED: [],
