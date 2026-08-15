@@ -20,15 +20,15 @@ test("PLAN-only entrypoint cannot reach Worker deploy or Cloudflare writes", () 
   assert.doesNotMatch(plan, /CONTROL_OWNER_AUTHORIZATION/);
 });
 
-test("PLAN selects the parent by token AUD before cryptographic re-bind", () => {
+test("PLAN selects the parent by token AUD before host coverage proof and cryptographic re-bind", () => {
   const hint = plan.indexOf("readAccessTokenApplicationAudience(accessToken)");
   const select = plan.indexOf("exactParentAccessApplication(apps, audienceHint)");
-  const destination = plan.indexOf("accessApplicationPublicUris(parent).includes(HOSTNAME)");
+  const destination = plan.indexOf("accessApplicationProtectsHost(parent, HOSTNAME)");
   const verify = plan.indexOf("verifyShortLivedAccessToken(accessToken, parent.aud)");
 
   assert.ok(hint >= 0, "missing token AUD hint extraction");
   assert.ok(select > hint, "parent selection must follow bounded AUD hint extraction");
-  assert.ok(destination > select, "Control hostname proof must follow exact AUD selection");
+  assert.ok(destination > select, "Control hostname coverage proof must follow exact AUD selection");
   assert.ok(verify > destination, "RS256/JWKS verification must re-bind the selected app after destination proof");
   assert.match(plan, /verified Access audience did not re-bind to the AUD-selected parent application/);
   assert.match(plan, /PARENT_DISCOVERY=TOKEN_AUD_THEN_SIGNATURE_REBIND/);

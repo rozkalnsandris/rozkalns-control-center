@@ -1,5 +1,6 @@
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const AUDIENCE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const HOST_LABEL_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 
 export class AccessAppIdentityError extends Error {
   constructor(code, message) {
@@ -29,6 +30,11 @@ function isPublicDestination(destination) {
   if (!destination || typeof destination !== "object") return false;
   if (destination.type !== undefined && destination.type !== "public") return false;
   return typeof destination.uri === "string";
+}
+
+function validHostnameLabels(value) {
+  const labels = value.split(".");
+  return labels.length >= 2 && labels.every((label) => HOST_LABEL_PATTERN.test(label));
 }
 
 export function readAccessTokenApplicationAudience(token) {
@@ -76,6 +82,35 @@ export function accessApplicationPublicUris(app) {
 
   const legacyDomain = normalizePublicUri(app?.domain);
   return legacyDomain ? [legacyDomain] : [];
+}
+
+export function accessApplicationProtectsHost(app, expectedHost) {
+  const normalizedExpected = normalizePublicUri(expectedHost);
+  if (
+    !normalizedExpected ||
+    normalizedExpected.includes("/") ||
+    normalizedExpected.includes("*") ||
+    !validHostnameLabels(normalizedExpected)
+  ) {
+    return false;
+  }
+
+  const expected = normalizedExpected.toLowerCase();
+  const expectedLabels = expected.split(".");
+
+  return accessApplicationPublicUris(app).some((uri) => {
+    if (uri.includes("/")) return false;
+
+    const candidate = uri.toLowerCase();
+    if (candidate === expected) return true;
+    if (!candidate.startsWith("*.")) return false;
+
+    const suffix = candidate.slice(2);
+    if (!suffix || suffix.includes("*") || !validHostnameLabels(suffix)) return false;
+
+    const suffixLabels = suffix.split(".");
+    return expectedLabels.length === suffixLabels.length + 1 && expectedLabels.slice(1).join(".") === suffix;
+  });
 }
 
 export function exactParentAccessApplication(apps, audience, expectedId = "") {
