@@ -27,12 +27,6 @@ function toneForReview(review: DecisionReadModel["review"]) {
   return "neutral" as const;
 }
 
-function toneForDeploy(deploy: DecisionReadModel["deployImpact"]) {
-  if (deploy === "NO_DEPLOY" || deploy === "AUTO_DEPLOY_SAFE") return "good" as const;
-  if (deploy === "UNKNOWN") return "neutral" as const;
-  return "warning" as const;
-}
-
 function humanize(value: string) {
   return value.replace(/_/g, " ");
 }
@@ -52,10 +46,10 @@ function reconciledLabel(timestamp: string) {
   }).format(new Date(timestamp));
 }
 
-function evidenceState(item: DecisionReadModel) {
-  if (!item.expectedHeadSha && !item.currentHeadSha) return "head pending";
-  if (item.expectedHeadSha && item.expectedHeadSha === item.currentHeadSha) return "heads match";
-  return "head mismatch";
+function headEvidence(item: DecisionReadModel) {
+  if (!item.expectedHeadSha && !item.currentHeadSha) return { label: "Head pending", tone: "warning" as const };
+  if (item.expectedHeadSha && item.expectedHeadSha === item.currentHeadSha) return { label: "Head match", tone: "good" as const };
+  return { label: "Head mismatch", tone: "danger" as const };
 }
 
 function actionClass(action: MockAction) {
@@ -74,12 +68,14 @@ function referenceLabel(item: DecisionReadModel) {
 export function DecisionCard({ item, project, onMockAction }: DecisionCardProps) {
   const titleId = `${item.id}-title`;
   const reasonId = `${item.id}-reason`;
-  const evidenceLabel = `Evidence · ${evidenceState(item)} · ${reconciledLabel(item.lastReconciledAt)} UTC`;
+  const evidenceLabel = `Evidence · ${reconciledLabel(item.lastReconciledAt)} UTC`;
   const reference = referenceLabel(item);
   const title = item.prTitle ?? item.issueTitle ?? "Untitled change";
+  const head = headEvidence(item);
+  const showReason = item.workflowState === "NEEDS_ANDRIS";
 
   return (
-    <article className="decision-card" aria-labelledby={titleId} aria-describedby={reasonId}>
+    <article className="decision-card" aria-labelledby={titleId} aria-describedby={showReason ? reasonId : undefined}>
       <div className="decision-card__topline">
         <span className="project-kicker">{project.displayName}</span>
         <StatusPill
@@ -98,18 +94,26 @@ export function DecisionCard({ item, project, onMockAction }: DecisionCardProps)
         </span>
       </div>
 
-      <p className="decision-card__reason" id={reasonId}>
-        {item.reason}
-      </p>
+      {showReason ? (
+        <p className="decision-card__reason" id={reasonId}>
+          {item.reason}
+        </p>
+      ) : null}
 
       <div className="signal-row" aria-label="Decision evidence">
         <StatusPill label={`CI ${item.ci}`} tone={toneForCi(item.ci)} />
         <StatusPill label={`Review ${humanize(item.review)}`} tone={toneForReview(item.review)} />
-        <StatusPill label={humanize(item.deployImpact)} tone={toneForDeploy(item.deployImpact)} />
+        <StatusPill label={head.label} tone={head.tone} />
       </div>
 
       <details className="evidence-details">
         <summary>{evidenceLabel}</summary>
+        {!showReason ? (
+          <p className="evidence-reason">
+            <span>Reason</span>
+            {item.reason}
+          </p>
+        ) : null}
         <dl className="evidence-grid">
           <div>
             <dt>Expected head</dt>
@@ -122,6 +126,10 @@ export function DecisionCard({ item, project, onMockAction }: DecisionCardProps)
           <div>
             <dt>Main</dt>
             <dd><code>{shortSha(item.mainSha)}</code></dd>
+          </div>
+          <div>
+            <dt>Deploy impact</dt>
+            <dd>{humanize(item.deployImpact)}</dd>
           </div>
           <div>
             <dt>Reconciled</dt>

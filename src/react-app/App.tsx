@@ -194,11 +194,11 @@ export default function App() {
         <section className="hero" aria-labelledby="page-title">
           <div>
             <p className="eyebrow">{live ? "Phase 2 · Live read-only" : "Phase 1 · Read-only prototype"}</p>
-            <h1 id="page-title">What needs your decision?</h1>
+            <h1 id="page-title">Current repository control state</h1>
             <p className="summary">
               {live
-                ? "Live GitHub evidence from selected repositories. This screen cannot change GitHub, Cloudflare or RPi5."
-                : "Human gates first. Demo data only; this screen cannot change GitHub, Cloudflare or RPi5."}
+                ? "Needs Andris is reserved for genuine owner-action gates. Everything else below is live GitHub read-only state; this screen cannot change GitHub, Cloudflare or RPi5."
+                : "Needs Andris is reserved for genuine owner-action gates. Demo data only; this screen cannot change GitHub, Cloudflare or RPi5."}
             </p>
           </div>
         </section>
@@ -241,38 +241,40 @@ export default function App() {
             </div>
             <span className="section-count">{needsAndris.length}</span>
           </div>
-          <div className="decision-list">
-            {needsAndris.map((item) => (
+          {needsAndris.length > 0 ? (
+            <div className="decision-list">
+              {needsAndris.map((item) => (
+                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
+              ))}
+            </div>
+          ) : (
+            <p className="section-empty-state">No owner action is required right now.</p>
+          )}
+        </section>
+
+        <section className="dashboard-section" aria-labelledby="active-title">
+          <div className="section-heading">
+            <div><p className="eyebrow">No action needed</p><h2 id="active-title">Working / Waiting</h2></div>
+            <span className="section-count">{workingOrWaiting.length}</span>
+          </div>
+          <div className="decision-list decision-list--compact">
+            {workingOrWaiting.map((item) => (
               <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
             ))}
           </div>
         </section>
 
-        <div className="secondary-grid">
-          <section className="dashboard-section" aria-labelledby="active-title">
-            <div className="section-heading">
-              <div><p className="eyebrow">No action needed</p><h2 id="active-title">Working / Waiting</h2></div>
-              <span className="section-count">{workingOrWaiting.length}</span>
-            </div>
-            <div className="decision-list decision-list--compact">
-              {workingOrWaiting.map((item) => (
-                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-              ))}
-            </div>
-          </section>
-
-          <section className="dashboard-section" aria-labelledby="failed-title">
-            <div className="section-heading">
-              <div><p className="eyebrow">Blocked</p><h2 id="failed-title">CI Failed</h2></div>
-              <span className="section-count section-count--danger">{ciFailed.length}</span>
-            </div>
-            <div className="decision-list decision-list--compact">
-              {ciFailed.map((item) => (
-                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-              ))}
-            </div>
-          </section>
-        </div>
+        <section className="dashboard-section" aria-labelledby="failed-title">
+          <div className="section-heading">
+            <div><p className="eyebrow">Blocked</p><h2 id="failed-title">CI Failed</h2></div>
+            <span className="section-count section-count--danger">{ciFailed.length}</span>
+          </div>
+          <div className="decision-list decision-list--compact">
+            {ciFailed.map((item) => (
+              <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
+            ))}
+          </div>
+        </section>
 
         <section className="dashboard-section" aria-labelledby="ready-title">
           <div className="section-heading">
