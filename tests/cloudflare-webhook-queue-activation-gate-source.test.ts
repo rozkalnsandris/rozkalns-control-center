@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("production activation gate is exact, one-shot and fail-closed", async () => {
-  const [gate, wrangler, runbook, shared] = await Promise.all([
+  const [gate, identity, wrangler, runbook, shared] = await Promise.all([
     readFile("scripts/cloudflare-webhook-queue-activation-gate.mjs", "utf8"),
+    readFile("scripts/cloudflare-access-app-identity.mjs", "utf8"),
     readFile("wrangler.jsonc", "utf8"),
     readFile("docs/PHASE2_WEBHOOK_QUEUE_PRODUCTION_ACTIVATION.md", "utf8"),
     readFile("scripts/cloudflare-ui-rollout-shared.mjs", "utf8"),
@@ -31,6 +32,26 @@ test("production activation gate is exact, one-shot and fail-closed", async () =
   assert.match(gate, /mode: 0o600/);
   assert.match(gate, /await cleanupSecretFile\(\)/);
 
+  // Parent Access identity comes from the already-accepted application token audience,
+  // not from the deprecated/legacy domain representation in the app inventory.
+  assert.match(gate, /readAccessTokenApplicationAudience/);
+  assert.match(gate, /exactParentAccessApplication/);
+  assert.match(gate, /await assertProtectedHealth\(accessToken, "PLAN"\)/);
+  assert.match(gate, /const audience = accessAudience\(accessToken, "PLAN"\)/);
+  assert.match(gate, /PARENT_ACCESS_APP_AUD=/);
+  assert.doesNotMatch(gate, /app\?\.domain === HOSTNAME/);
+  assert.match(identity, /payload\?\.type !== "app"/);
+  assert.match(identity, /audiences\.length !== 1/);
+  assert.match(identity, /app\?\.aud === audience/);
+
+  // Modern Access app targeting uses destinations. Legacy domain is read-only fallback.
+  assert.match(identity, /Array\.isArray\(destinations\) && destinations\.length > 0/);
+  assert.match(identity, /destination\?\.type === "public"/);
+  assert.match(identity, /const legacyDomain = normalizePublicUri\(app\?\.domain\)/);
+  assert.match(gate, /destinations: \[\{ type: "public", uri: WEBHOOK_ACCESS_DOMAIN \}\]/);
+  assert.match(gate, /exactWebhookAccessApplications/);
+  assert.match(gate, /assertExactWebhookAccessApplication/);
+
   assert.match(gate, /Rozkalns Control GitHub webhook/);
   assert.match(shared, /export const HOSTNAME = "control\.rozkalns\.net"/);
   assert.match(gate, /const WEBHOOK_ACCESS_DOMAIN = `\$\{HOSTNAME\}\$\{WEBHOOK_PATH\}`/);
@@ -49,7 +70,10 @@ test("production activation gate is exact, one-shot and fail-closed", async () =
   assert.match(wrangler, /"rozkalns-control-reconciliation-dlq"/);
   assert.doesNotMatch(wrangler, /BEGIN (?:RSA )?PRIVATE KEY|ghs_|test-webhook-secret/i);
   assert.doesNotMatch(gate, /BEGIN (?:RSA )?PRIVATE KEY|ghs_|test-webhook-secret/i);
+  assert.doesNotMatch(identity, /BEGIN (?:RSA )?PRIVATE KEY|ghs_|test-webhook-secret/i);
 
+  assert.match(runbook, /Application Audience|AUD/);
+  assert.match(runbook, /destinations/);
   assert.match(runbook, /GitHub App/);
   assert.match(runbook, /same secret/i);
   assert.match(runbook, /check_run/);
