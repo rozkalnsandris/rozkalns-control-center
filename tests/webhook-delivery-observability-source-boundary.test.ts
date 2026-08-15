@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("webhook delivery observability remains source-only and runtime-disabled", async () => {
-  const [reader, route, worker, wrangler] = await Promise.all([
+test("webhook observability is wired only through the dormant runtime assembly", async () => {
+  const [reader, route, runtimeAssembly, worker, wrangler] = await Promise.all([
     readFile("src/integrations/cloudflare/d1-delivery-observability-reader.ts", "utf8"),
     readFile("src/worker/github-webhook-observability-route.ts", "utf8"),
+    readFile("src/integrations/cloudflare/control-webhook-queue-runtime.ts", "utf8"),
     readFile("src/worker/index.ts", "utf8"),
     readFile("wrangler.jsonc", "utf8"),
   ]);
@@ -20,11 +21,14 @@ test("webhook delivery observability remains source-only and runtime-disabled", 
   assert.match(route, /Cache-Control/);
   assert.doesNotMatch(route, /\benv\./);
 
-  assert.match(worker, /secret:\s*null/);
-  assert.match(worker, /acceptor:\s*null/);
-  assert.doesNotMatch(worker, /handleGitHubWebhookObservabilityRequest|webhook-deliveries/);
-  assert.doesNotMatch(worker, /\bqueue\s*\(/);
+  assert.match(runtimeAssembly, /D1WebhookDeliveryObservabilityReader/);
+  assert.match(runtimeAssembly, /CONTROL_WEBHOOK_RUNTIME_ENABLED/);
+  assert.match(worker, /handleGitHubWebhookObservabilityRequest/);
+  assert.match(worker, /resolution\.status === "READY" \? resolution\.runtime\.observabilityReader : null/);
 
   assert.doesNotMatch(wrangler, /"queues"/);
-  assert.doesNotMatch(wrangler, /dead_letter_queue|max_retries|GITHUB_WEBHOOK_SECRET/);
+  assert.doesNotMatch(
+    wrangler,
+    /dead_letter_queue|max_retries|GITHUB_WEBHOOK_SECRET|CONTROL_WEBHOOK_RUNTIME_ENABLED|RECONCILIATION_QUEUE/,
+  );
 });

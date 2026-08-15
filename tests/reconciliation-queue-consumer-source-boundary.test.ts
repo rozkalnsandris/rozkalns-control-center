@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("Queue consumer and DLQ lifecycle remain source-only and runtime-disabled", async () => {
-  const [consumer, worker, wrangler] = await Promise.all([
+test("Queue consumer and DLQ lifecycle are exposed only through the dormant runtime gate", async () => {
+  const [consumer, runtimeAssembly, worker, wrangler] = await Promise.all([
     readFile("src/integrations/cloudflare/reconciliation-queue-consumer.ts", "utf8"),
+    readFile("src/integrations/cloudflare/control-webhook-queue-runtime.ts", "utf8"),
     readFile("src/worker/index.ts", "utf8"),
     readFile("wrangler.jsonc", "utf8"),
   ]);
@@ -20,11 +21,15 @@ test("Queue consumer and DLQ lifecycle remain source-only and runtime-disabled",
   assert.doesNotMatch(consumer, /token=|private[_-]?key|WEBHOOK_SECRET|CLOUDFLARE_API_TOKEN/i);
   assert.doesNotMatch(consumer, /\benv\./);
 
-  assert.match(worker, /secret:\s*null/);
-  assert.match(worker, /acceptor:\s*null/);
-  assert.doesNotMatch(worker, /\bqueue\s*\(/);
-  assert.doesNotMatch(worker, /consumeReconciliationQueueMessage|finalizeReconciliationDeadLetter/);
+  assert.match(runtimeAssembly, /finalizeReconciliationDeadLetter/);
+  assert.match(runtimeAssembly, /RECONCILIATION_QUEUE_NAME/);
+  assert.match(runtimeAssembly, /RECONCILIATION_DLQ_NAME/);
+  assert.match(worker, /async queue\(batch, env\)/);
+  assert.match(worker, /RUNTIME_UNAVAILABLE/);
 
   assert.doesNotMatch(wrangler, /"queues"/);
-  assert.doesNotMatch(wrangler, /dead_letter_queue|max_retries/);
+  assert.doesNotMatch(
+    wrangler,
+    /dead_letter_queue|max_retries|CONTROL_WEBHOOK_RUNTIME_ENABLED|RECONCILIATION_QUEUE/,
+  );
 });
