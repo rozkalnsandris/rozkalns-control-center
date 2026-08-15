@@ -6,11 +6,21 @@ This boundary converts bounded GitHub App installation reads into the normalized
 
 ## Source boundary
 
-The dashboard reads exactly the repositories selected by `managedProjectPolicies`. Each repository gets an exact one-repository GitHub App installation scope at the already-approved `actions` rollout stage: Metadata, Contents, Issues, Pull requests, Checks and Actions are read-only. Commit statuses and Administration are not requested.
+The dashboard reads exactly the repositories selected by `managedProjectPolicies`. The production dashboard acquires one short-lived installation token scoped to exactly those six repositories at the already-approved `actions` rollout stage: Metadata, Contents, Issues, Pull requests, Checks and Actions are read-only. Commit statuses and Administration are not requested.
 
 One canonical UTC observation time is created by the Worker route and reused for every repository and every PR in that snapshot. A failure in any managed repository fails the entire live snapshot closed; partial live truth is not presented as complete.
 
 The server returns only `ControlDashboardData`. Raw GitHub payloads, installation credentials, rate-limit bodies and upstream errors are never exposed to the browser.
+
+## Bounded GitHub fan-out
+
+Cloudflare Workers Free allows 50 external subrequests per Worker invocation. The live dashboard must remain materially below that boundary rather than relying on a paid-plan limit.
+
+The dashboard therefore uses one exact-six-repository installation-token exchange followed by one fixed GraphQL repository snapshot per managed repository. The hard source contract is seven external GitHub subrequests for a complete six-repository dashboard request: one token exchange plus six GraphQL reads.
+
+Each repository GraphQL snapshot includes its default-branch commit, open issues, open pull requests, changed-file count, draft/merge state, latest reviews, exact-head check runs and associated Actions workflow-run evidence. Connections are capped at 100 items and any `hasNextPage=true` result fails the complete dashboard snapshot closed instead of silently presenting partial evidence or issuing unbounded pagination requests.
+
+A regression test requires the complete dashboard path to remain below the Free-plan budget. Adding a new external GitHub call to the dashboard therefore requires an explicit budget review rather than silently increasing fan-out.
 
 ## Conservative classification
 
@@ -26,9 +36,9 @@ An observed green CI state is useful evidence, but it is not sufficient to claim
 
 ## Credential/session behavior
 
-The Cloudflare request runtime memoizes installation sessions by exact installation id, repository scope, permission set and observation time. REST reads for one repository therefore reuse one short-lived installation session within the dashboard request instead of exchanging a new installation token for every endpoint call. GraphQL uses an independently memoized session with the same exact repository scope. Failed acquisition is evicted rather than cached.
+The bounded dashboard token is requested for exactly the six selected repositories and exactly the already-approved read permissions. The existing token exchange contract still validates returned repository and permission evidence fail closed. The raw installation credential remains private to the request-scoped session and is never stored in D1, source, logs or browser state.
 
-The cache is request-scoped because `createCloudflareGitHubReadRuntime()` is created inside the Worker request executor. No raw credential is persisted to D1, source, logs or browser state.
+The narrow `/api/github/reconcile` path keeps its existing one-repository REST/GraphQL session model. Dashboard batching does not broaden that reconciliation contract and does not broaden GitHub App permissions.
 
 ## Worker route
 
@@ -44,4 +54,4 @@ The cache is request-scoped because `createCloudflareGitHubReadRuntime()` is cre
 
 The React client performs one hoisted dashboard request rather than per-card requests. Live mode renders the same mobile-first normalized model as fixtures. A real PR URL is navigation and must be rendered as an anchor; evidence disclosure remains native `<details>/<summary>`.
 
-Production remains fixture-only while `CONTROL_LIVE_READ_ENABLED=false`. Enabling live reads is a separate production authorization after this source change is merged and exact-main CI is successful.
+Production activation or redeployment remains a separate explicit owner authorization after source merge and exact-main CI. This source boundary does not authorize a production deploy.

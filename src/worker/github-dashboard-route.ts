@@ -1,6 +1,6 @@
-import { createCloudflareGitHubReadRuntime, type CloudflareGitHubRuntimeBindings } from "../integrations/github/cloudflare-worker-runtime.js";
+import { readCloudflareGitHubDashboardSnapshot } from "../integrations/github/cloudflare-dashboard-runtime.js";
+import type { CloudflareGitHubRuntimeBindings } from "../integrations/github/cloudflare-worker-runtime.js";
 import type { ControlDashboardData } from "../shared/control-model.js";
-import { readLiveDashboardSnapshot } from "../shared/live-dashboard.js";
 
 export const GITHUB_DASHBOARD_ROUTE_PATH = "/api/github/dashboard" as const;
 
@@ -15,8 +15,7 @@ export interface LiveGitHubDashboardInput {
 }
 
 export interface LiveGitHubDashboardDependencies {
-  readonly createRuntime?: typeof createCloudflareGitHubReadRuntime;
-  readonly readDashboard?: typeof readLiveDashboardSnapshot;
+  readonly readDashboard?: typeof readCloudflareGitHubDashboardSnapshot;
 }
 
 export type LiveGitHubDashboardExecutor = (
@@ -31,10 +30,10 @@ export async function executeLiveGitHubDashboard(
   input: LiveGitHubDashboardInput,
   dependencies: LiveGitHubDashboardDependencies = {},
 ): Promise<ControlDashboardData> {
-  const runtime = (dependencies.createRuntime ?? createCloudflareGitHubReadRuntime)({
+  return (dependencies.readDashboard ?? readCloudflareGitHubDashboardSnapshot)({
     bindings: input.bindings,
+    observedAt: input.observedAt,
   });
-  return (dependencies.readDashboard ?? readLiveDashboardSnapshot)(runtime, input.observedAt);
 }
 
 export async function handleGitHubDashboardRequest(
