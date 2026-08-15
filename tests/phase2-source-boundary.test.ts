@@ -110,14 +110,25 @@ test("Phase 2 reconciliation model makes authoritative reread and exact-head sta
   assert.match(evidenceSelection, /workflowId == null/);
 });
 
-test("verified webhook boundary owns repository identity after HMAC verification", async () => {
+test("verified webhook boundary owns repository identity and action only after HMAC verification", async () => {
   const webhook = await source("src/shared/github-webhook.ts");
 
   assert.match(webhook, /authenticateGitHubWebhookRequest/);
   assert.match(webhook, /parsed\.eventName === "ping"/);
   assert.match(webhook, /repositoryFromVerifiedPayload/);
-  assert.match(webhook, /repository:\s*repositoryFromVerifiedPayload\(payload\)/);
+  assert.match(webhook, /actionFromVerifiedPayload/);
+  assert.match(webhook, /repository:\s*repositoryFromVerifiedPayload\(verifiedPayload\)/);
+  assert.match(webhook, /action:\s*actionFromVerifiedPayload\(verifiedPayload\)/);
+  assert.match(webhook, /\[verifiedWebhookMarker\]: true/);
   assert.match(webhook, /GitHub webhook signature verification failed/);
+
+  const signatureVerification = webhook.indexOf("const verified = await verifyGitHubWebhookSignature");
+  const verificationFailure = webhook.indexOf("if (!verified) throw new InvalidWebhookError");
+  const verifiedPayloadParse = webhook.indexOf("const verifiedPayload = verifiedPayloadObject(payload);");
+
+  assert.ok(signatureVerification >= 0);
+  assert.ok(verificationFailure > signatureVerification);
+  assert.ok(verifiedPayloadParse > verificationFailure);
 });
 
 test("Phase 2 projection fails closed when policy or authoritative merge evidence is not ready", async () => {
