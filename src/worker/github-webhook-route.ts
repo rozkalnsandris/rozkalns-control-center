@@ -55,6 +55,16 @@ function receivedAtIsValid(receivedAt: string): boolean {
   return receivedAt.endsWith("Z") && !Number.isNaN(Date.parse(receivedAt));
 }
 
+function isFilteredNonTerminalCiWebhook(webhook: VerifiedGitHubWebhook): boolean {
+  if (webhook.eventName === "check_run") {
+    return webhook.action === "created";
+  }
+  if (webhook.eventName === "workflow_run") {
+    return webhook.action === "requested" || webhook.action === "in_progress";
+  }
+  return false;
+}
+
 export async function handleGitHubWebhookRequest(
   request: Request,
   receivedAt: string,
@@ -102,6 +112,10 @@ export async function handleGitHubWebhookRequest(
   const webhook = authenticated.webhook;
   if (!resolveManagedProjectPolicy(webhook.repository)) {
     return routeError("WEBHOOK_REJECTED", 403);
+  }
+
+  if (isFilteredNonTerminalCiWebhook(webhook)) {
+    return jsonResponse({ status: "FILTERED" }, 202);
   }
 
   if (!options.acceptor) return routeError("DURABILITY_NOT_READY", 503);
