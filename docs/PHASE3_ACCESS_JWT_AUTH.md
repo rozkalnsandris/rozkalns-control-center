@@ -1,19 +1,20 @@
 # Phase 3 — Cloudflare Access JWT authentication boundary
 
-Issues: #163, #165, #167, #169
+Issues: #163, #165, #167, #169, #171
 
 ## Purpose
 
 Phase 3 may eventually expose authenticated human decision actions such as Merge / Needs changes / Later. Before any such side effect exists, the Worker must independently prove the Cloudflare Access application JWT rather than trusting that a request merely passed through Access or contains an authentication-looking header.
 
-The Phase 3 authentication foundation is deliberately split into reviewed source-only slices:
+The Phase 3 authentication foundation is deliberately split into reviewed slices:
 
 - #163/#164 introduced the cryptographic JWT verifier;
 - #165/#166 added the bounded Access signing-key transport/cache/rotation resolver;
 - #167/#168 composed those two pieces into one Worker-side request-authentication boundary;
-- #169 adds a dedicated read-only authentication canary route adapter while still leaving that route disconnected from the live Worker.
+- #169/#170 added a dedicated read-only authentication canary route adapter;
+- #171 wires that canary into the Worker behind an explicit fail-closed runtime resolver while deliberately leaving all live Access configuration absent.
 
-None of these slices adds GitHub write permission, changes Cloudflare configuration, adds a production Access issuer/AUD binding, performs a production JWKS canary, or deploys production code.
+None of these slices adds GitHub write permission, changes Cloudflare Access policy, adds production Access issuer/AUD/enable values, performs a production JWKS canary, or deploys production code.
 
 ## External contract rechecked 2026-08-15
 
@@ -78,7 +79,7 @@ The stable outer error is deliberate: HTTP routes can return one generic authent
 
 ## Read-only authentication canary route
 
-`handleAccessAuthCanaryRequest` provides the source-only route adapter intended for the first real Worker-side authentication proof. Its contract is deliberately narrower than the authenticator itself:
+`handleAccessAuthCanaryRequest` provides the route adapter intended for the first real Worker-side authentication proof. Its contract is deliberately narrower than the authenticator itself:
 
 1. exact path `/api/auth/access-canary` only;
 2. `GET` only, no query parameters, and every response uses `Cache-Control: no-store`;
@@ -89,7 +90,19 @@ The stable outer error is deliberate: HTTP routes can return one generic authent
 7. the route never returns principal subject, email, JWT, `kid`, JWK, issuer, audience, network detail or inner failure reason;
 8. the adapter has no GitHub, D1, Queue or mutation dependency.
 
-The route is intentionally **not** imported by `src/worker/index.ts` in #169 and no Access issuer/AUD binding is added to `wrangler.jsonc`. This keeps the slice source-only and allows the later live wiring/configuration to remain a separate owner-reviewed production boundary.
+## Fail-closed canary runtime wiring
+
+`resolveAccessAuthCanaryRuntime` is the only #171 bridge between Worker bindings and the already-reviewed authenticator:
+
+1. the canary is disabled unless `CONTROL_ACCESS_AUTH_CANARY_ENABLED` is exactly the string `true`;
+2. disabled mode does not require or interpret issuer/AUD configuration and returns no authenticator;
+3. enabled mode requires bounded non-empty `CONTROL_ACCESS_ISSUER` and `CONTROL_ACCESS_AUDIENCE` strings with no surrounding whitespace;
+4. the existing `CloudflareAccessRequestAuthenticator` remains responsible for validating issuer/audience semantics and constructing the bounded JWKS/verifier stack;
+5. missing, malformed or rejected configuration collapses to `INVALID_CONFIGURATION` with no authenticator and no inner error detail;
+6. `src/worker/index.ts` dispatches the exact canary path and passes the route adapter either the READY authenticator or `null`;
+7. `wrangler.jsonc` intentionally contains none of `CONTROL_ACCESS_AUTH_CANARY_ENABLED`, `CONTROL_ACCESS_ISSUER`, or `CONTROL_ACCESS_AUDIENCE` in #171.
+
+Therefore a future deployment of source containing this wiring is still fail-closed until a separately reviewed live configuration step supplies the exact enable flag, issuer and AUD. #171 itself neither supplies those values nor performs a deployment.
 
 ## End-to-end source tests
 
@@ -107,17 +120,17 @@ The authentication composition tests use generated RSA keypairs and real RS256 s
 
 The canary-route tests additionally prove exact path/method/query handling, disabled fail-closed behavior, generic 403 authentication failure, non-identity success output and absence of inner-auth or principal leakage.
 
-Source-boundary regressions prove both the authenticator composition and canary route remain disconnected from `src/worker/index.ts` and that `wrangler.jsonc` still has no Access issuer/audience binding in these source-only slices.
+The #171 runtime tests prove exact-string enable semantics, disabled behavior, missing/malformed configuration rejection and READY construction through the reviewed `CloudflareAccessRequestAuthenticator`. Source-boundary regression proves Worker wiring exists while `wrangler.jsonc` still carries no live Access canary configuration.
 
 ## Explicitly not activated
 
-These source-only slices do not add:
+These slices do not add:
 
-- a live authentication canary route in the deployed Worker;
+- production values for the Access canary enable flag, issuer or application AUD;
+- a successful live authentication canary in the deployed Worker;
 - a mutation HTTP route;
 - Merge / Needs changes / Later behavior;
 - GitHub write permission or write transport;
-- production Access issuer/audience environment variables or secrets;
 - a production JWKS fetch/canary;
 - new Cloudflare Access application/policy state;
 - D1 production write/migration;
@@ -126,10 +139,10 @@ These source-only slices do not add:
 
 ## Next activation prerequisites
 
-After #169 is merged, the next separately reviewed unit may prepare exact live Worker configuration/wiring for this read-only canary. Before any actual GitHub side effect is activated, the system must still:
+After #171 is merged, the next separately reviewed unit may prepare the exact live Access issuer/AUD/enable configuration and a bounded production canary/deploy gate. Before any actual GitHub side effect is activated, the system must still:
 
 - bind the live parent Access application issuer and exact AUD through separately reviewed Worker configuration;
-- wire only the read-only canary first and prove a real Access-authenticated request passes the Worker verifier while missing/forged tokens fail closed;
+- activate only the read-only canary first and prove a real Access-authenticated request returns `AUTHENTICATED` while missing/forged tokens fail closed;
 - keep that production canary/deploy behind a fresh exact owner authorization;
 - re-read authoritative GitHub state immediately before every future side effect;
 - bind the approved expected SHA and action target;
