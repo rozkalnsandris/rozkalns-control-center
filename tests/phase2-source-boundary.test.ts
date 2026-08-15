@@ -84,7 +84,7 @@ test("dedicated GitHub App session owns JWT, token exchange and Authorization pr
   assert.doesNotMatch(session, /token\.startsWith|token\.length/);
   assert.doesNotMatch(session, /BEGIN (?:RSA )?PRIVATE KEY/);
   assert.doesNotMatch(worker, /app-installation-session|Authorization|Bearer|api\.github\.com/);
-  assert.doesNotMatch(wrangler, /"queues"|-----BEGIN|ghs_/);
+  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_/);
 });
 
 test("Phase 2 reconciliation model makes authoritative reread and exact-head status evidence explicit", async () => {
@@ -113,6 +113,8 @@ test("Phase 2 reconciliation model makes authoritative reread and exact-head sta
 test("verified webhook boundary owns repository identity after HMAC verification", async () => {
   const webhook = await source("src/shared/github-webhook.ts");
 
+  assert.match(webhook, /authenticateGitHubWebhookRequest/);
+  assert.match(webhook, /parsed\.eventName === "ping"/);
   assert.match(webhook, /repositoryFromVerifiedPayload/);
   assert.match(webhook, /repository:\s*repositoryFromVerifiedPayload\(payload\)/);
   assert.match(webhook, /GitHub webhook signature verification failed/);
@@ -151,7 +153,7 @@ test("classic protection mapper is pure source mapping and keeps producer identi
   assert.equal(classicProtection.includes("Administration:"), false);
 });
 
-test("durability domain contracts add no network or Queue side effect while D1 identity is source-configured", async () => {
+test("durability domain contracts add no network side effect while exact D1 and Queue identities are source-configured", async () => {
   const [queueContract, durabilityContract, wrangler, migration] = await Promise.all([
     source("src/shared/reconciliation-queue.ts"),
     source("src/shared/reconciliation-durability.ts"),
@@ -169,7 +171,9 @@ test("durability domain contracts add no network or Queue side effect while D1 i
   assert.match(wrangler, /"database_name": "rozkalns-control-production"/);
   assert.match(wrangler, /"database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09"/);
   assert.match(wrangler, /"migrations_dir": "migrations"/);
-  assert.doesNotMatch(wrangler, /"queues"/);
+  assert.match(wrangler, /"binding": "RECONCILIATION_QUEUE"/);
+  assert.match(wrangler, /"queue": "rozkalns-control-reconciliation"/);
+  assert.match(wrangler, /"dead_letter_queue": "rozkalns-control-reconciliation-dlq"/);
   assert.match(migration, /delivery_id TEXT PRIMARY KEY NOT NULL/);
   assert.doesNotMatch(migration, /^\s*(?:token|secret|private_key|webhook_payload|payload_body)\s+/im);
 });
@@ -193,7 +197,7 @@ test("D1 claim adapter stays source-bound and production config pins the verifie
   assert.match(productionWrangler, /"database_name": "rozkalns-control-production"/);
   assert.match(productionWrangler, /"database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09"/);
   assert.match(productionWrangler, /"migrations_dir": "migrations"/);
-  assert.doesNotMatch(productionWrangler, /"preview_database_id"|"queues"|"routes"|"route"/);
+  assert.doesNotMatch(productionWrangler, /"preview_database_id"|"routes"|"route"/);
 
   assert.match(localWrangler, /"name": "rozkalns-control-d1-local-verify"/);
   assert.match(localWrangler, /"binding": "CONTROL_DB"/);

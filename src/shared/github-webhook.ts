@@ -18,6 +18,17 @@ export interface VerifiedGitHubWebhook {
   readonly [verifiedWebhookMarker]: true;
 }
 
+export type AuthenticatedGitHubWebhookRequest =
+  | {
+      readonly kind: "PING";
+      readonly deliveryId: string;
+      readonly eventName: "ping";
+    }
+  | {
+      readonly kind: "REPOSITORY_EVENT";
+      readonly webhook: VerifiedGitHubWebhook;
+    };
+
 export class InvalidWebhookError extends Error {
   constructor(message: string) {
     super(message);
@@ -128,19 +139,42 @@ export async function verifyGitHubWebhookSignature(
   );
 }
 
+export async function authenticateGitHubWebhookRequest(
+  payload: string | Uint8Array,
+  headers: HeaderReader,
+  secret: string,
+): Promise<AuthenticatedGitHubWebhookRequest> {
+  const parsed = readGitHubWebhookHeaders(headers);
+  const verified = await verifyGitHubWebhookSignature(payload, parsed.signature, secret);
+  if (!verified) throw new InvalidWebhookError("GitHub webhook signature verification failed");
+
+  if (parsed.eventName === "ping") {
+    return {
+      kind: "PING",
+      deliveryId: parsed.deliveryId,
+      eventName: "ping",
+    };
+  }
+
+  return {
+    kind: "REPOSITORY_EVENT",
+    webhook: {
+      deliveryId: parsed.deliveryId,
+      eventName: parsed.eventName,
+      repository: repositoryFromVerifiedPayload(payload),
+      [verifiedWebhookMarker]: true,
+    },
+  };
+}
+
 export async function authenticateGitHubWebhook(
   payload: string | Uint8Array,
   headers: HeaderReader,
   secret: string,
 ): Promise<VerifiedGitHubWebhook> {
-  const parsed = readGitHubWebhookHeaders(headers);
-  const verified = await verifyGitHubWebhookSignature(payload, parsed.signature, secret);
-  if (!verified) throw new InvalidWebhookError("GitHub webhook signature verification failed");
-
-  return {
-    deliveryId: parsed.deliveryId,
-    eventName: parsed.eventName,
-    repository: repositoryFromVerifiedPayload(payload),
-    [verifiedWebhookMarker]: true,
-  };
+  const authenticated = await authenticateGitHubWebhookRequest(payload, headers, secret);
+  if (authenticated.kind !== "REPOSITORY_EVENT") {
+    throw new InvalidWebhookError("GitHub ping is not a repository webhook event");
+  }
+  return authenticated.webhook;
 }

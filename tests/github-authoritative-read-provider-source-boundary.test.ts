@@ -6,11 +6,10 @@ async function source(path: string): Promise<string> {
   return readFile(path, "utf8");
 }
 
-test("authoritative GitHub provider remains transport-bounded and disconnected from the public Worker route", async () => {
-  const [provider, worker, wrangler] = await Promise.all([
+test("authoritative GitHub provider remains transport-bounded and not directly wired into Worker routing", async () => {
+  const [provider, worker] = await Promise.all([
     source("src/integrations/github/authoritative-read-provider.ts"),
     source("src/worker/index.ts"),
-    source("wrangler.jsonc"),
   ]);
 
   assert.match(provider, /SourceControlReadProvider/);
@@ -23,7 +22,4 @@ test("authoritative GitHub provider remains transport-bounded and disconnected f
   assert.doesNotMatch(provider, /app-installation-session|private.?key|webhook.?secret/i);
   assert.doesNotMatch(provider, /\b(?:POST|PUT|PATCH|DELETE)\b/);
   assert.doesNotMatch(worker, /authoritative-read-provider|readGitHubAuthoritativePullRequestSnapshot/);
-  assert.match(wrangler, /"binding": "CONTROL_DB"/);
-  assert.match(wrangler, /"database_id": "8504e986-faf0-450c-bfb5-41b5dbf8be09"/);
-  assert.doesNotMatch(wrangler, /"queues"/);
 });

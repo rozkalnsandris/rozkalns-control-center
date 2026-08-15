@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("webhook observability is wired only through the dormant runtime assembly", async () => {
-  const [reader, route, runtimeAssembly, worker, wrangler] = await Promise.all([
+test("webhook observability stays bounded and no-store under the reviewed activation config", async () => {
+  const [reader, route, runtimeAssembly, worker, wranglerSource] = await Promise.all([
     readFile("src/integrations/cloudflare/d1-delivery-observability-reader.ts", "utf8"),
     readFile("src/worker/github-webhook-observability-route.ts", "utf8"),
     readFile("src/integrations/cloudflare/control-webhook-queue-runtime.ts", "utf8"),
     readFile("src/worker/index.ts", "utf8"),
     readFile("wrangler.jsonc", "utf8"),
   ]);
+  const wrangler = JSON.parse(wranglerSource);
 
   assert.match(reader, /FROM webhook_deliveries/);
   assert.match(reader, /GROUP BY state/);
@@ -26,9 +27,7 @@ test("webhook observability is wired only through the dormant runtime assembly",
   assert.match(worker, /handleGitHubWebhookObservabilityRequest/);
   assert.match(worker, /resolution\.status === "READY" \? resolution\.runtime\.observabilityReader : null/);
 
-  assert.doesNotMatch(wrangler, /"queues"/);
-  assert.doesNotMatch(
-    wrangler,
-    /dead_letter_queue|max_retries|GITHUB_WEBHOOK_SECRET|CONTROL_WEBHOOK_RUNTIME_ENABLED|RECONCILIATION_QUEUE/,
-  );
+  assert.equal(wrangler.vars.CONTROL_WEBHOOK_RUNTIME_ENABLED, "true");
+  assert.equal(wrangler.queues.consumers[0].dead_letter_queue, "rozkalns-control-reconciliation-dlq");
+  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]);
 });
