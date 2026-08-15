@@ -7,7 +7,7 @@ import {
   type AccessRequestAuthenticatorLike,
 } from "../src/worker/access-auth-canary-route.js";
 
-function request(path = ACCESS_AUTH_CANARY_ROUTE_PATH, init?: RequestInit): Request {
+function request(path: string = ACCESS_AUTH_CANARY_ROUTE_PATH, init?: RequestInit): Request {
   return new Request(`https://control.rozkalns.net${path}`, init);
 }
 
