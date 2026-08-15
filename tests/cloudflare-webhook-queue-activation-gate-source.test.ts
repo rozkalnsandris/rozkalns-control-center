@@ -44,9 +44,12 @@ test("production activation gate is exact, one-shot and fail-closed", async () =
   assert.match(identity, /audiences\.length !== 1/);
   assert.match(identity, /app\?\.aud === audience/);
 
-  // Modern Access app targeting uses destinations. Legacy domain is read-only fallback.
+  // Modern Access app targeting uses destinations. Public `type` may be omitted,
+  // but an explicitly non-public destination must still fail the public filter.
+  // Legacy domain remains a read-only fallback only when destinations are absent.
   assert.match(identity, /Array\.isArray\(destinations\) && destinations\.length > 0/);
-  assert.match(identity, /destination\?\.type === "public"/);
+  assert.match(identity, /destination\.type !== undefined && destination\.type !== "public"/);
+  assert.match(identity, /typeof destination\.uri === "string"/);
   assert.match(identity, /const legacyDomain = normalizePublicUri\(app\?\.domain\)/);
   assert.match(gate, /destinations: \[\{ type: "public", uri: WEBHOOK_ACCESS_DOMAIN \}\]/);
   assert.match(gate, /exactWebhookAccessApplications/);

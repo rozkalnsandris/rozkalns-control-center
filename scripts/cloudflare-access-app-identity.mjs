@@ -18,7 +18,17 @@ function normalizePublicUri(value) {
   let normalized = value.trim();
   normalized = normalized.replace(/^https?:\/\//i, "");
   while (normalized.endsWith("/") && normalized !== "/") normalized = normalized.slice(0, -1);
+
+  const wholeSiteWildcard = normalized.match(/^([^/]+)\/\*$/);
+  if (wholeSiteWildcard) normalized = wholeSiteWildcard[1];
+
   return normalized;
+}
+
+function isPublicDestination(destination) {
+  if (!destination || typeof destination !== "object") return false;
+  if (destination.type !== undefined && destination.type !== "public") return false;
+  return typeof destination.uri === "string";
 }
 
 export function readAccessTokenApplicationAudience(token) {
@@ -59,7 +69,7 @@ export function accessApplicationPublicUris(app) {
   const destinations = app?.destinations;
   if (Array.isArray(destinations) && destinations.length > 0) {
     return destinations
-      .filter((destination) => destination?.type === "public")
+      .filter(isPublicDestination)
       .map((destination) => normalizePublicUri(destination?.uri))
       .filter(Boolean);
   }

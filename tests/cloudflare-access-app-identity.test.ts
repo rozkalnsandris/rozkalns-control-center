@@ -105,6 +105,34 @@ test("modern destinations supersede the legacy domain field", () => {
   assert.deepEqual(JSON.parse(result.stdout), ["other.example.test/path"]);
 });
 
+test("public destination type may be omitted and whole-site wildcard normalizes to the host", () => {
+  const app = {
+    destinations: [{ uri: "https://control.rozkalns.net/*" }],
+  };
+  const result = runHelper(`console.log(JSON.stringify(helper.accessApplicationPublicUris(${JSON.stringify(app)})));`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), ["control.rozkalns.net"]);
+});
+
+test("path-scoped wildcard destinations remain path-scoped", () => {
+  const app = {
+    destinations: [{ uri: "control.rozkalns.net/api/*" }],
+  };
+  const result = runHelper(`console.log(JSON.stringify(helper.accessApplicationPublicUris(${JSON.stringify(app)})));`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), ["control.rozkalns.net/api/*"]);
+});
+
+test("explicit non-public destinations are not treated as public and do not revive legacy domain", () => {
+  const app = {
+    domain: "control.rozkalns.net",
+    destinations: [{ type: "private", uri: "control.rozkalns.net" }],
+  };
+  const result = runHelper(`console.log(JSON.stringify(helper.accessApplicationPublicUris(${JSON.stringify(app)})));`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), []);
+});
+
 test("legacy domain remains a bounded read fallback when destinations are absent", () => {
   const app = { domain: "https://control.rozkalns.net/api/github/webhook/" };
   const result = runHelper(`console.log(JSON.stringify(helper.accessApplicationPublicUris(${JSON.stringify(app)})));`);
