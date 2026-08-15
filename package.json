@@ -19,6 +19,7 @@
     "cf:d1-migration-gate": "node scripts/cloudflare-d1-migration-gate.mjs",
     "cf:ui-deploy-gate": "node scripts/cloudflare-ui-deploy-gate.mjs",
     "cf:ui-domain-gate": "node scripts/cloudflare-ui-domain-gate.mjs",
+    "cf:access-auth-canary-plan": "node scripts/cloudflare-access-auth-canary-plan.mjs",
     "cf:access-auth-canary-gate": "node scripts/cloudflare-access-auth-canary-gate.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
     "verify:actions": "node scripts/verify-actions-pinning.mjs",
