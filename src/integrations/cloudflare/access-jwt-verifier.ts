@@ -70,7 +70,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function hasControlCharacters(value: string): boolean {
-  return /[\u0000-\u001f\u007f]/.test(value);
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
 }
 
 function boundedOpaqueString(value: unknown, maxLength: number): string | null {
@@ -101,7 +105,7 @@ function parseJsonSegment(segment: string, code: CloudflareAccessJwtErrorCode): 
   const bytes = decodeBase64Url(segment, code);
   let text: string;
   try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
   } catch {
     fail(code);
   }
