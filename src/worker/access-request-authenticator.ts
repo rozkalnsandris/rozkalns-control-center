@@ -1,11 +1,11 @@
 import {
   CloudflareAccessJwksResolver,
   type CloudflareAccessJwksFetch,
-} from "../integrations/cloudflare/access-jwks-resolver";
+} from "../integrations/cloudflare/access-jwks-resolver.js";
 import {
   CloudflareAccessJwtVerifier,
   type CloudflareAccessPrincipal,
-} from "../integrations/cloudflare/access-jwt-verifier";
+} from "../integrations/cloudflare/access-jwt-verifier.js";
 
 export type CloudflareAccessAuthenticationErrorCode = "ACCESS_AUTHENTICATION_FAILED";
 
