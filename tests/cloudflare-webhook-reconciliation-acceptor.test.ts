@@ -30,7 +30,15 @@ function durable(overrides: Partial<DurableClaimedDelivery> = {}): DurableClaime
     eventName: "pull_request",
     messageVersion: 1,
     state: "RECEIVED",
+    attemptCount: 0,
     receivedAt,
+    enqueuedAt: null,
+    processingStartedAt: null,
+    lastAttemptAt: null,
+    updatedAt: receivedAt,
+    completedAt: null,
+    deadLetteredAt: null,
+    lastErrorCode: null,
     ...overrides,
   };
 }
