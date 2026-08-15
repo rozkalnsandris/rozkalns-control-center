@@ -63,6 +63,19 @@ function result(changes: number, rows: readonly Record<string, unknown>[] = []):
   return { success: true, meta: { changes }, results: rows };
 }
 
+function storedRow(overrides: Record<string, unknown> = {}) {
+  return {
+    delivery_id: "delivery-123",
+    repository: "rozkalnsandris/hermes-deals",
+    project_id: "hermes-deals",
+    event_name: "pull_request",
+    message_version: 1,
+    state: "RECEIVED",
+    received_at: "2026-08-13T20:15:00.000Z",
+    ...overrides,
+  };
+}
+
 test("D1 claim uses one prepared bound insert and records only durable identity metadata", async () => {
   const database = new FakeD1Database([result(1)]);
   const store = new D1DeliveryClaimStore(database);
@@ -84,41 +97,83 @@ test("D1 claim uses one prepared bound insert and records only durable identity 
   ]);
 });
 
-test("D1 duplicate is accepted only after existing identity is proven", async () => {
-  const database = new FakeD1Database([
-    result(0),
-    result(0, [
-      {
-        delivery_id: "delivery-123",
-        repository: "rozkalnsandris/hermes-deals",
-        project_id: "hermes-deals",
-        event_name: "pull_request",
-      },
-    ]),
-  ]);
+test("D1 duplicate is accepted only after existing identity and recoverable state are proven", async () => {
+  const database = new FakeD1Database([result(0), result(0, [storedRow()])]);
   const store = new D1DeliveryClaimStore(database);
 
   assert.equal(await store.claim({ ...claim, claimedAt: "2026-08-13T20:20:00.000Z" }), "duplicate");
   assert.equal(database.prepared.length, 2);
+  assert.match(database.prepared[1].sql, /state/);
   assert.match(database.prepared[1].sql, /WHERE delivery_id = \?1/);
   assert.deepEqual(database.prepared[1].values, ["delivery-123"]);
+});
+
+test("D1 read returns the exact durable lifecycle identity", async () => {
+  const database = new FakeD1Database([result(0, [storedRow({ state: "ENQUEUED" })])]);
+  const store = new D1DeliveryClaimStore(database);
+
+  assert.deepEqual(await store.readDelivery("delivery-123"), {
+    deliveryId: "delivery-123",
+    repository: "rozkalnsandris/hermes-deals",
+    projectId: "hermes-deals",
+    eventName: "pull_request",
+    messageVersion: 1,
+    state: "ENQUEUED",
+    receivedAt: "2026-08-13T20:15:00.000Z",
+  });
 });
 
 test("D1 duplicate identity mismatch fails closed", async () => {
   const database = new FakeD1Database([
     result(0),
-    result(0, [
-      {
-        delivery_id: "delivery-123",
-        repository: "rozkalnsandris/hermes-tech",
-        project_id: "hermes-tech",
-        event_name: "push",
-      },
-    ]),
+    result(0, [storedRow({ repository: "rozkalnsandris/hermes-tech", project_id: "hermes-tech" })]),
   ]);
   const store = new D1DeliveryClaimStore(database);
 
   await assert.rejects(() => store.claim(claim), D1DeliveryClaimError);
+});
+
+test("D1 durable read rejects unsupported state, version and ambiguous rows", async () => {
+  const badState = new FakeD1Database([result(0, [storedRow({ state: "UNKNOWN" })])]);
+  await assert.rejects(() => new D1DeliveryClaimStore(badState).readDelivery("delivery-123"), D1DeliveryClaimError);
+
+  const badVersion = new FakeD1Database([result(0, [storedRow({ message_version: 2 })])]);
+  await assert.rejects(() => new D1DeliveryClaimStore(badVersion).readDelivery("delivery-123"), D1DeliveryClaimError);
+
+  const missing = new FakeD1Database([result(0)]);
+  await assert.rejects(() => new D1DeliveryClaimStore(missing).readDelivery("delivery-123"), D1DeliveryClaimError);
+});
+
+test("D1 markEnqueued is an exact conditional RECEIVED transition", async () => {
+  const database = new FakeD1Database([result(1)]);
+  const store = new D1DeliveryClaimStore(database);
+
+  await store.markEnqueued(claim, "2026-08-13T20:15:01.000Z");
+  assert.equal(database.prepared.length, 1);
+
+  const update = database.prepared[0];
+  assert.match(update.sql, /SET\s+state = 'ENQUEUED'/s);
+  assert.match(update.sql, /AND state = 'RECEIVED'/);
+  assert.match(update.sql, /repository = \?2/);
+  assert.match(update.sql, /project_id = \?3/);
+  assert.match(update.sql, /event_name = \?4/);
+  assert.deepEqual(update.values, [
+    "delivery-123",
+    "rozkalnsandris/hermes-deals",
+    "hermes-deals",
+    "pull_request",
+    "2026-08-13T20:15:01.000Z",
+  ]);
+});
+
+test("D1 markEnqueued fails closed when the RECEIVED transition races or drifts", async () => {
+  const database = new FakeD1Database([result(0)]);
+  const store = new D1DeliveryClaimStore(database);
+
+  await assert.rejects(
+    () => store.markEnqueued(claim, "2026-08-13T20:15:01.000Z"),
+    D1DeliveryClaimError,
+  );
 });
 
 test("D1 claim validates identity and timestamp before database execution", async () => {
