@@ -13,10 +13,11 @@
   "vars": {
     "GITHUB_APP_CLIENT_ID": "Iv23likDoFtVeWBJfdFS",
     "GITHUB_APP_INSTALLATION_ID": "153121564",
-    "CONTROL_LIVE_READ_ENABLED": "true"
+    "CONTROL_LIVE_READ_ENABLED": "true",
+    "CONTROL_WEBHOOK_RUNTIME_ENABLED": "true"
   },
   "secrets": {
-    "required": ["GITHUB_APP_PRIVATE_KEY_PEM"]
+    "required": ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]
   },
   "d1_databases": [
     {
@@ -26,6 +27,32 @@
       "migrations_dir": "migrations"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "RECONCILIATION_QUEUE",
+        "queue": "rozkalns-control-reconciliation"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "rozkalns-control-reconciliation",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "retry_delay": 30,
+        "max_concurrency": 1,
+        "dead_letter_queue": "rozkalns-control-reconciliation-dlq"
+      },
+      {
+        "queue": "rozkalns-control-reconciliation-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "max_concurrency": 1
+      }
+    ]
+  },
   "assets": {
     "directory": "./dist/client",
     "not_found_handling": "single-page-application",
