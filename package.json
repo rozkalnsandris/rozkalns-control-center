@@ -23,7 +23,7 @@
     "verify:actions": "node scripts/verify-actions-pinning.mjs",
     "verify:public": "node scripts/verify-public-repo-safety.mjs",
     "verify:policy": "npm run verify:actions && npm run verify:public",
-    "check": "npm run verify:policy && npm run audit:runtime && npm run typecheck && npm run lint && npm test && npm run build && npm run cf:dry-run"
+    "check": "node scripts/run-check-sanitized.mjs"
   },
   "dependencies": {
     "react": "19.2.1",
