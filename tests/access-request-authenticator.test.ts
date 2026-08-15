@@ -22,9 +22,11 @@ const CURRENT_KID = "access-current";
 const PREVIOUS_KID = "access-previous";
 const ROTATED_KID = "access-rotated";
 
-function signingJwk(kid: string, key: KeyObject): JsonWebKey {
+type TestSigningJwk = JsonWebKey & { readonly kid: string };
+
+function signingJwk(kid: string, key: KeyObject): TestSigningJwk {
   const jwk = key.export({ format: "jwk" }) as JsonWebKey;
-  return { ...jwk, kid, alg: "RS256", use: "sig", key_ops: ["verify"] };
+  return { ...jwk, kid, alg: "RS256", use: "sig", key_ops: ["verify"] } as TestSigningJwk;
 }
 
 function encodeJson(value: unknown): string {
