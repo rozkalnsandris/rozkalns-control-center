@@ -2,6 +2,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const signaturePattern = /^sha256=([0-9a-f]{64})$/i;
 const headerValuePattern = /^[A-Za-z0-9._:/+-]{1,200}$/;
+const MAX_WEBHOOK_ACTION_LENGTH = 100;
 
 export interface GitHubWebhookHeaders {
   signature: string;
@@ -15,6 +16,7 @@ export interface VerifiedGitHubWebhook {
   deliveryId: string;
   eventName: string;
   repository: string;
+  action: string | null;
   readonly [verifiedWebhookMarker]: true;
 }
 
@@ -75,7 +77,7 @@ function payloadText(payload: string | Uint8Array): string {
   return typeof payload === "string" ? payload : decoder.decode(payload);
 }
 
-function repositoryFromVerifiedPayload(payload: string | Uint8Array): string {
+function verifiedPayloadObject(payload: string | Uint8Array): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(payloadText(payload));
@@ -87,7 +89,11 @@ function repositoryFromVerifiedPayload(payload: string | Uint8Array): string {
     throw new InvalidWebhookError("Verified GitHub webhook payload must be an object");
   }
 
-  const repository = (parsed as Record<string, unknown>).repository;
+  return parsed as Record<string, unknown>;
+}
+
+function repositoryFromVerifiedPayload(payload: Record<string, unknown>): string {
+  const repository = payload.repository;
   if (typeof repository !== "object" || repository === null || Array.isArray(repository)) {
     throw new InvalidWebhookError("Verified GitHub webhook payload is missing repository identity");
   }
@@ -98,6 +104,15 @@ function repositoryFromVerifiedPayload(payload: string | Uint8Array): string {
   }
 
   return fullName;
+}
+
+function actionFromVerifiedPayload(payload: Record<string, unknown>): string | null {
+  const action = payload.action;
+  if (action === undefined || action === null) return null;
+  if (typeof action !== "string" || action.length === 0 || action.length > MAX_WEBHOOK_ACTION_LENGTH) {
+    throw new InvalidWebhookError("Verified GitHub webhook action must be a bounded non-empty string");
+  }
+  return action;
 }
 
 export function readGitHubWebhookHeaders(headers: HeaderReader): GitHubWebhookHeaders {
@@ -156,12 +171,14 @@ export async function authenticateGitHubWebhookRequest(
     };
   }
 
+  const verifiedPayload = verifiedPayloadObject(payload);
   return {
     kind: "REPOSITORY_EVENT",
     webhook: {
       deliveryId: parsed.deliveryId,
       eventName: parsed.eventName,
-      repository: repositoryFromVerifiedPayload(payload),
+      repository: repositoryFromVerifiedPayload(verifiedPayload),
+      action: actionFromVerifiedPayload(verifiedPayload),
       [verifiedWebhookMarker]: true,
     },
   };
