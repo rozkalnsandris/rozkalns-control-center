@@ -160,7 +160,7 @@ function durableDelivery(row: ExistingClaimRow): DurableClaimedDelivery {
   };
 }
 
-export class D1DeliveryClaimStore implements RecoverableDeliveryClaimStore {
+export class D1DeliveryClaimStore implements DeliveryClaimStore, RecoverableDeliveryClaimStore {
   readonly #database: D1DatabaseLike;
 
   constructor(database: D1DatabaseLike) {
