@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 
-const workerIndex = readFileSync(new URL("../src/worker/index.ts", import.meta.url), "utf8");
-const wranglerConfig = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+const workerIndex = readFileSync(resolve(process.cwd(), "src/worker/index.ts"), "utf8");
+const wranglerConfig = readFileSync(resolve(process.cwd(), "wrangler.jsonc"), "utf8");
 const compositionSource = readFileSync(
-  new URL("../src/worker/access-request-authenticator.ts", import.meta.url),
+  resolve(process.cwd(), "src/worker/access-request-authenticator.ts"),
   "utf8",
 );
 
