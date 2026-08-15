@@ -5,6 +5,14 @@ import {
 } from "../integrations/cloudflare/control-webhook-queue-runtime";
 import type { QueueMessageBatchLike } from "../integrations/cloudflare/reconciliation-queue-batch-consumer";
 import { buildHealthPayload } from "../shared/health";
+import {
+  ACCESS_AUTH_CANARY_ROUTE_PATH,
+  handleAccessAuthCanaryRequest,
+} from "./access-auth-canary-route";
+import {
+  resolveAccessAuthCanaryRuntime,
+  type AccessAuthCanaryRuntimeBindings,
+} from "./access-auth-canary-runtime";
 import { handleGitHubDashboardRequest } from "./github-dashboard-route";
 import { handleGitHubReconciliationRequest } from "./github-reconciliation-route";
 import {
@@ -21,12 +29,26 @@ function resolveWebhookQueueRuntime(env: Env) {
   );
 }
 
+function resolveAccessAuthCanary(env: Env) {
+  return resolveAccessAuthCanaryRuntime(
+    env as unknown as AccessAuthCanaryRuntimeBindings,
+  );
+}
+
 const worker: ExportedHandler<Env> = {
   async fetch(request, env) {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/api/health") {
       return Response.json(buildHealthPayload());
+    }
+
+    if (url.pathname === ACCESS_AUTH_CANARY_ROUTE_PATH) {
+      const resolution = resolveAccessAuthCanary(env);
+      return handleAccessAuthCanaryRequest(
+        request,
+        resolution.status === "READY" ? resolution.authenticator : null,
+      );
     }
 
     if (url.pathname === "/api/github/dashboard") {
