@@ -1,6 +1,6 @@
 # Phase 3 — Cloudflare Access JWT authentication boundary
 
-Issues: #163, #165, #167, #169, #171
+Issues: #163, #165, #167, #169, #171, #173
 
 ## Purpose
 
@@ -12,9 +12,10 @@ The Phase 3 authentication foundation is deliberately split into reviewed slices
 - #165/#166 added the bounded Access signing-key transport/cache/rotation resolver;
 - #167/#168 composed those two pieces into one Worker-side request-authentication boundary;
 - #169/#170 added a dedicated read-only authentication canary route adapter;
-- #171 wires that canary into the Worker behind an explicit fail-closed runtime resolver while deliberately leaving all live Access configuration absent.
+- #171/#172 wired that canary into the Worker behind an explicit fail-closed runtime resolver while deliberately leaving all live Access configuration absent;
+- #173 prepares the separately owner-gated production Access auth canary activation gate without performing the activation or deployment.
 
-None of these slices adds GitHub write permission, changes Cloudflare Access policy, adds production Access issuer/AUD/enable values, performs a production JWKS canary, or deploys production code.
+None of these source-review slices adds GitHub write permission, changes Cloudflare Access policy, performs a production Access canary, or deploys production code.
 
 ## External contract rechecked 2026-08-15
 
@@ -25,6 +26,8 @@ Cloudflare publishes account signing keys at:
 `https://<team-name>.cloudflareaccess.com/cdn-cgi/access/certs`
 
 The application therefore must validate the signed token against the expected team-domain issuer and exact application audience, and must resolve the JWT `kid` from the bounded rotating signing-key set rather than pinning one public key indefinitely.
+
+Cloudflare Wrangler also supports deploy-time `--var key:value` injection. #173 uses that only as a future APPLY mechanism so the discovered non-secret issuer/AUD/enable values do not need to be committed to `wrangler.jsonc` during source preparation. Secrets/tokens remain environment-only and are never passed as deploy arguments.
 
 ## Verification contract
 
@@ -92,7 +95,7 @@ The stable outer error is deliberate: HTTP routes can return one generic authent
 
 ## Fail-closed canary runtime wiring
 
-`resolveAccessAuthCanaryRuntime` is the only #171 bridge between Worker bindings and the already-reviewed authenticator:
+`resolveAccessAuthCanaryRuntime` is the bridge between Worker bindings and the already-reviewed authenticator:
 
 1. the canary is disabled unless `CONTROL_ACCESS_AUTH_CANARY_ENABLED` is exactly the string `true`;
 2. disabled mode does not require or interpret issuer/AUD configuration and returns no authenticator;
@@ -100,9 +103,47 @@ The stable outer error is deliberate: HTTP routes can return one generic authent
 4. the existing `CloudflareAccessRequestAuthenticator` remains responsible for validating issuer/audience semantics and constructing the bounded JWKS/verifier stack;
 5. missing, malformed or rejected configuration collapses to `INVALID_CONFIGURATION` with no authenticator and no inner error detail;
 6. `src/worker/index.ts` dispatches the exact canary path and passes the route adapter either the READY authenticator or `null`;
-7. `wrangler.jsonc` intentionally contains none of `CONTROL_ACCESS_AUTH_CANARY_ENABLED`, `CONTROL_ACCESS_ISSUER`, or `CONTROL_ACCESS_AUDIENCE` in #171.
+7. `wrangler.jsonc` still intentionally contains none of `CONTROL_ACCESS_AUTH_CANARY_ENABLED`, `CONTROL_ACCESS_ISSUER`, or `CONTROL_ACCESS_AUDIENCE` in #173.
 
-Therefore a future deployment of source containing this wiring is still fail-closed until a separately reviewed live configuration step supplies the exact enable flag, issuer and AUD. #171 itself neither supplies those values nor performs a deployment.
+Therefore the merged source remains fail-closed until a separately reviewed live gate supplies exact runtime values and deploys them.
+
+## Production Access auth canary activation gate
+
+`cloudflare-access-auth-canary-gate.mjs` prepares the first production proof while preserving a strict PLAN/APPLY split.
+
+### PLAN
+
+PLAN is mutation-free. It requires a clean local `main` at the exact expected SHA, successful exact-main push CI, the reviewed Wrangler pin/source configuration, temporary Cloudflare API credentials supplied only in the environment, and a short-lived Control Access application token supplied only as `CONTROL_ACCESS_TOKEN`.
+
+PLAN then proves:
+
+1. the exact currently active Worker version/deployment and Custom Domain;
+2. workers.dev and Preview URLs remain disabled;
+3. the current live Worker still has exactly the reviewed pre-activation plain-text bindings plus the required D1/private-key/webhook-secret bindings;
+4. the reviewed reconciliation Queue/DLQ topology and consumer settings still exist under the same opaque identities;
+5. exactly one parent self-hosted Access application owns the exact `control.rozkalns.net` public destination;
+6. the short-lived Access token contains that exact parent application AUD;
+7. the token issuer is an exact `https://<team>.cloudflareaccess.com` origin;
+8. the token's RS256 signature verifies against the matching `kid` from that issuer's fixed `/cdn-cgi/access/certs` JWKS;
+9. protected health still passes while the canary is still either absent (`404`) or disabled fail-closed (`503`).
+
+Only after those checks does PLAN print one exact `OWNER_AUTHORIZATION` string binding SHA, CI run, current version/deployment/domain, parent Access application id/AUD, verified issuer, Queue/DLQ ids and the `inactive` precondition.
+
+### APPLY
+
+APPLY is not authorized by merging #173 or by `turpini`. It requires a **separate explicit owner authorization** that exactly matches the current PLAN output. Before any write it repeats the complete source, GitHub CI and production-state proof, runs the full repository check under a sanitized environment, then repeats the live prewrite state proof again.
+
+If and only if every value is still exact, APPLY may execute one `wrangler deploy --strict` with all existing reviewed non-secret vars plus:
+
+- `CONTROL_ACCESS_AUTH_CANARY_ENABLED=true`;
+- `CONTROL_ACCESS_ISSUER=<exact verified issuer>`;
+- `CONTROL_ACCESS_AUDIENCE=<exact parent Access AUD>`.
+
+The Cloudflare API token remains in the child process environment. The short-lived Access token and owner authorization are explicitly removed from the Wrangler child environment and are never placed on argv. No Access app/policy write API exists in this gate.
+
+Once `DEPLOY_STARTED=YES` is emitted, the authorization is consumed. Any later failure requires reconciliation; blind retry is forbidden.
+
+Post-deploy verification requires a new active Worker version/deployment, exact activated bindings, unchanged domain/subdomain/Queue/Access-app identities, protected health PASS, and a real Access-authenticated canary response exactly equal to `{ "status": "AUTHENTICATED" }`. Requests with missing or forged public Access credentials must not produce a 2xx canary success. Worker-side missing/forged JWT handling remains independently covered by deterministic source tests.
 
 ## End-to-end source tests
 
@@ -120,30 +161,31 @@ The authentication composition tests use generated RSA keypairs and real RS256 s
 
 The canary-route tests additionally prove exact path/method/query handling, disabled fail-closed behavior, generic 403 authentication failure, non-identity success output and absence of inner-auth or principal leakage.
 
-The #171 runtime tests prove exact-string enable semantics, disabled behavior, missing/malformed configuration rejection and READY construction through the reviewed `CloudflareAccessRequestAuthenticator`. Source-boundary regression proves Worker wiring exists while `wrangler.jsonc` still carries no live Access canary configuration.
+The runtime tests prove exact-string enable semantics, disabled behavior, missing/malformed configuration rejection and READY construction through the reviewed `CloudflareAccessRequestAuthenticator`. #173 adds source-boundary regression coverage for the mutation-free PLAN contract, cryptographically bound issuer/AUD discovery, one strict APPLY deployment boundary, environment-only credentials, no Access/D1/Queue/GitHub mutation transport, and continued absence of live Access canary values from `wrangler.jsonc`.
 
-## Explicitly not activated
+## Explicitly not activated by #173
 
-These slices do not add:
+This source-only gate preparation does not add or perform:
 
 - production values for the Access canary enable flag, issuer or application AUD;
-- a successful live authentication canary in the deployed Worker;
+- a production Worker deployment;
+- a successful live authentication canary;
+- an Access application or policy mutation;
 - a mutation HTTP route;
 - Merge / Needs changes / Later behavior;
 - GitHub write permission or write transport;
-- a production JWKS fetch/canary;
-- new Cloudflare Access application/policy state;
 - D1 production write/migration;
-- production deployment;
+- Queue production write/topology mutation;
 - RPi5/host/root mutation.
 
 ## Next activation prerequisites
 
-After #171 is merged, the next separately reviewed unit may prepare the exact live Access issuer/AUD/enable configuration and a bounded production canary/deploy gate. Before any actual GitHub side effect is activated, the system must still:
+After #173 is merged and exact-main CI is green, the next step is PLAN only. PLAN output must be reviewed and a fresh exact authorization must be supplied before APPLY can deploy anything.
 
-- bind the live parent Access application issuer and exact AUD through separately reviewed Worker configuration;
-- activate only the read-only canary first and prove a real Access-authenticated request returns `AUTHENTICATED` while missing/forged tokens fail closed;
-- keep that production canary/deploy behind a fresh exact owner authorization;
+Before any actual GitHub side effect is activated, the system must still:
+
+- prove the live read-only Access auth canary under that separately authorized production deployment;
+- reconcile or roll back explicitly if any post-deploy verification fails; never blind-retry a consumed authorization;
 - re-read authoritative GitHub state immediately before every future side effect;
 - bind the approved expected SHA and action target;
 - preserve idempotency and durable audit evidence;
