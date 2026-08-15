@@ -3,7 +3,7 @@ import { createPublicKey, verify } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import {
-  accessApplicationPublicUris,
+  accessApplicationProtectsHost,
   exactParentAccessApplication,
   readAccessTokenApplicationAudience,
 } from "./cloudflare-access-app-identity.mjs";
@@ -335,7 +335,7 @@ async function resolveParentAccessByToken(apiToken, accessToken) {
   } catch (error) {
     stop(`PLAN_${error?.code ?? "PARENT_APP"}`, error instanceof Error ? error.message : "parent Access application proof failed");
   }
-  if (!accessApplicationPublicUris(parent).includes(HOSTNAME)) {
+  if (!accessApplicationProtectsHost(parent, HOSTNAME)) {
     stop("PLAN_PARENT_APP_DESTINATION", "AUD-selected parent Access application does not protect the reviewed Control hostname");
   }
 
