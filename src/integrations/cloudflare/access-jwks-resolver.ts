@@ -75,21 +75,44 @@ function readKnownFetchFailureName(error: unknown): KnownFetchFailureName | null
   return null;
 }
 
+function isNativeDomException(error: unknown): boolean {
+  try {
+    return error instanceof DOMException;
+  } catch {
+    return false;
+  }
+}
+
+function isNativeTypeError(error: unknown): boolean {
+  try {
+    return error instanceof TypeError;
+  } catch {
+    return false;
+  }
+}
+
+function isNativeError(error: unknown): boolean {
+  try {
+    return error instanceof Error;
+  } catch {
+    return false;
+  }
+}
+
 function classifyFetchFailure(error: unknown): CloudflareAccessJwksErrorCode {
   const name = readKnownFetchFailureName(error);
 
   if (
-    (error instanceof DOMException &&
-      (error.name === "TimeoutError" || error.name === "AbortError")) ||
+    (isNativeDomException(error) && (name === "TimeoutError" || name === "AbortError")) ||
     name === "TimeoutError" ||
     name === "AbortError"
   ) {
     return "ACCESS_JWKS_FETCH_TIMEOUT";
   }
-  if (error instanceof TypeError || name === "TypeError") {
+  if (isNativeTypeError(error) || name === "TypeError") {
     return "ACCESS_JWKS_FETCH_TYPE_ERROR";
   }
-  if (name === "Error" && !(error instanceof Error)) {
+  if (name === "Error" && !isNativeError(error)) {
     return "ACCESS_JWKS_FETCH_ERROR";
   }
   return "ACCESS_JWKS_FETCH_FAILED";
