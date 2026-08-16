@@ -89,7 +89,7 @@ function classifyFetchFailure(error: unknown): CloudflareAccessJwksErrorCode {
   if (error instanceof TypeError || name === "TypeError") {
     return "ACCESS_JWKS_FETCH_TYPE_ERROR";
   }
-  if (name === "Error") {
+  if (name === "Error" && !(error instanceof Error)) {
     return "ACCESS_JWKS_FETCH_ERROR";
   }
   return "ACCESS_JWKS_FETCH_FAILED";
