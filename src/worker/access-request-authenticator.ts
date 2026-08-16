@@ -1,5 +1,7 @@
 import {
+  CloudflareAccessJwksError,
   CloudflareAccessJwksResolver,
+  type CloudflareAccessJwksErrorCode,
   type CloudflareAccessJwksFetch,
 } from "../integrations/cloudflare/access-jwks-resolver.js";
 import {
@@ -12,6 +14,7 @@ import {
 export type CloudflareAccessAuthenticationErrorCode = "ACCESS_AUTHENTICATION_FAILED";
 export type CloudflareAccessAuthenticationFailureReason =
   | CloudflareAccessJwtErrorCode
+  | CloudflareAccessJwksErrorCode
   | "ACCESS_AUTHENTICATION_INTERNAL";
 
 export class CloudflareAccessAuthenticationError extends Error {
@@ -40,7 +43,9 @@ export interface CloudflareAccessRequestAuthenticatorDependencies {
 
 function authenticationFailed(error: unknown): never {
   const reason: CloudflareAccessAuthenticationFailureReason =
-    error instanceof CloudflareAccessJwtError ? error.code : "ACCESS_AUTHENTICATION_INTERNAL";
+    error instanceof CloudflareAccessJwtError || error instanceof CloudflareAccessJwksError
+      ? error.code
+      : "ACCESS_AUTHENTICATION_INTERNAL";
   throw new CloudflareAccessAuthenticationError(reason);
 }
 
