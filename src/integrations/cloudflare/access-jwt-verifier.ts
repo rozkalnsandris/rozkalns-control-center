@@ -31,6 +31,13 @@ export class CloudflareAccessJwtError extends Error {
   }
 }
 
+export class CloudflareAccessSigningKeyResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CloudflareAccessSigningKeyResolutionError";
+  }
+}
+
 export interface CloudflareAccessSigningKeyResolver {
   resolveSigningKey(kid: string): Promise<JsonWebKey>;
 }
@@ -276,7 +283,8 @@ export class CloudflareAccessJwtVerifier {
     let jwk: JsonWebKey;
     try {
       jwk = await this.#resolver.resolveSigningKey(header.kid);
-    } catch {
+    } catch (error) {
+      if (error instanceof CloudflareAccessSigningKeyResolutionError) throw error;
       fail("ACCESS_JWT_KEY_UNAVAILABLE");
     }
     const key = await importSigningKey(jwk);
