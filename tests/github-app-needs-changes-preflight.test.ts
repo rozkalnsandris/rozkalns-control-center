@@ -65,23 +65,39 @@ interface RecordedRequest {
   readonly body: unknown;
 }
 
+interface UnexpectedResponse {
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly body?: Record<string, unknown>;
+}
+
 function createMockFetch(options: {
   readonly app?: Record<string, unknown>;
   readonly installation?: Record<string, unknown>;
   readonly excludedInstalled?: boolean;
   readonly extraRepositories?: string[];
+  readonly unexpectedResponse?: UnexpectedResponse;
 } = {}) {
   const requests: RecordedRequest[] = [];
   const fetchImpl = (async (input: RequestInfo | URL): Promise<Response> => {
     const request = input instanceof Request ? input : new Request(input);
     const url = new URL(request.url);
+    const requestPath = `${url.pathname}${url.search}`;
     const body = request.method === "POST" ? await request.clone().json() : null;
     requests.push({
       method: request.method,
-      path: `${url.pathname}${url.search}`,
+      path: requestPath,
       authorization: request.headers.get("authorization"),
       body,
     });
+
+    const unexpected = options.unexpectedResponse;
+    if (unexpected && unexpected.method === request.method && unexpected.path === requestPath) {
+      return Response.json(unexpected.body ?? { message: "sensitive-upstream-body" }, {
+        status: unexpected.status,
+      });
+    }
 
     if (url.pathname === "/app" && request.method === "GET") {
       return Response.json(options.app ?? appPayload());
@@ -137,6 +153,33 @@ async function expectPreflightCode(promise: Promise<unknown>, code: string) {
     assert.equal((error as InstanceType<typeof GitHubAppNeedsChangesPreflightError>).code, code);
     return true;
   });
+}
+
+async function expectLocalizedStatus(
+  unexpectedResponse: UnexpectedResponse,
+  expectedCode: string,
+) {
+  const { privateKey } = testPrivateKey();
+  const sensitiveBodyValue = "upstream-detail-must-not-leak";
+  const { fetchImpl } = createMockFetch({
+    unexpectedResponse: {
+      ...unexpectedResponse,
+      body: { message: sensitiveBodyValue, documentation_url: `https://example.invalid/${sensitiveBodyValue}` },
+    },
+  });
+
+  await assert.rejects(
+    observeGitHubAppState({ fetchImpl, privateKeyPem: privateKey }),
+    (error: unknown) => {
+      assert.equal(error instanceof GitHubAppNeedsChangesPreflightError, true);
+      const typed = error as InstanceType<typeof GitHubAppNeedsChangesPreflightError>;
+      assert.equal(typed.code, expectedCode);
+      assert.equal(typed.message, expectedCode);
+      assert.equal(typed.code.includes(sensitiveBodyValue), false);
+      assert.equal(typed.message.includes(sensitiveBodyValue), false);
+      return true;
+    },
+  );
 }
 
 test("GitHub App JWT uses RS256, client id issuer and bounded lifetime", () => {
@@ -201,6 +244,59 @@ test("OBSERVE contract proves exact read-only App state and uses only one metada
   );
 });
 
+test("unexpected App status is localized without upstream body leakage", async () => {
+  await expectLocalizedStatus(
+    { method: "GET", path: "/app", status: 401 },
+    "UNEXPECTED_STATUS:APP:401",
+  );
+});
+
+test("unexpected installation status is localized without changing endpoint semantics", async () => {
+  await expectLocalizedStatus(
+    {
+      method: "GET",
+      path: `/app/installations/${PREFLIGHT_CONTRACT.installationId}`,
+      status: 404,
+    },
+    "UNEXPECTED_STATUS:INSTALLATION:404",
+  );
+});
+
+test("unexpected managed repository installation status identifies only the fixed repository and status", async () => {
+  const repository = PREFLIGHT_CONTRACT.managedRepositories[0];
+  assert.ok(repository);
+  await expectLocalizedStatus(
+    {
+      method: "GET",
+      path: `/repos/${PREFLIGHT_CONTRACT.owner}/${repository}/installation`,
+      status: 301,
+    },
+    `UNEXPECTED_STATUS:REPOSITORY_INSTALLATION:${repository}:301`,
+  );
+});
+
+test("unexpected token-mint status is localized without exposing token endpoint response", async () => {
+  await expectLocalizedStatus(
+    {
+      method: "POST",
+      path: `/app/installations/${PREFLIGHT_CONTRACT.installationId}/access_tokens`,
+      status: 403,
+    },
+    "UNEXPECTED_STATUS:TOKEN_MINT:403",
+  );
+});
+
+test("unexpected installation-repository inventory status is localized", async () => {
+  await expectLocalizedStatus(
+    {
+      method: "GET",
+      path: "/installation/repositories?per_page=100&page=1",
+      status: 401,
+    },
+    "UNEXPECTED_STATUS:INSTALLATION_REPOSITORIES:401",
+  );
+});
+
 test("permission growth or selected-repository drift fails closed before readiness", async () => {
   const { privateKey } = testPrivateKey();
 
@@ -230,6 +326,17 @@ test("explicitly excluded repository resolving to the installation fails before 
     "EXCLUDED_REPOSITORY_INSTALLED",
   );
   assert.equal(requests.some((request) => request.method === "POST"), false);
+});
+
+test("unexpected excluded-repository status is localized while 404 remains the required absent state", async () => {
+  await expectLocalizedStatus(
+    {
+      method: "GET",
+      path: `/repos/${PREFLIGHT_CONTRACT.owner}/${PREFLIGHT_CONTRACT.excludedRepository}/installation`,
+      status: 403,
+    },
+    "UNEXPECTED_STATUS:EXCLUDED_REPOSITORY_INSTALLATION:403",
+  );
 });
 
 test("PLAN is credential-free, sanitized and does not imply activation", () => {
