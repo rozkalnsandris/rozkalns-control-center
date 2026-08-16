@@ -17,6 +17,7 @@
     "cf:first-version-gate": "node scripts/cloudflare-first-version-gate.mjs",
     "cf:second-version-gate": "node scripts/cloudflare-second-version-gate.mjs",
     "cf:d1-migration-gate": "node scripts/cloudflare-d1-migration-gate.mjs",
+    "cf:needs-changes-d1-migration-gate": "node scripts/cloudflare-needs-changes-d1-migration-gate.mjs",
     "cf:ui-deploy-gate": "node scripts/cloudflare-ui-deploy-gate.mjs",
     "cf:ui-domain-gate": "node scripts/cloudflare-ui-domain-gate.mjs",
     "cf:queue-usage-observation": "node scripts/cloudflare-queue-usage-observation.mjs",
