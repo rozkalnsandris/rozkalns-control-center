@@ -6,6 +6,7 @@ export interface ManagedProjectPolicy {
   repository: string;
   enabled: boolean;
   githubReadEnabled: boolean;
+  canRequestChanges: boolean;
   productionAdapter: ProductionAdapter;
 }
 
@@ -16,6 +17,7 @@ export const managedProjectPolicies = [
     repository: "rozkalnsandris/hermes-tech",
     enabled: true,
     githubReadEnabled: true,
+    canRequestChanges: false,
     productionAdapter: "rpi5",
   },
   {
@@ -24,6 +26,7 @@ export const managedProjectPolicies = [
     repository: "rozkalnsandris/hermes-deals",
     enabled: true,
     githubReadEnabled: true,
+    canRequestChanges: false,
     productionAdapter: "rpi5",
   },
   {
@@ -32,6 +35,7 @@ export const managedProjectPolicies = [
     repository: "rozkalnsandris/rozkalns-cv",
     enabled: true,
     githubReadEnabled: true,
+    canRequestChanges: false,
     productionAdapter: "rpi5",
   },
   {
@@ -40,6 +44,7 @@ export const managedProjectPolicies = [
     repository: "rozkalnsandris/RPi5_main",
     enabled: true,
     githubReadEnabled: true,
+    canRequestChanges: false,
     productionAdapter: "rpi5",
   },
   {
@@ -48,6 +53,7 @@ export const managedProjectPolicies = [
     repository: "rozkalnsandris/ops-workflows",
     enabled: true,
     githubReadEnabled: true,
+    canRequestChanges: false,
     productionAdapter: "none",
   },
   {
@@ -56,6 +62,7 @@ export const managedProjectPolicies = [
     repository: "rozkalnsandris/rozkalnsandris",
     enabled: true,
     githubReadEnabled: true,
+    canRequestChanges: false,
     productionAdapter: "none",
   },
 ] as const satisfies readonly ManagedProjectPolicy[];
@@ -79,6 +86,13 @@ export class RepositoryNotAllowedError extends Error {
   }
 }
 
+export class RepositoryNeedsChangesNotAllowedError extends Error {
+  constructor(repository: string) {
+    super(`Repository is not enabled for Rozkalns Control Needs changes actions: ${repository}`);
+    this.name = "RepositoryNeedsChangesNotAllowedError";
+  }
+}
+
 export function isExplicitlyExcludedRepository(repository: string) {
   return excludedRepositories.has(normalizeRepository(repository));
 }
@@ -92,5 +106,17 @@ export function resolveManagedProjectPolicy(repository: string): ManagedProjectP
 export function requireManagedProjectPolicy(repository: string): ManagedProjectPolicy {
   const policy = resolveManagedProjectPolicy(repository);
   if (!policy) throw new RepositoryNotAllowedError(repository);
+  return policy;
+}
+
+export function resolveNeedsChangesProjectPolicy(repository: string): ManagedProjectPolicy | null {
+  const policy = resolveManagedProjectPolicy(repository);
+  if (!policy || policy.canRequestChanges !== true) return null;
+  return policy;
+}
+
+export function requireNeedsChangesProjectPolicy(repository: string): ManagedProjectPolicy {
+  const policy = resolveNeedsChangesProjectPolicy(repository);
+  if (!policy) throw new RepositoryNeedsChangesNotAllowedError(repository);
   return policy;
 }
