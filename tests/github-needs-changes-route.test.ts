@@ -132,11 +132,12 @@ test("Access authentication failure is bounded and prevents action execution", a
   const response = await handleGitHubNeedsChangesRequest(request(), runtime);
 
   assert.equal(response.status, 403);
-  assert.deepEqual(await json(response), { error: "ACCESS_AUTHENTICATION_FAILED" });
+  const body = await json(response);
+  assert.deepEqual(body, { error: "ACCESS_AUTHENTICATION_FAILED" });
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(state.authCalls, 1);
   assert.equal(state.executeCalls, 0);
-  assert.equal((await response.clone().text()).includes(secret), false);
+  assert.equal(JSON.stringify(body).includes(secret), false);
 });
 
 test("current capability-false managed project is denied before decision executor", async () => {
