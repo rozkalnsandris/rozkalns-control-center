@@ -2,7 +2,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-import { accessApplicationPublicUris } from "./cloudflare-access-app-identity.mjs";
+import { accessApplicationProtectsHost } from "./cloudflare-access-app-identity.mjs";
 import {
   assertNoQueueProducers,
   assertWorkerProducer,
@@ -392,7 +392,7 @@ function exactParentAccessApp(apps, expected = {}, codePrefix = "ACCESS") {
   const matches = apps.filter(
     (app) =>
       app?.type === "self_hosted" &&
-      accessApplicationPublicUris(app).includes(HOSTNAME) &&
+      accessApplicationProtectsHost(app, HOSTNAME) &&
       (expected.appId === undefined || app?.id === expected.appId) &&
       (expected.aud === undefined || app?.aud === expected.aud),
   );
