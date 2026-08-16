@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
 
 async function source(path: string): Promise<string> {
-  return readFile(new URL(`../${path}`, import.meta.url), "utf8");
+  return readFile(resolve(process.cwd(), path), "utf8");
 }
 
 test("Phase 3 review write session remains detached from Worker, UI and production configuration", async () => {
