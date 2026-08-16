@@ -47,7 +47,10 @@ test("Phase 3 Access auth canary is wired but remains unconfigured in Wrangler",
   assert.doesNotMatch(routeSource, /CONTROL_DB/);
   assert.doesNotMatch(routeSource, /RECONCILIATION_QUEUE/);
 
-  assert.match(probeSource, /\/cdn-cgi\/access\/certs/);
+  assert.match(
+    probeSource,
+    /new CloudflareAccessJwksResolver\(\{ issuer: config\.issuer \}\)\.endpoint/,
+  );
   assert.match(probeSource, /redirect:\s*"manual"/);
   assert.match(probeSource, /method:\s*"GET"/);
   assert.match(probeSource, /Accept:\s*"application\/json"/);
@@ -57,5 +60,6 @@ test("Phase 3 Access auth canary is wired but remains unconfigured in Wrangler",
   assert.doesNotMatch(probeSource, /location/i);
   assert.doesNotMatch(probeSource, /console\.(log|info|warn|error)/);
 
+  assert.match(resolverSource, /const ACCESS_CERTS_PATH = "\/cdn-cgi\/access\/certs"/);
   assert.match(resolverSource, /redirect:\s*"error"/);
 });
