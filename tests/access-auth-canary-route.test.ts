@@ -114,6 +114,28 @@ test("returns one bounded verifier failure class only for typed canary authentic
   assert.equal(authenticator.seen.length, 1);
 });
 
+test("returns a bounded JWKS failure code without reflecting resolver details", async () => {
+  const authenticator: AccessRequestAuthenticatorLike = {
+    async authenticateRequest() {
+      throw new CloudflareAccessAuthenticationError("ACCESS_JWKS_FETCH_FAILED");
+    },
+  };
+
+  const response = await handleAccessAuthCanaryRequest(request(), authenticator);
+  assert.equal(response.status, 403);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+
+  const body = await response.text();
+  assert.deepEqual(JSON.parse(body), {
+    error: "ACCESS_AUTHENTICATION_FAILED",
+    diagnostic: "ACCESS_JWKS_FETCH_FAILED",
+  });
+
+  for (const forbidden of ["kid", "token", "subject", "email", "issuer", "audience", "key material", "exception"]) {
+    assert.equal(body.toLowerCase().includes(forbidden), false);
+  }
+});
+
 test("keeps untyped authentication failures generic and leak-free", async () => {
   const authenticator = new StubAuthenticator("failure");
   const response = await handleAccessAuthCanaryRequest(request(), authenticator);
