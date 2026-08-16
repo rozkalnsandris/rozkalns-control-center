@@ -21,6 +21,7 @@
     "cf:ui-domain-gate": "node scripts/cloudflare-ui-domain-gate.mjs",
     "cf:access-auth-canary-plan": "node scripts/cloudflare-access-auth-canary-plan.mjs",
     "cf:access-auth-canary-gate": "node scripts/cloudflare-access-auth-canary-gate.mjs",
+    "cf:queue-usage-observation": "node scripts/cloudflare-queue-usage-observation.mjs",
     "audit:runtime": "npm audit --omit=dev --audit-level=high",
     "verify:actions": "node scripts/verify-actions-pinning.mjs",
     "verify:public": "node scripts/verify-public-repo-safety.mjs",
