@@ -1,4 +1,7 @@
-import type { CloudflareAccessSigningKeyResolver } from "./access-jwt-verifier.js";
+import {
+  CloudflareAccessSigningKeyResolutionError,
+  type CloudflareAccessSigningKeyResolver,
+} from "./access-jwt-verifier.js";
 
 const ACCESS_CERTS_PATH = "/cdn-cgi/access/certs";
 const MAX_JWKS_RESPONSE_BYTES = 32 * 1024;
@@ -24,7 +27,7 @@ export type CloudflareAccessJwksErrorCode =
   | "ACCESS_JWKS_SET_INVALID"
   | "ACCESS_JWKS_KEY_NOT_FOUND";
 
-export class CloudflareAccessJwksError extends Error {
+export class CloudflareAccessJwksError extends CloudflareAccessSigningKeyResolutionError {
   readonly code: CloudflareAccessJwksErrorCode;
 
   constructor(code: CloudflareAccessJwksErrorCode) {
