@@ -40,7 +40,8 @@ const MAX_RESPONSE_BYTES = 256 * 1024;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const POSITIVE_INTEGER_PATTERN = /^[1-9][0-9]*$/;
 const JWT_IAT_BACKDATE_SECONDS = 60;
-const JWT_LIFETIME_SECONDS = 5 * 60;
+const DEFAULT_JWT_LIFETIME_SECONDS = 9 * 60;
+const OBSERVE_JWT_LIFETIME_SECONDS = 5 * 60;
 
 export class GitHubAppNeedsChangesPreflightError extends Error {
   constructor(code) {
@@ -103,16 +104,19 @@ function normalizePermissions(value, code = "PERMISSION_DRIFT") {
   return permissions;
 }
 
-export function createGitHubAppJwt(privateKeyPem, nowMs = Date.now()) {
+export function createGitHubAppJwt(privateKeyPem, nowMs = Date.now(), lifetimeSeconds = DEFAULT_JWT_LIFETIME_SECONDS) {
   if (typeof privateKeyPem !== "string" || privateKeyPem.trim() === "") fail("PRIVATE_KEY_UNAVAILABLE");
   if (!Number.isFinite(nowMs)) fail("INVALID_CLOCK");
+  if (!Number.isSafeInteger(lifetimeSeconds) || lifetimeSeconds <= 0 || lifetimeSeconds > 10 * 60) {
+    fail("INVALID_JWT_LIFETIME");
+  }
 
   const nowSeconds = Math.floor(nowMs / 1000);
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = base64url(
     JSON.stringify({
       iat: nowSeconds - JWT_IAT_BACKDATE_SECONDS,
-      exp: nowSeconds + JWT_LIFETIME_SECONDS,
+      exp: nowSeconds + lifetimeSeconds,
       iss: PREFLIGHT_CONTRACT.clientId,
     }),
   );
@@ -239,8 +243,13 @@ function assertReadOnlyInventoryToken(tokenResponse) {
   return value.token;
 }
 
-export async function observeGitHubAppState({ fetchImpl = fetch, privateKeyPem, nowMs = Date.now() } = {}) {
-  const jwt = createGitHubAppJwt(privateKeyPem, nowMs);
+export async function observeGitHubAppState({
+  fetchImpl = fetch,
+  privateKeyPem,
+  nowMs = Date.now(),
+  jwtLifetimeSeconds = DEFAULT_JWT_LIFETIME_SECONDS,
+} = {}) {
+  const jwt = createGitHubAppJwt(privateKeyPem, nowMs, jwtLifetimeSeconds);
 
   const app = await apiRequest(fetchImpl, {
     method: "GET",
@@ -433,14 +442,18 @@ async function runObserve(args) {
   const githubServerTimeMs = await readExactMainCiServerTime(fetch, expectedSha, expectedCiRunId);
 
   const privateKeyPem = process.env.GITHUB_APP_PRIVATE_KEY_PEM;
-  const result = await observeGitHubAppState({ privateKeyPem, nowMs: githubServerTimeMs });
+  const result = await observeGitHubAppState({
+    privateKeyPem,
+    nowMs: githubServerTimeMs,
+    jwtLifetimeSeconds: OBSERVE_JWT_LIFETIME_SECONDS,
+  });
 
   console.log("MODE=OBSERVE");
   console.log(`EXACT_MAIN=${expectedSha}`);
   console.log(`EXACT_MAIN_CI_RUN=${expectedCiRunId}`);
   console.log("EXACT_MAIN_CI=SUCCESS");
   console.log("JWT_CLOCK_SOURCE=GITHUB_SERVER_DATE");
-  console.log("JWT_EXPIRY_WINDOW_SECONDS=300");
+  console.log(`JWT_EXPIRY_WINDOW_SECONDS=${OBSERVE_JWT_LIFETIME_SECONDS}`);
   console.log("APP_IDENTITY=PASS");
   console.log("INSTALLATION_IDENTITY=PASS");
   console.log("INSTALLATION_SUSPENDED=NO");
