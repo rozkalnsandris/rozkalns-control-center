@@ -350,7 +350,7 @@ export class CloudflareAccessJwksResolver implements CloudflareAccessSigningKeyR
       response = await this.#fetch(this.#endpoint, {
         method: "GET",
         headers: { Accept: "application/json" },
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch (error) {
