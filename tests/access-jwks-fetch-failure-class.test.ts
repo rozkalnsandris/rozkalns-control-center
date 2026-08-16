@@ -50,7 +50,7 @@ test("classifies native timeout and abort fetch failures without reflecting runt
   );
 });
 
-test("classifies native TypeError and Error without reflecting runtime detail", async () => {
+test("preserves native TypeError and generic Error behavior without reflecting runtime detail", async () => {
   await rejectsSanitized(
     new TypeError("private redirect or network runtime detail"),
     "ACCESS_JWKS_FETCH_TYPE_ERROR",
@@ -59,7 +59,7 @@ test("classifies native TypeError and Error without reflecting runtime detail", 
 
   await rejectsSanitized(
     new Error("private generic runtime detail"),
-    "ACCESS_JWKS_FETCH_ERROR",
+    "ACCESS_JWKS_FETCH_FAILED",
     ["private generic runtime detail"],
   );
 });
