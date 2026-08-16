@@ -23,6 +23,8 @@ type NormalizedAccessJwk = JsonWebKey & { readonly kid: string };
 export type CloudflareAccessJwksErrorCode =
   | "ACCESS_JWKS_CONFIG_INVALID"
   | "ACCESS_JWKS_FETCH_FAILED"
+  | "ACCESS_JWKS_FETCH_TIMEOUT"
+  | "ACCESS_JWKS_FETCH_TYPE_ERROR"
   | "ACCESS_JWKS_RESPONSE_INVALID"
   | "ACCESS_JWKS_SET_INVALID"
   | "ACCESS_JWKS_KEY_NOT_FOUND";
@@ -49,6 +51,19 @@ export interface CloudflareAccessJwksResolverConfig {
 
 function fail(code: CloudflareAccessJwksErrorCode): never {
   throw new CloudflareAccessJwksError(code);
+}
+
+function classifyFetchFailure(error: unknown): CloudflareAccessJwksErrorCode {
+  if (
+    error instanceof DOMException &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  ) {
+    return "ACCESS_JWKS_FETCH_TIMEOUT";
+  }
+  if (error instanceof TypeError) {
+    return "ACCESS_JWKS_FETCH_TYPE_ERROR";
+  }
+  return "ACCESS_JWKS_FETCH_FAILED";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -298,8 +313,8 @@ export class CloudflareAccessJwksResolver implements CloudflareAccessSigningKeyR
         redirect: "error",
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
-    } catch {
-      fail("ACCESS_JWKS_FETCH_FAILED");
+    } catch (error) {
+      fail(classifyFetchFailure(error));
     }
 
     if (!response.ok) fail("ACCESS_JWKS_RESPONSE_INVALID");
