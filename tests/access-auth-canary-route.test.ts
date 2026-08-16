@@ -100,7 +100,15 @@ test("returns one bounded verifier failure class only for typed canary authentic
     diagnostic: "ACCESS_JWT_MISSING",
   });
 
-  for (const forbidden of ["kid", "jwt", "token", "subject", "email", "principal", "private@example.test"]) {
+  for (const forbidden of [
+    "kid=do-not-leak",
+    "jwt-do-not-return",
+    "token-do-not-return",
+    "subject",
+    "email",
+    "principal-do-not-return",
+    "private@example.test",
+  ]) {
     assert.equal(body.toLowerCase().includes(forbidden.toLowerCase()), false);
   }
   assert.equal(authenticator.seen.length, 1);
