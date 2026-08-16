@@ -75,14 +75,6 @@ function readKnownFetchFailureName(error: unknown): KnownFetchFailureName | null
   return null;
 }
 
-function isNativeDomException(error: unknown): boolean {
-  try {
-    return error instanceof DOMException;
-  } catch {
-    return false;
-  }
-}
-
 function isNativeTypeError(error: unknown): boolean {
   try {
     return error instanceof TypeError;
@@ -102,11 +94,7 @@ function isNativeError(error: unknown): boolean {
 function classifyFetchFailure(error: unknown): CloudflareAccessJwksErrorCode {
   const name = readKnownFetchFailureName(error);
 
-  if (
-    (isNativeDomException(error) && (name === "TimeoutError" || name === "AbortError")) ||
-    name === "TimeoutError" ||
-    name === "AbortError"
-  ) {
+  if (name === "TimeoutError" || name === "AbortError") {
     return "ACCESS_JWKS_FETCH_TIMEOUT";
   }
   if (isNativeTypeError(error) || name === "TypeError") {
