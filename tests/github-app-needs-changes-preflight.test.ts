@@ -4,13 +4,17 @@ import { generateKeyPairSync, verify as verifyRsaSha256 } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
-import {
+const preflightModuleUrl = pathToFileURL(
+  path.join(process.cwd(), "scripts/github-app-needs-changes-preflight.mjs"),
+).href;
+const {
   GitHubAppNeedsChangesPreflightError,
   PREFLIGHT_CONTRACT,
   createGitHubAppJwt,
   observeGitHubAppState,
-} from "../scripts/github-app-needs-changes-preflight.mjs";
+} = (await import(preflightModuleUrl)) as typeof import("../scripts/github-app-needs-changes-preflight.mjs");
 
 const permissions = {
   actions: "read",
@@ -130,7 +134,7 @@ function testPrivateKey() {
 async function expectPreflightCode(promise: Promise<unknown>, code: string) {
   await assert.rejects(promise, (error: unknown) => {
     assert.equal(error instanceof GitHubAppNeedsChangesPreflightError, true);
-    assert.equal((error as GitHubAppNeedsChangesPreflightError).code, code);
+    assert.equal((error as InstanceType<typeof GitHubAppNeedsChangesPreflightError>).code, code);
     return true;
   });
 }
