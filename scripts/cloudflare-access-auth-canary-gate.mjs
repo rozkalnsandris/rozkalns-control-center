@@ -720,7 +720,7 @@ async function apply(args) {
     stop("PREWRITE_STATE_MOVED", "production state moved between preflight and the final prewrite recheck");
   }
 
-  const deployArgs = ["deploy", "--strict", "--yes"];
+  const deployArgs = ["deploy", "--strict"];
   for (const [name, value] of deployVars(args.issuer, args.accessAud)) {
     deployArgs.push("--var", `${name}:${value}`);
   }
