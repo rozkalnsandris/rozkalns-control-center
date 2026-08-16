@@ -102,7 +102,7 @@ test("never reflects arbitrary names or sensitive runtime fields", async () => {
   );
 });
 
-test("keeps unknown and unreadable error shapes generic and sanitized", async () => {
+test("keeps unknown, unreadable and hostile error shapes generic and sanitized", async () => {
   await rejectsSanitized(
     { message: "private object runtime detail" },
     "ACCESS_JWKS_FETCH_FAILED",
@@ -122,5 +122,23 @@ test("keeps unknown and unreadable error shapes generic and sanitized", async ()
     unreadableName,
     "ACCESS_JWKS_FETCH_FAILED",
     ["private getter runtime detail"],
+  );
+
+  const hostileProxy = new Proxy(
+    { message: "private proxy runtime detail" },
+    {
+      get(target, property, receiver) {
+        if (property === "name") return "UnknownRuntimeError";
+        return Reflect.get(target, property, receiver);
+      },
+      getPrototypeOf() {
+        throw new Error("private proxy prototype detail");
+      },
+    },
+  );
+  await rejectsSanitized(
+    hostileProxy,
+    "ACCESS_JWKS_FETCH_FAILED",
+    ["private proxy runtime detail", "private proxy prototype detail"],
   );
 });
