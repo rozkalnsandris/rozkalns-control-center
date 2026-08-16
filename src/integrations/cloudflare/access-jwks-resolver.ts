@@ -19,12 +19,14 @@ const KID_PATTERN = /^[A-Za-z0-9._:+/-]+$/;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 type NormalizedAccessJwk = JsonWebKey & { readonly kid: string };
+type KnownFetchFailureName = "TimeoutError" | "AbortError" | "TypeError" | "Error";
 
 export type CloudflareAccessJwksErrorCode =
   | "ACCESS_JWKS_CONFIG_INVALID"
   | "ACCESS_JWKS_FETCH_FAILED"
   | "ACCESS_JWKS_FETCH_TIMEOUT"
   | "ACCESS_JWKS_FETCH_TYPE_ERROR"
+  | "ACCESS_JWKS_FETCH_ERROR"
   | "ACCESS_JWKS_RESPONSE_INVALID"
   | "ACCESS_JWKS_SET_INVALID"
   | "ACCESS_JWKS_KEY_NOT_FOUND";
@@ -53,15 +55,53 @@ function fail(code: CloudflareAccessJwksErrorCode): never {
   throw new CloudflareAccessJwksError(code);
 }
 
+function readKnownFetchFailureName(error: unknown): KnownFetchFailureName | null {
+  if (typeof error !== "object" || error === null) return null;
+
+  try {
+    const name = Reflect.get(error, "name");
+    if (
+      name === "TimeoutError" ||
+      name === "AbortError" ||
+      name === "TypeError" ||
+      name === "Error"
+    ) {
+      return name;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function isNativeTypeError(error: unknown): boolean {
+  try {
+    return error instanceof TypeError;
+  } catch {
+    return false;
+  }
+}
+
+function isNativeError(error: unknown): boolean {
+  try {
+    return error instanceof Error;
+  } catch {
+    return false;
+  }
+}
+
 function classifyFetchFailure(error: unknown): CloudflareAccessJwksErrorCode {
-  if (
-    error instanceof DOMException &&
-    (error.name === "TimeoutError" || error.name === "AbortError")
-  ) {
+  const name = readKnownFetchFailureName(error);
+
+  if (name === "TimeoutError" || name === "AbortError") {
     return "ACCESS_JWKS_FETCH_TIMEOUT";
   }
-  if (error instanceof TypeError) {
+  if (isNativeTypeError(error) || name === "TypeError") {
     return "ACCESS_JWKS_FETCH_TYPE_ERROR";
+  }
+  if (name === "Error" && !isNativeError(error)) {
+    return "ACCESS_JWKS_FETCH_ERROR";
   }
   return "ACCESS_JWKS_FETCH_FAILED";
 }
