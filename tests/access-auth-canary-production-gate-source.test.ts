@@ -33,8 +33,10 @@ test("APPLY parent discovery uses the reviewed exact and wildcard host coverage 
   assert.doesNotMatch(gate, /accessApplicationPublicUris\(app\)\.includes\(HOSTNAME\)/);
 });
 
-test("APPLY is limited to one strict Worker deploy with reviewed runtime vars", () => {
-  assert.match(gate, /\["deploy", "--strict", "--yes"\]/);
+test("APPLY uses one strict Worker deploy compatible with the pinned Wrangler", () => {
+  assert.equal(pkg.devDependencies?.wrangler, "4.120.0");
+  assert.match(gate, /\["deploy", "--strict"\]/);
+  assert.doesNotMatch(gate, /\["deploy", "--strict", "--yes"\]/);
   for (const binding of [
     "GITHUB_APP_CLIENT_ID",
     "GITHUB_APP_INSTALLATION_ID",
