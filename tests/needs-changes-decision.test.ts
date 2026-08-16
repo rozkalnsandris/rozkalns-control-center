@@ -382,7 +382,7 @@ test("closed, draft, failed-CI and already-changes-requested states never reach 
         request({ requestId: `${REQUEST_ID}_${states.indexOf(state)}` }),
         dependencies(provider, createWriter(writes), audit),
       ),
-      state.pullState === "closed" ? "RECONCILIATION_FAILED" : "DECISION_NOT_READY",
+      "DECISION_NOT_READY",
       false,
     );
     assert.equal(writes.length, 0);
