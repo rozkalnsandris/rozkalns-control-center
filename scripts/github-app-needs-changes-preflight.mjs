@@ -39,6 +39,8 @@ export const PREFLIGHT_CONTRACT = Object.freeze({
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const POSITIVE_INTEGER_PATTERN = /^[1-9][0-9]*$/;
+const JWT_IAT_BACKDATE_SECONDS = 60;
+const JWT_LIFETIME_SECONDS = 5 * 60;
 
 export class GitHubAppNeedsChangesPreflightError extends Error {
   constructor(code) {
@@ -109,8 +111,8 @@ export function createGitHubAppJwt(privateKeyPem, nowMs = Date.now()) {
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = base64url(
     JSON.stringify({
-      iat: nowSeconds - 60,
-      exp: nowSeconds + 9 * 60,
+      iat: nowSeconds - JWT_IAT_BACKDATE_SECONDS,
+      exp: nowSeconds + JWT_LIFETIME_SECONDS,
       iss: PREFLIGHT_CONTRACT.clientId,
     }),
   );
@@ -354,7 +356,14 @@ export async function assertExactMainCi(fetchImpl, expectedSha, expectedCiRunId)
   exactString(value.conclusion, "success", "CI_NOT_SUCCESSFUL");
 }
 
-async function publicCiRequest(expectedSha, expectedCiRunId, fetchImpl = fetch) {
+function parseGitHubServerTime(dateHeader) {
+  if (typeof dateHeader !== "string" || dateHeader.trim() === "") fail("GITHUB_SERVER_TIME_UNAVAILABLE");
+  const serverTimeMs = Date.parse(dateHeader);
+  if (!Number.isFinite(serverTimeMs)) fail("GITHUB_SERVER_TIME_UNAVAILABLE");
+  return serverTimeMs;
+}
+
+export async function readExactMainCiServerTime(fetchImpl, expectedSha, expectedCiRunId) {
   const url = new URL(
     `/repos/rozkalnsandris/rozkalns-control-center/actions/runs/${expectedCiRunId}`,
     PREFLIGHT_CONTRACT.apiOrigin,
@@ -383,6 +392,7 @@ async function publicCiRequest(expectedSha, expectedCiRunId, fetchImpl = fetch) 
   exactString(value.head_sha, expectedSha, "CI_RUN_DRIFT");
   exactString(value.status, "completed", "CI_NOT_SUCCESSFUL");
   exactString(value.conclusion, "success", "CI_NOT_SUCCESSFUL");
+  return parseGitHubServerTime(response.headers.get("date"));
 }
 
 function parseArgs(argv) {
@@ -420,15 +430,17 @@ async function runObserve(args) {
   const expectedSha = requireExpectedSha(args.expectedSha);
   const expectedCiRunId = requireExpectedCiRunId(args.expectedCiRunId);
   assertLocalOwnerPreconditions(expectedSha);
-  await publicCiRequest(expectedSha, expectedCiRunId);
+  const githubServerTimeMs = await readExactMainCiServerTime(fetch, expectedSha, expectedCiRunId);
 
   const privateKeyPem = process.env.GITHUB_APP_PRIVATE_KEY_PEM;
-  const result = await observeGitHubAppState({ privateKeyPem });
+  const result = await observeGitHubAppState({ privateKeyPem, nowMs: githubServerTimeMs });
 
   console.log("MODE=OBSERVE");
   console.log(`EXACT_MAIN=${expectedSha}`);
   console.log(`EXACT_MAIN_CI_RUN=${expectedCiRunId}`);
   console.log("EXACT_MAIN_CI=SUCCESS");
+  console.log("JWT_CLOCK_SOURCE=GITHUB_SERVER_DATE");
+  console.log("JWT_EXPIRY_WINDOW_SECONDS=300");
   console.log("APP_IDENTITY=PASS");
   console.log("INSTALLATION_IDENTITY=PASS");
   console.log("INSTALLATION_SUSPENDED=NO");
