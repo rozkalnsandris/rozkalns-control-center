@@ -61,5 +61,6 @@ test("Phase 3 Access auth canary is wired but remains unconfigured in Wrangler",
   assert.doesNotMatch(probeSource, /console\.(log|info|warn|error)/);
 
   assert.match(resolverSource, /const ACCESS_CERTS_PATH = "\/cdn-cgi\/access\/certs"/);
-  assert.match(resolverSource, /redirect:\s*"error"/);
+  assert.match(resolverSource, /redirect:\s*"manual"/);
+  assert.doesNotMatch(resolverSource, /redirect:\s*"follow"/);
 });

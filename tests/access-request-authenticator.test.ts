@@ -133,7 +133,7 @@ test("composes fixed team-domain JWKS resolution with exact JWT verification", a
   assert.equal(seen.length, 1);
   assert.equal(seen[0]?.input, CERTS_URL);
   assert.equal(seen[0]?.init.method, "GET");
-  assert.equal(seen[0]?.init.redirect, "error");
+  assert.equal(seen[0]?.init.redirect, "manual");
 });
 
 test("accepts current and previous Access signing keys from one cached JWKS set", async () => {
