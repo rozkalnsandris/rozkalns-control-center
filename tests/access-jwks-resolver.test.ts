@@ -34,7 +34,7 @@ async function rejectsCode(promise: Promise<unknown>, code: CloudflareAccessJwks
   await assert.rejects(promise, (error: unknown) => error instanceof CloudflareAccessJwksError && error.code === code);
 }
 
-test("derives one fixed Access certs endpoint and performs a bounded GET", async () => {
+test("derives one fixed Access certs endpoint and performs a bounded manual-redirect GET", async () => {
   let seenInput = "";
   let seenInit: RequestInit | undefined;
 
@@ -50,7 +50,7 @@ test("derives one fixed Access certs endpoint and performs a bounded GET", async
   assert.equal(resolver.endpoint, ENDPOINT);
   assert.equal(seenInput, ENDPOINT);
   assert.equal(seenInit?.method, "GET");
-  assert.equal(seenInit?.redirect, "error");
+  assert.equal(seenInit?.redirect, "manual");
   assert.equal(new Headers(seenInit?.headers).get("accept"), "application/json");
   assert.ok(seenInit?.signal instanceof AbortSignal);
   assert.equal(key.alg, "RS256");
@@ -212,6 +212,48 @@ test("fails closed on network failure and non-success HTTP responses", async () 
     fetch: async () => new Response("unavailable", { status: 503 }),
   });
   await rejectsCode(badStatus.resolveSigningKey("kid-current"), "ACCESS_JWKS_RESPONSE_INVALID");
+});
+
+test("manual redirect responses fail closed without a second fetch", async () => {
+  for (const status of [301, 302, 307, 308]) {
+    let fetchCount = 0;
+    let seenRedirect: RequestRedirect | undefined;
+
+    const resolver = new CloudflareAccessJwksResolver({
+      issuer: ISSUER,
+      fetch: async (_input, init) => {
+        fetchCount += 1;
+        seenRedirect = init.redirect;
+        return new Response(null, {
+          status,
+          headers: { Location: "https://attacker.example/keys" },
+        });
+      },
+    });
+
+    await rejectsCode(resolver.resolveSigningKey("kid-current"), "ACCESS_JWKS_RESPONSE_INVALID");
+    assert.equal(seenRedirect, "manual");
+    assert.equal(fetchCount, 1);
+  }
+});
+
+test("rejects a redirect response before reading headers or Location", async () => {
+  let headerReads = 0;
+  const redirectResponse = {
+    ok: false,
+    get headers(): never {
+      headerReads += 1;
+      throw new Error("redirect headers must not be inspected");
+    },
+  } as unknown as Response;
+
+  const resolver = new CloudflareAccessJwksResolver({
+    issuer: ISSUER,
+    fetch: async () => redirectResponse,
+  });
+
+  await rejectsCode(resolver.resolveSigningKey("kid-current"), "ACCESS_JWKS_RESPONSE_INVALID");
+  assert.equal(headerReads, 0);
 });
 
 test("rejects oversized or malformed JWKS responses", async () => {
