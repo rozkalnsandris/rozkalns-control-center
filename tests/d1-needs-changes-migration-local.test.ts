@@ -63,11 +63,14 @@ test("0002 migration composes after 0001 and creates only the Needs changes audi
       )
       .all() as Array<{ name: string; type: string }>;
 
-    assert.deepEqual(objects, [
-      { name: "idx_needs_changes_decisions_repository_pull_requested_at", type: "index" },
-      { name: "idx_needs_changes_decisions_state_requested_at", type: "index" },
-      { name: "needs_changes_decisions", type: "table" },
-    ]);
+    assert.deepEqual(
+      objects.map(({ name, type }) => [name, type]),
+      [
+        ["idx_needs_changes_decisions_repository_pull_requested_at", "index"],
+        ["idx_needs_changes_decisions_state_requested_at", "index"],
+        ["needs_changes_decisions", "table"],
+      ],
+    );
 
     const columns = database.prepare('PRAGMA table_info("needs_changes_decisions")').all() as Array<{ name: string }>;
     const names = columns.map((column) => column.name);
