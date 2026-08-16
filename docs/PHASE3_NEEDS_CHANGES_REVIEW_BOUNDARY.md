@@ -40,6 +40,19 @@ Two detached components are introduced:
    - in-progress/conflicting/unknown outcomes fail closed;
    - if audit finalization fails after a possible write, the original claim remains in progress so a blind retry cannot duplicate the review.
 
+## Project capability gate
+
+Before any Worker mutation route is composed, `ManagedProjectPolicy` carries an explicit `canRequestChanges` capability.
+
+- every currently managed repository defaults to `canRequestChanges: false`;
+- existing Phase 2 read eligibility remains controlled by `enabled` + `githubReadEnabled` and is unchanged;
+- `resolveNeedsChangesProjectPolicy()` / `requireNeedsChangesProjectPolicy()` are the dedicated future action boundary;
+- a repository is eligible for the future action only when it is already a managed/read-enabled project **and** `canRequestChanges === true`;
+- excluded, unknown, disabled or capability-false repositories fail closed;
+- introducing the capability field does not itself wire the decision executor, mint a credential, expose a route or grant GitHub permission.
+
+Changing any project from `canRequestChanges: false` to `true` is a later reviewed activation step. It must not be bundled implicitly with Worker route wiring, GitHub App permission growth or production deployment.
+
 ## Trust boundaries
 
 This slice deliberately does **not**:
@@ -61,13 +74,15 @@ Live activation must remain separately owner-gated and split into reviewed steps
 
 1. implement a write-capable installation session restricted to one managed repository and exactly `pull_requests:write`;
 2. implement durable D1 idempotency/audit storage for the source-only audit interface;
-3. wire a dedicated mutation route behind cryptographically verified Cloudflare Access;
-4. expose `Needs changes` in live UI only when fresh normalized evidence makes it eligible;
-5. add the exact GitHub App permission only after the implementation exists and is reviewed;
-6. perform fresh read-only production preflight;
-7. obtain separate owner authorization for permission/live activation;
-8. run one bounded canary with an expendable/non-production review target before general availability;
-9. reconcile the resulting GitHub review and audit record; never blind-retry an unknown write outcome.
+3. keep the project-level `canRequestChanges` capability fail-closed until the dedicated action path is reviewed;
+4. wire a dedicated mutation route behind cryptographically verified Cloudflare Access and the explicit project capability check;
+5. expose `Needs changes` in live UI only when fresh normalized evidence makes it eligible;
+6. add the exact GitHub App permission only after the implementation exists and is reviewed;
+7. perform fresh read-only production preflight;
+8. obtain separate owner authorization for permission/live activation;
+9. enable only the explicitly reviewed project capability under its own rollout boundary;
+10. run one bounded canary with an expendable/non-production review target before general availability;
+11. reconcile the resulting GitHub review and audit record; never blind-retry an unknown write outcome.
 
 Merge authorization remains separate from deployment authorization.
 
@@ -77,6 +92,8 @@ Focused tests cover:
 
 - exact method/path/API version/media type/permission/event/body;
 - managed-repository and input bounds;
+- all current managed project capabilities default false while read eligibility remains unchanged;
+- excluded and unknown repositories remain denied for Needs changes;
 - stale PR head;
 - stale default-branch head;
 - incomplete policy evidence;
