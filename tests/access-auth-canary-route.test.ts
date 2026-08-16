@@ -6,6 +6,7 @@ import {
   handleAccessAuthCanaryRequest,
   type AccessRequestAuthenticatorLike,
 } from "../src/worker/access-auth-canary-route.js";
+import { CloudflareAccessAuthenticationError } from "../src/worker/access-request-authenticator.js";
 
 function request(path: string = ACCESS_AUTH_CANARY_ROUTE_PATH, init?: RequestInit): Request {
   return new Request(`https://control.rozkalns.net${path}`, init);
@@ -17,9 +18,9 @@ async function readJson(response: Response): Promise<unknown> {
 
 class StubAuthenticator implements AccessRequestAuthenticatorLike {
   readonly seen: Request[] = [];
-  readonly #result: "success" | "failure";
+  readonly #result: "success" | "failure" | "classified-failure";
 
-  constructor(result: "success" | "failure" = "success") {
+  constructor(result: "success" | "failure" | "classified-failure" = "success") {
     this.#result = result;
   }
 
@@ -27,6 +28,9 @@ class StubAuthenticator implements AccessRequestAuthenticatorLike {
     this.seen.push(value);
     if (this.#result === "failure") {
       throw new Error("secret inner auth detail: kid=do-not-leak");
+    }
+    if (this.#result === "classified-failure") {
+      throw new CloudflareAccessAuthenticationError("ACCESS_JWT_MISSING");
     }
     return {
       subject: "principal-do-not-return",
@@ -84,7 +88,33 @@ test("fails closed when the canary authenticator is not configured", async () =>
   assert.deepEqual(await readJson(response), { error: "ACCESS_AUTH_CANARY_DISABLED" });
 });
 
-test("collapses every authentication failure to one generic 403 without leakage", async () => {
+test("returns one bounded verifier failure class only for typed canary authentication failures", async () => {
+  const authenticator = new StubAuthenticator("classified-failure");
+  const response = await handleAccessAuthCanaryRequest(request(), authenticator);
+
+  assert.equal(response.status, 403);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const body = await response.text();
+  assert.deepEqual(JSON.parse(body), {
+    error: "ACCESS_AUTHENTICATION_FAILED",
+    diagnostic: "ACCESS_JWT_MISSING",
+  });
+
+  for (const forbidden of [
+    "kid=do-not-leak",
+    "jwt-do-not-return",
+    "token-do-not-return",
+    "subject",
+    "email",
+    "principal-do-not-return",
+    "private@example.test",
+  ]) {
+    assert.equal(body.toLowerCase().includes(forbidden.toLowerCase()), false);
+  }
+  assert.equal(authenticator.seen.length, 1);
+});
+
+test("keeps untyped authentication failures generic and leak-free", async () => {
   const authenticator = new StubAuthenticator("failure");
   const response = await handleAccessAuthCanaryRequest(request(), authenticator);
 
@@ -93,7 +123,7 @@ test("collapses every authentication failure to one generic 403 without leakage"
   const body = await response.text();
   assert.deepEqual(JSON.parse(body), { error: "ACCESS_AUTHENTICATION_FAILED" });
 
-  for (const forbidden of ["secret inner auth detail", "kid=do-not-leak", "jwt", "subject", "email"]) {
+  for (const forbidden of ["secret inner auth detail", "kid=do-not-leak", "jwt", "subject", "email", "diagnostic"]) {
     assert.equal(body.includes(forbidden), false);
   }
   assert.equal(authenticator.seen.length, 1);

@@ -3,19 +3,26 @@ import {
   type CloudflareAccessJwksFetch,
 } from "../integrations/cloudflare/access-jwks-resolver.js";
 import {
+  CloudflareAccessJwtError,
   CloudflareAccessJwtVerifier,
+  type CloudflareAccessJwtErrorCode,
   type CloudflareAccessPrincipal,
 } from "../integrations/cloudflare/access-jwt-verifier.js";
 
 export type CloudflareAccessAuthenticationErrorCode = "ACCESS_AUTHENTICATION_FAILED";
+export type CloudflareAccessAuthenticationFailureReason =
+  | CloudflareAccessJwtErrorCode
+  | "ACCESS_AUTHENTICATION_INTERNAL";
 
 export class CloudflareAccessAuthenticationError extends Error {
   readonly code: CloudflareAccessAuthenticationErrorCode;
+  readonly reason: CloudflareAccessAuthenticationFailureReason;
 
-  constructor() {
+  constructor(reason: CloudflareAccessAuthenticationFailureReason) {
     super("ACCESS_AUTHENTICATION_FAILED");
     this.name = "CloudflareAccessAuthenticationError";
     this.code = "ACCESS_AUTHENTICATION_FAILED";
+    this.reason = reason;
   }
 }
 
@@ -31,8 +38,10 @@ export interface CloudflareAccessRequestAuthenticatorDependencies {
   readonly clock?: () => Date;
 }
 
-function authenticationFailed(): never {
-  throw new CloudflareAccessAuthenticationError();
+function authenticationFailed(error: unknown): never {
+  const reason: CloudflareAccessAuthenticationFailureReason =
+    error instanceof CloudflareAccessJwtError ? error.code : "ACCESS_AUTHENTICATION_INTERNAL";
+  throw new CloudflareAccessAuthenticationError(reason);
 }
 
 export class CloudflareAccessRequestAuthenticator {
@@ -63,8 +72,8 @@ export class CloudflareAccessRequestAuthenticator {
     try {
       const principal = await this.#verifier.verifyRequest(request, this.#clock());
       return { subject: principal.subject, email: principal.email };
-    } catch {
-      authenticationFailed();
+    } catch (error) {
+      authenticationFailed(error);
     }
   }
 }

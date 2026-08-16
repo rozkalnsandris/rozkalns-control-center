@@ -1,3 +1,5 @@
+import { CloudflareAccessAuthenticationError } from "./access-request-authenticator.js";
+
 export const ACCESS_AUTH_CANARY_ROUTE_PATH = "/api/auth/access-canary" as const;
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
@@ -39,7 +41,16 @@ export async function handleAccessAuthCanaryRequest(
 
   try {
     await authenticator.authenticateRequest(request);
-  } catch {
+  } catch (error) {
+    if (error instanceof CloudflareAccessAuthenticationError) {
+      return jsonResponse(
+        {
+          error: "ACCESS_AUTHENTICATION_FAILED",
+          diagnostic: error.reason,
+        },
+        403,
+      );
+    }
     return routeError("ACCESS_AUTHENTICATION_FAILED", 403);
   }
 
