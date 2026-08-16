@@ -5,6 +5,7 @@ import type { CloudflareAccessJwksFetch } from "../src/integrations/cloudflare/a
 import {
   CloudflareAccessAuthenticationError,
   CloudflareAccessRequestAuthenticator,
+  type CloudflareAccessAuthenticationFailureReason,
 } from "../src/worker/access-request-authenticator.js";
 
 const ISSUER = "https://rozkalns.cloudflareaccess.com";
@@ -100,12 +101,20 @@ function authenticator(fetch: CloudflareAccessJwksFetch): CloudflareAccessReques
   );
 }
 
-async function rejectsAuthentication(promise: Promise<unknown>, secretNeedle?: string): Promise<void> {
+async function rejectsAuthentication(
+  promise: Promise<unknown>,
+  expectedReason: CloudflareAccessAuthenticationFailureReason,
+  secretNeedle?: string,
+): Promise<void> {
   await assert.rejects(promise, (error: unknown) => {
     assert.ok(error instanceof CloudflareAccessAuthenticationError);
     assert.equal(error.code, "ACCESS_AUTHENTICATION_FAILED");
     assert.equal(error.message, "ACCESS_AUTHENTICATION_FAILED");
-    if (secretNeedle) assert.equal(error.message.includes(secretNeedle), false);
+    assert.equal(error.reason, expectedReason);
+    if (secretNeedle) {
+      assert.equal(error.message.includes(secretNeedle), false);
+      assert.equal(error.reason.includes(secretNeedle), false);
+    }
     return true;
   });
 }
@@ -172,34 +181,43 @@ test("refreshes once on a fresh-cache kid miss and accepts a newly rotated key",
   assert.deepEqual(seen.map((entry) => entry.input), [CERTS_URL, CERTS_URL]);
 });
 
-test("collapses missing header, cookie-only and forged signatures to one outer auth failure", async () => {
+test("classifies missing header, cookie-only and forged signatures without exposing token data", async () => {
   const seen: Array<{ input: string; init: RequestInit }> = [];
   const auth = authenticator(
     sequenceFetch([() => jwksResponse([signingJwk(CURRENT_KID, current.publicKey)])], seen),
   );
 
-  await rejectsAuthentication(auth.authenticateRequest(new Request("https://control.rozkalns.net/api/future-action")));
+  await rejectsAuthentication(
+    auth.authenticateRequest(new Request("https://control.rozkalns.net/api/future-action")),
+    "ACCESS_JWT_MISSING",
+  );
   assert.equal(seen.length, 0);
 
   await rejectsAuthentication(
     auth.authenticateRequest(new Request("https://control.rozkalns.net/api/future-action", {
       headers: { Cookie: `CF_Authorization=${makeToken()}` },
     })),
+    "ACCESS_JWT_MISSING",
   );
   assert.equal(seen.length, 0);
 
   const forged = makeToken({ signingKey: attacker.privateKey });
-  await rejectsAuthentication(auth.authenticateRequest(requestWithToken(forged)), forged);
+  await rejectsAuthentication(
+    auth.authenticateRequest(requestWithToken(forged)),
+    "ACCESS_JWT_SIGNATURE_INVALID",
+    forged,
+  );
   assert.equal(seen.length, 1);
 });
 
-test("collapses wrong issuer and audience claims after valid signature verification", async () => {
+test("classifies wrong issuer and audience after valid signature verification", async () => {
   const issuerSeen: Array<{ input: string; init: RequestInit }> = [];
   const issuerAuth = authenticator(
     sequenceFetch([() => jwksResponse([signingJwk(CURRENT_KID, current.publicKey)])], issuerSeen),
   );
   await rejectsAuthentication(
     issuerAuth.authenticateRequest(requestWithToken(makeToken({ claims: claims({ iss: "https://other.cloudflareaccess.com" }) }))),
+    "ACCESS_JWT_ISSUER_INVALID",
   );
 
   const audienceSeen: Array<{ input: string; init: RequestInit }> = [];
@@ -208,18 +226,23 @@ test("collapses wrong issuer and audience claims after valid signature verificat
   );
   await rejectsAuthentication(
     audienceAuth.authenticateRequest(requestWithToken(makeToken({ claims: claims({ aud: ["wrong-audience"] }) }))),
+    "ACCESS_JWT_AUDIENCE_INVALID",
   );
 
   assert.equal(issuerSeen[0]?.input, CERTS_URL);
   assert.equal(audienceSeen[0]?.input, CERTS_URL);
 });
 
-test("collapses JWKS network and unknown-key failures without exposing key details", async () => {
+test("classifies JWKS network and unknown-key failures without exposing key details", async () => {
   const networkSeen: Array<{ input: string; init: RequestInit }> = [];
   const networkAuth = authenticator(
     sequenceFetch([async () => { throw new Error("network secret detail"); }], networkSeen),
   );
-  await rejectsAuthentication(networkAuth.authenticateRequest(requestWithToken(makeToken())), "network secret detail");
+  await rejectsAuthentication(
+    networkAuth.authenticateRequest(requestWithToken(makeToken())),
+    "ACCESS_JWT_KEY_UNAVAILABLE",
+    "network secret detail",
+  );
   assert.equal(networkSeen[0]?.input, CERTS_URL);
 
   const unknownSeen: Array<{ input: string; init: RequestInit }> = [];
@@ -227,6 +250,10 @@ test("collapses JWKS network and unknown-key failures without exposing key detai
     sequenceFetch([() => jwksResponse([signingJwk(CURRENT_KID, current.publicKey)])], unknownSeen),
   );
   const unknownToken = makeToken({ kid: ROTATED_KID, signingKey: rotated.privateKey });
-  await rejectsAuthentication(unknownAuth.authenticateRequest(requestWithToken(unknownToken)), ROTATED_KID);
+  await rejectsAuthentication(
+    unknownAuth.authenticateRequest(requestWithToken(unknownToken)),
+    "ACCESS_JWT_KEY_UNAVAILABLE",
+    ROTATED_KID,
+  );
   assert.equal(unknownSeen.length, 1);
 });
