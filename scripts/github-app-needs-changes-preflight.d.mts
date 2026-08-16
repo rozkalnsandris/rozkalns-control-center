@@ -20,12 +20,13 @@ export class GitHubAppNeedsChangesPreflightError extends Error {
   readonly code: string;
 }
 
-export function createGitHubAppJwt(privateKeyPem: string, nowMs?: number): string;
+export function createGitHubAppJwt(privateKeyPem: string, nowMs?: number, lifetimeSeconds?: number): string;
 
 export interface ObserveGitHubAppStateOptions {
   readonly fetchImpl?: typeof fetch;
   readonly privateKeyPem?: string;
   readonly nowMs?: number;
+  readonly jwtLifetimeSeconds?: number;
 }
 
 export interface ObservedGitHubAppState {
