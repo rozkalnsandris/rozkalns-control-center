@@ -52,6 +52,10 @@ function fail(code) {
   throw new GitHubAppNeedsChangesPreflightError(code);
 }
 
+function failUnexpectedStatus(stage, status) {
+  fail(`UNEXPECTED_STATUS:${stage}:${status}`);
+}
+
 function base64url(value) {
   return Buffer.from(value).toString("base64url");
 }
@@ -133,9 +137,9 @@ function buildHeaders(authorization, hasBody = false) {
   return headers;
 }
 
-async function readJsonResponse(response, expectedStatus) {
+async function readJsonResponse(response, expectedStatus, stage) {
   if (!(response instanceof Response)) fail("TRANSPORT_FAILED");
-  if (response.status !== expectedStatus) fail("UNEXPECTED_STATUS");
+  if (response.status !== expectedStatus) failUnexpectedStatus(stage, response.status);
   const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
   if (mediaType !== "application/json" && !mediaType.endsWith("+json")) fail("MALFORMED_RESPONSE");
   const text = await response.text();
@@ -147,7 +151,7 @@ async function readJsonResponse(response, expectedStatus) {
   }
 }
 
-async function apiRequest(fetchImpl, { method, path, authorization, body, expectedStatus }) {
+async function apiRequest(fetchImpl, { method, path, authorization, body, expectedStatus, stage }) {
   if (typeof fetchImpl !== "function") fail("TRANSPORT_FAILED");
   if (!path.startsWith("/")) fail("INVALID_ENDPOINT");
   const url = new URL(path, PREFLIGHT_CONTRACT.apiOrigin);
@@ -166,7 +170,7 @@ async function apiRequest(fetchImpl, { method, path, authorization, body, expect
   } catch {
     fail("TRANSPORT_FAILED");
   }
-  return readJsonResponse(response, expectedStatus);
+  return readJsonResponse(response, expectedStatus, stage);
 }
 
 async function expectNotInstalled(fetchImpl, repository, jwt) {
@@ -184,7 +188,9 @@ async function expectNotInstalled(fetchImpl, repository, jwt) {
     fail("TRANSPORT_FAILED");
   }
   if (!(response instanceof Response)) fail("TRANSPORT_FAILED");
-  if (response.status !== 404) fail("EXCLUDED_REPOSITORY_INSTALLED");
+  if (response.status === 404) return;
+  if (response.status === 200) fail("EXCLUDED_REPOSITORY_INSTALLED");
+  failUnexpectedStatus("EXCLUDED_REPOSITORY_INSTALLATION", response.status);
 }
 
 function assertApp(app) {
@@ -239,6 +245,7 @@ export async function observeGitHubAppState({ fetchImpl = fetch, privateKeyPem, 
     path: "/app",
     authorization: jwt,
     expectedStatus: 200,
+    stage: "APP",
   });
   assertApp(app);
 
@@ -247,6 +254,7 @@ export async function observeGitHubAppState({ fetchImpl = fetch, privateKeyPem, 
     path: `/app/installations/${PREFLIGHT_CONTRACT.installationId}`,
     authorization: jwt,
     expectedStatus: 200,
+    stage: "INSTALLATION",
   });
   assertInstallation(installation);
 
@@ -256,6 +264,7 @@ export async function observeGitHubAppState({ fetchImpl = fetch, privateKeyPem, 
       path: `/repos/${PREFLIGHT_CONTRACT.owner}/${repository}/installation`,
       authorization: jwt,
       expectedStatus: 200,
+      stage: `REPOSITORY_INSTALLATION:${repository}`,
     });
     assertRepositoryInstallation(repositoryInstallation);
   }
@@ -268,6 +277,7 @@ export async function observeGitHubAppState({ fetchImpl = fetch, privateKeyPem, 
     authorization: jwt,
     body: { permissions: { metadata: "read" } },
     expectedStatus: 201,
+    stage: "TOKEN_MINT",
   });
   const readToken = assertReadOnlyInventoryToken(readTokenResponse);
 
@@ -276,6 +286,7 @@ export async function observeGitHubAppState({ fetchImpl = fetch, privateKeyPem, 
     path: "/installation/repositories?per_page=100&page=1",
     authorization: readToken,
     expectedStatus: 200,
+    stage: "INSTALLATION_REPOSITORIES",
   });
   assertInventory(inventory);
 
@@ -331,6 +342,7 @@ export async function assertExactMainCi(fetchImpl, expectedSha, expectedCiRunId)
     path: `/repos/rozkalnsandris/rozkalns-control-center/actions/runs/${expectedCiRunId}`,
     authorization: "public-read-placeholder",
     expectedStatus: 200,
+    stage: "MAIN_CI",
   });
   const value = record(response);
   exactInteger(value.id, expectedCiRunId, "CI_RUN_DRIFT");
@@ -362,7 +374,7 @@ async function publicCiRequest(expectedSha, expectedCiRunId, fetchImpl = fetch) 
   } catch {
     fail("CI_TRANSPORT_FAILED");
   }
-  const payload = await readJsonResponse(response, 200);
+  const payload = await readJsonResponse(response, 200, "MAIN_CI");
   const value = record(payload);
   exactInteger(value.id, expectedCiRunId, "CI_RUN_DRIFT");
   exactString(value.name, "CI", "CI_RUN_DRIFT");
