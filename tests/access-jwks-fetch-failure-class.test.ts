@@ -84,7 +84,7 @@ test("classifies allow-listed name-only error shapes without realm-sensitive ins
 
 test("never reflects arbitrary names or sensitive runtime fields", async () => {
   const tokenLike = "eyJhbGciOiJSUzI1NiJ9.private.jwt.material";
-  const privateKeyLike = "-----BEGIN PRIVATE KEY-----";
+  const keyMaterialLike = "rsa-key-material-do-not-leak";
   const privateUrl = "https://private.example.test/certs?secret=1";
   const maliciousName = `TypeError\n${"x".repeat(4096)}\u0000${tokenLike}`;
 
@@ -92,13 +92,13 @@ test("never reflects arbitrary names or sensitive runtime fields", async () => {
     {
       name: maliciousName,
       message: tokenLike,
-      stack: privateKeyLike,
+      stack: keyMaterialLike,
       url: privateUrl,
       token: tokenLike,
-      key: privateKeyLike,
+      key: keyMaterialLike,
     },
     "ACCESS_JWKS_FETCH_FAILED",
-    [tokenLike, privateKeyLike, privateUrl],
+    [tokenLike, keyMaterialLike, privateUrl],
   );
 });
 
