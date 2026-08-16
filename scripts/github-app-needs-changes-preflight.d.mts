@@ -43,4 +43,10 @@ export interface ObservedGitHubAppState {
 
 export function observeGitHubAppState(options?: ObserveGitHubAppStateOptions): Promise<ObservedGitHubAppState>;
 export function assertLocalOwnerPreconditions(expectedSha: string): void;
+export function assertExactMainCi(fetchImpl: typeof fetch, expectedSha: string, expectedCiRunId: number): Promise<void>;
+export function readExactMainCiServerTime(
+  fetchImpl: typeof fetch,
+  expectedSha: string,
+  expectedCiRunId: number,
+): Promise<number>;
 export function main(argv?: string[]): Promise<void>;
