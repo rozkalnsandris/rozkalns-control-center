@@ -78,17 +78,21 @@ OBSERVE is local-owner-only and read-only with respect to GitHub/App/repository 
 
 OBSERVE performs:
 
-1. public GET of the exact main CI run;
-2. App-JWT `GET /app`;
-3. App-JWT `GET /app/installations/153121564`;
-4. App-JWT repository-installation GET for every required managed repository;
-5. App-JWT repository-installation GET for `hermes-email-skill`, which must be 404;
-6. one `POST /app/installations/153121564/access_tokens` requesting exactly `{metadata: read}` and no repository narrowing, only to enumerate the installation's complete selected repository set;
-7. metadata-only token `GET /installation/repositories?per_page=100&page=1`;
-8. exact repository-set and permission comparison;
-9. sanitized PASS/FAIL output.
+1. public GET of the exact main CI run and requires that exact run/SHA to be `completed/success`;
+2. reads and validates the GitHub API `Date` header from that same exact-main CI response and uses it as the App-JWT clock source;
+3. creates the App JWT with `iat = GitHub server time - 60s` and a conservative `exp = GitHub server time + 5m` window;
+4. App-JWT `GET /app`;
+5. App-JWT `GET /app/installations/153121564`;
+6. App-JWT repository-installation GET for every required managed repository;
+7. App-JWT repository-installation GET for `hermes-email-skill`, which must be 404;
+8. one `POST /app/installations/153121564/access_tokens` requesting exactly `{metadata: read}` and no repository narrowing, only to enumerate the installation's complete selected repository set;
+9. metadata-only token `GET /installation/repositories?per_page=100&page=1`;
+10. exact repository-set and permission comparison;
+11. sanitized PASS/FAIL output.
 
-Any identity, permission, suspension, selected-repository or CI drift fails closed.
+No extra endpoint is called solely to obtain time. Missing or malformed GitHub `Date` evidence fails closed before the first App-JWT request. This avoids depending on the Lenovo wall clock for live App authentication while preserving the exact-main CI gate.
+
+Any identity, permission, suspension, selected-repository, CI or server-time drift fails closed.
 
 ## Proposed future permission delta
 
@@ -129,6 +133,8 @@ Those steps remain separately reviewed, exact-SHA-bound and owner-authorized. Pe
 - private key, App JWT and installation token never enter GitHub issues, PRs, D1 or logs;
 - raw upstream response bodies and exception text are not emitted on failure;
 - API redirects are not followed;
+- live OBSERVE App-JWT timing is anchored to the validated GitHub server `Date`, not the local Lenovo wall clock;
+- live OBSERVE JWT lifetime is 5 minutes from validated GitHub server time, with `iat` backdated 60 seconds;
 - repository inventory token is metadata-read-only;
 - unknown/drifted permission or repository state fails closed;
 - all six `canRequestChanges` flags stay false in this slice;
