@@ -48,6 +48,7 @@ const worker: ExportedHandler<Env> = {
       return handleAccessAuthCanaryRequest(
         request,
         resolution.status === "READY" ? resolution.authenticator : null,
+        resolution.status === "READY" ? resolution.jwksFetchProbe : null,
       );
     }
 

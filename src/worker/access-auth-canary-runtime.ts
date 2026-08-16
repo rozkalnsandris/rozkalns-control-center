@@ -2,6 +2,7 @@ import {
   CloudflareAccessRequestAuthenticator,
   type CloudflareAccessRequestAuthenticatorDependencies,
 } from "./access-request-authenticator.js";
+import { AccessJwksManualFetchProbe } from "./access-jwks-manual-fetch-probe.js";
 
 export interface AccessAuthCanaryRuntimeBindings {
   readonly CONTROL_ACCESS_AUTH_CANARY_ENABLED?: unknown;
@@ -15,6 +16,7 @@ export type AccessAuthCanaryRuntimeResolution =
   | {
       readonly status: "READY";
       readonly authenticator: CloudflareAccessRequestAuthenticator;
+      readonly jwksFetchProbe: AccessJwksManualFetchProbe;
     };
 
 function readConfiguredString(value: unknown): string | null {
@@ -49,6 +51,10 @@ export function resolveAccessAuthCanaryRuntime(
         { issuer, audience },
         dependencies,
       ),
+      jwksFetchProbe: new AccessJwksManualFetchProbe({
+        issuer,
+        ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+      }),
     };
   } catch {
     return { status: "INVALID_CONFIGURATION", authenticator: null };

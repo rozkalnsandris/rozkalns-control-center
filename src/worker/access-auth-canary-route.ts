@@ -1,3 +1,7 @@
+import type {
+  AccessJwksManualFetchProbeLike,
+  AccessJwksManualFetchProbeResult,
+} from "./access-jwks-manual-fetch-probe.js";
 import { CloudflareAccessAuthenticationError } from "./access-request-authenticator.js";
 
 export const ACCESS_AUTH_CANARY_ROUTE_PATH = "/api/auth/access-canary" as const;
@@ -21,9 +25,20 @@ function routeError(code: string, status: number, extraHeaders?: HeadersInit): R
   return jsonResponse({ error: code }, status, extraHeaders);
 }
 
+async function runBoundedJwksFetchProbe(
+  probe: AccessJwksManualFetchProbeLike,
+): Promise<AccessJwksManualFetchProbeResult> {
+  try {
+    return await probe.probe();
+  } catch {
+    return "JWKS_MANUAL_FETCH_FAILED";
+  }
+}
+
 export async function handleAccessAuthCanaryRequest(
   request: Request,
   authenticator: AccessRequestAuthenticatorLike | null,
+  jwksFetchProbe: AccessJwksManualFetchProbeLike | null = null,
 ): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname !== ACCESS_AUTH_CANARY_ROUTE_PATH) {
@@ -43,6 +58,17 @@ export async function handleAccessAuthCanaryRequest(
     await authenticator.authenticateRequest(request);
   } catch (error) {
     if (error instanceof CloudflareAccessAuthenticationError) {
+      if (error.reason === "ACCESS_JWKS_FETCH_TYPE_ERROR" && jwksFetchProbe) {
+        return jsonResponse(
+          {
+            error: "ACCESS_AUTHENTICATION_FAILED",
+            diagnostic: error.reason,
+            jwksFetchProbe: await runBoundedJwksFetchProbe(jwksFetchProbe),
+          },
+          403,
+        );
+      }
+
       return jsonResponse(
         {
           error: "ACCESS_AUTHENTICATION_FAILED",
