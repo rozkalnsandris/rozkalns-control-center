@@ -233,17 +233,39 @@ test("classifies wrong issuer and audience after valid signature verification", 
   assert.equal(audienceSeen[0]?.input, CERTS_URL);
 });
 
-test("classifies JWKS network and unknown-key failures without exposing key details", async () => {
+test("preserves bounded JWKS failure classes without exposing network, key or response details", async () => {
   const networkSeen: Array<{ input: string; init: RequestInit }> = [];
   const networkAuth = authenticator(
     sequenceFetch([async () => { throw new Error("network secret detail"); }], networkSeen),
   );
   await rejectsAuthentication(
     networkAuth.authenticateRequest(requestWithToken(makeToken())),
-    "ACCESS_JWT_KEY_UNAVAILABLE",
+    "ACCESS_JWKS_FETCH_FAILED",
     "network secret detail",
   );
   assert.equal(networkSeen[0]?.input, CERTS_URL);
+
+  const responseSeen: Array<{ input: string; init: RequestInit }> = [];
+  const responseAuth = authenticator(
+    sequenceFetch([() => new Response("upstream secret detail", { status: 503 })], responseSeen),
+  );
+  await rejectsAuthentication(
+    responseAuth.authenticateRequest(requestWithToken(makeToken())),
+    "ACCESS_JWKS_RESPONSE_INVALID",
+    "upstream secret detail",
+  );
+  assert.equal(responseSeen[0]?.input, CERTS_URL);
+
+  const setSeen: Array<{ input: string; init: RequestInit }> = [];
+  const setAuth = authenticator(
+    sequenceFetch([() => new Response("not-json", { status: 200 })], setSeen),
+  );
+  await rejectsAuthentication(
+    setAuth.authenticateRequest(requestWithToken(makeToken())),
+    "ACCESS_JWKS_SET_INVALID",
+    "not-json",
+  );
+  assert.equal(setSeen[0]?.input, CERTS_URL);
 
   const unknownSeen: Array<{ input: string; init: RequestInit }> = [];
   const unknownAuth = authenticator(
@@ -252,7 +274,7 @@ test("classifies JWKS network and unknown-key failures without exposing key deta
   const unknownToken = makeToken({ kid: ROTATED_KID, signingKey: rotated.privateKey });
   await rejectsAuthentication(
     unknownAuth.authenticateRequest(requestWithToken(unknownToken)),
-    "ACCESS_JWT_KEY_UNAVAILABLE",
+    "ACCESS_JWKS_KEY_NOT_FOUND",
     ROTATED_KID,
   );
   assert.equal(unknownSeen.length, 1);
