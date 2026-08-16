@@ -27,6 +27,12 @@ test("gate cryptographically binds the discovered issuer to the exact parent Acc
   assert.match(gate, /ACCESS_TOKEN_SIGNATURE=VERIFIED_RS256_JWKS/);
 });
 
+test("APPLY parent discovery uses the reviewed exact and wildcard host coverage helper", () => {
+  assert.match(gate, /accessApplicationProtectsHost/);
+  assert.match(gate, /accessApplicationProtectsHost\(app, HOSTNAME\)/);
+  assert.doesNotMatch(gate, /accessApplicationPublicUris\(app\)\.includes\(HOSTNAME\)/);
+});
+
 test("APPLY is limited to one strict Worker deploy with reviewed runtime vars", () => {
   assert.match(gate, /\["deploy", "--strict", "--yes"\]/);
   for (const binding of [
