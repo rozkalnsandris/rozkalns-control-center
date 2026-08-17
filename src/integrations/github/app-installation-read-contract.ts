@@ -17,16 +17,19 @@ export const phase2GitHubReadPermissions = [
 
 export type Phase2GitHubReadPermission = (typeof phase2GitHubReadPermissions)[number];
 
+export const githubInstallationReadPermissions = [...phase2GitHubReadPermissions, "administration"] as const;
+export type GitHubInstallationReadPermission = (typeof githubInstallationReadPermissions)[number];
+
 export interface GitHubInstallationReadScope {
   installationId: number;
   repositories: readonly string[];
-  permissions: Readonly<Partial<Record<Phase2GitHubReadPermission, "read">>>;
+  permissions: Readonly<Partial<Record<GitHubInstallationReadPermission, "read">>>;
 }
 
 export interface GitHubCredentialLeaseEvidence {
   installationId: number;
   repositories: readonly string[];
-  permissions: Readonly<Partial<Record<Phase2GitHubReadPermission, "read">>>;
+  permissions: Readonly<Partial<Record<GitHubInstallationReadPermission, "read">>>;
   issuedAt: string;
   expiresAt: string;
 }
@@ -34,7 +37,7 @@ export interface GitHubCredentialLeaseEvidence {
 export interface GitHubReadRequest {
   repository: string;
   path: string;
-  requiredPermission: Phase2GitHubReadPermission;
+  requiredPermission: GitHubInstallationReadPermission;
   apiVersion: typeof GITHUB_REST_API_VERSION;
 }
 
@@ -54,14 +57,15 @@ export interface GitHubReadResult<T> {
 }
 
 /**
- * The future implementation owns credential minting and HTTP authentication internally.
+ * The implementation owns credential minting and HTTP authentication internally.
  * Domain callers receive only redacted lease evidence and cannot supply headers or methods.
+ * High-privilege read scopes remain opt-in: Phase 2 rollout helpers never add administration.
  */
 export interface GitHubInstallationReadTransport {
   get<T>(scope: GitHubInstallationReadScope, request: GitHubReadRequest, observedAt: string): Promise<GitHubReadResult<T>>;
 }
 
-const allowedPermissionNames = new Set<string>(phase2GitHubReadPermissions);
+const allowedPermissionNames = new Set<string>(githubInstallationReadPermissions);
 const scopeKeys = new Set(["installationId", "repositories", "permissions"]);
 const leaseKeys = new Set(["installationId", "repositories", "permissions", "issuedAt", "expiresAt"]);
 
@@ -104,22 +108,20 @@ function normalizeRepositories(value: unknown): readonly string[] {
   });
 }
 
-function normalizePermissions(
-  value: unknown,
-): Readonly<Partial<Record<Phase2GitHubReadPermission, "read">>> {
+function normalizePermissions(value: unknown): Readonly<Partial<Record<GitHubInstallationReadPermission, "read">>> {
   const record = requireRecord(value, "GitHub installation permission scope");
   const entries = Object.entries(record);
   if (entries.length === 0) throw new Error("GitHub installation permission scope must not be empty");
 
-  const normalized: Partial<Record<Phase2GitHubReadPermission, "read">> = {};
+  const normalized: Partial<Record<GitHubInstallationReadPermission, "read">> = {};
   for (const [name, access] of entries) {
     if (!allowedPermissionNames.has(name)) {
-      throw new Error(`GitHub installation permission is not approved for Phase 2 reads: ${name}`);
+      throw new Error(`GitHub installation permission is not approved for Control reads: ${name}`);
     }
     if (access !== "read") {
       throw new Error(`GitHub installation permission must remain read-only: ${name}`);
     }
-    normalized[name as Phase2GitHubReadPermission] = "read";
+    normalized[name as GitHubInstallationReadPermission] = "read";
   }
   return normalized;
 }
@@ -138,8 +140,8 @@ function sameRepositoryScope(left: readonly string[], right: readonly string[]) 
 }
 
 function samePermissionScope(
-  left: Readonly<Partial<Record<Phase2GitHubReadPermission, "read">>>,
-  right: Readonly<Partial<Record<Phase2GitHubReadPermission, "read">>>,
+  left: Readonly<Partial<Record<GitHubInstallationReadPermission, "read">>>,
+  right: Readonly<Partial<Record<GitHubInstallationReadPermission, "read">>>,
 ) {
   const leftEntries = Object.entries(left).sort(([a], [b]) => a.localeCompare(b));
   const rightEntries = Object.entries(right).sort(([a], [b]) => a.localeCompare(b));
@@ -208,7 +210,7 @@ export function createGitHubReadRequest(
   scope: GitHubInstallationReadScope,
   repository: string,
   path: string,
-  requiredPermission: Phase2GitHubReadPermission,
+  requiredPermission: GitHubInstallationReadPermission,
 ): GitHubReadRequest {
   const policy = requireManagedProjectPolicy(repository);
   if (!scope.repositories.some((candidate) => candidate.toLowerCase() === policy.repository.toLowerCase())) {
