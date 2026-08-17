@@ -29,6 +29,7 @@ type QueryKey = (typeof QUERY_KEYS)[number];
 type GitHubReadFailureCode = GitHubRestReadFailureCode | GitHubGraphqlMergeStateFailureCode;
 type GitHubProjectionFailureCode = "INVALID_REQUEST" | "MALFORMED_RESPONSE";
 type GitHubTransportStage = "token-exchange" | "rest" | "graphql";
+type GitHubUpstreamStage = "rest" | "graphql";
 
 export interface LiveGitHubReconciliationInput {
   readonly bindings: CloudflareGitHubRuntimeBindings;
@@ -75,6 +76,21 @@ function routeError(code: string, status: number, extraHeaders?: HeadersInit): R
 
 function transportStageError(stage: GitHubTransportStage): Response {
   return jsonResponse({ error: "GITHUB_TRANSPORT_FAILED", stage }, 502);
+}
+
+function boundedHttpStatus(value: number | null): number | null {
+  if (value === null || !Number.isSafeInteger(value) || value < 100 || value > 599) return null;
+  return value;
+}
+
+function unexpectedStatusError(stage: GitHubUpstreamStage, status: number | null): Response {
+  const upstreamStatus = boundedHttpStatus(status);
+  return jsonResponse(
+    upstreamStatus === null
+      ? { error: "GITHUB_UNEXPECTED_STATUS", stage }
+      : { error: "GITHUB_UNEXPECTED_STATUS", stage, upstreamStatus },
+    502,
+  );
 }
 
 function exactQueryValue(params: URLSearchParams, key: QueryKey): string {
@@ -204,11 +220,13 @@ function mapFailure(error: unknown): Response {
 
   if (error instanceof GitHubRestReadError) {
     if (error.code === "TRANSPORT_FAILURE") return transportStageError("rest");
+    if (error.code === "UNEXPECTED_STATUS") return unexpectedStatusError("rest", error.status);
     return mapGitHubReadFailure(error.code);
   }
 
   if (error instanceof GitHubGraphqlMergeStateError) {
     if (error.code === "TRANSPORT_FAILURE") return transportStageError("graphql");
+    if (error.code === "UNEXPECTED_STATUS") return unexpectedStatusError("graphql", error.status);
     return mapGitHubReadFailure(error.code);
   }
 
