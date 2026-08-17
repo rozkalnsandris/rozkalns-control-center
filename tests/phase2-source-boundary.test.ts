@@ -219,8 +219,11 @@ test("D1 claim adapter stays source-bound and production config pins the verifie
   assert.doesNotMatch(localWrangler, /"remote": true|"routes"|"route"|"queues"/);
 });
 
-test("GitHub App read contract keeps credentials opaque and transport source-only", async () => {
-  const contract = await source("src/integrations/github/app-installation-read-contract.ts");
+test("GitHub App read contract keeps credentials opaque and Phase 2 scope excludes Administration", async () => {
+  const [contract, rollout] = await Promise.all([
+    source("src/integrations/github/app-installation-read-contract.ts"),
+    source("src/integrations/github/app-read-rollout-plan.ts"),
+  ]);
 
   assert.match(contract, /GITHUB_REST_API_VERSION = "2026-03-10"/);
   assert.match(contract, /GitHubInstallationReadTransport/);
@@ -231,5 +234,12 @@ test("GitHub App read contract keeps credentials opaque and transport source-onl
   assert.doesNotMatch(contract, /token\.length|token\.startsWith/);
   assert.doesNotMatch(contract, /Authorization|Bearer/);
   assert.doesNotMatch(contract, /api\.github\.com|fetch\(/);
-  assert.doesNotMatch(contract, /"administration"/);
+
+  const phase2Start = contract.indexOf("export const phase2GitHubReadPermissions = [");
+  const phase2End = contract.indexOf("] as const;", phase2Start);
+  assert.ok(phase2Start >= 0);
+  assert.ok(phase2End > phase2Start);
+  assert.doesNotMatch(contract.slice(phase2Start, phase2End), /"administration"/);
+  assert.match(contract, /githubInstallationReadPermissions = \[\.\.\.phase2GitHubReadPermissions, "administration"\]/);
+  assert.doesNotMatch(rollout, /"administration"|"write"/);
 });
