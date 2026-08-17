@@ -43,52 +43,41 @@ test("normalizes a selected managed-repository read-only scope", () => {
 
 test("rejects unmanaged and explicitly excluded repository scopes", () => {
   assert.throws(
-    () =>
-      parseGitHubInstallationReadScope({
-        ...validScopeInput,
-        repositories: ["rozkalnsandris/not-managed"],
-      }),
+    () => parseGitHubInstallationReadScope({ ...validScopeInput, repositories: ["rozkalnsandris/not-managed"] }),
     /not enabled for Rozkalns Control reads/,
   );
-
   assert.throws(
-    () =>
-      parseGitHubInstallationReadScope({
-        ...validScopeInput,
-        repositories: ["rozkalnsandris/hermes-email-skill"],
-      }),
+    () => parseGitHubInstallationReadScope({ ...validScopeInput, repositories: ["rozkalnsandris/hermes-email-skill"] }),
     /not enabled for Rozkalns Control reads/,
   );
 });
 
 test("rejects duplicate repository scope case-insensitively", () => {
   assert.throws(
-    () =>
-      parseGitHubInstallationReadScope({
-        ...validScopeInput,
-        repositories: ["rozkalnsandris/hermes-tech", "RozkalnsAndris/HERMES-TECH"],
-      }),
+    () => parseGitHubInstallationReadScope({
+      ...validScopeInput,
+      repositories: ["rozkalnsandris/hermes-tech", "RozkalnsAndris/HERMES-TECH"],
+    }),
     /Duplicate GitHub installation repository scope/,
   );
 });
 
-test("rejects write access and unapproved high-privilege permissions", () => {
+test("keeps Administration read explicit while rejecting writes and unsupported permissions", () => {
   assert.throws(
-    () =>
-      parseGitHubInstallationReadScope({
-        ...validScopeInput,
-        permissions: { pull_requests: "write" },
-      }),
+    () => parseGitHubInstallationReadScope({ ...validScopeInput, permissions: { pull_requests: "write" } }),
     /must remain read-only/,
   );
 
+  const administration = parseGitHubInstallationReadScope({
+    installationId: 123,
+    repositories: ["rozkalnsandris/hermes-tech"],
+    permissions: { administration: "read" },
+  });
+  assert.deepEqual(administration.permissions, { administration: "read" });
+
   assert.throws(
-    () =>
-      parseGitHubInstallationReadScope({
-        ...validScopeInput,
-        permissions: { administration: "read" },
-      }),
-    /not approved for Phase 2 reads/,
+    () => parseGitHubInstallationReadScope({ ...validScopeInput, permissions: { members: "read" } }),
+    /not approved for Control reads/,
   );
 });
 
@@ -114,11 +103,7 @@ test("credential lease evidence is secret-free and bounded to a short lifetime",
     /unsupported field: token/,
   );
   assert.throws(
-    () =>
-      parseGitHubCredentialLeaseEvidence({
-        ...validLeaseInput(),
-        expiresAt: "2026-08-11T09:00:00.000Z",
-      }),
+    () => parseGitHubCredentialLeaseEvidence({ ...validLeaseInput(), expiresAt: "2026-08-11T09:00:00.000Z" }),
     /lifetime exceeds/,
   );
 });
@@ -157,33 +142,30 @@ test("read request is repository-bound, permission-bound and versioned", () => {
   assert.equal(request.repository, "rozkalnsandris/hermes-tech");
 
   assert.throws(
-    () =>
-      createGitHubReadRequest(
-        scope,
-        "rozkalnsandris/hermes-tech",
-        "/repos/rozkalnsandris/hermes-deals/pulls/42",
-        "pull_requests",
-      ),
+    () => createGitHubReadRequest(
+      scope,
+      "rozkalnsandris/hermes-tech",
+      "/repos/rozkalnsandris/hermes-deals/pulls/42",
+      "pull_requests",
+    ),
     /path repository does not match/,
   );
   assert.throws(
-    () =>
-      createGitHubReadRequest(
-        scope,
-        "rozkalnsandris/hermes-tech",
-        "/repos/rozkalnsandris/hermes-tech/actions/runs",
-        "actions",
-      ),
+    () => createGitHubReadRequest(
+      scope,
+      "rozkalnsandris/hermes-tech",
+      "/repos/rozkalnsandris/hermes-tech/actions/runs",
+      "actions",
+    ),
     /permission is outside/,
   );
   assert.throws(
-    () =>
-      createGitHubReadRequest(
-        scope,
-        "rozkalnsandris/hermes-tech",
-        "https://api.example.invalid/repos/rozkalnsandris/hermes-tech",
-        "metadata",
-      ),
+    () => createGitHubReadRequest(
+      scope,
+      "rozkalnsandris/hermes-tech",
+      "https://api.example.invalid/repos/rozkalnsandris/hermes-tech",
+      "metadata",
+    ),
     /relative REST path/,
   );
 });

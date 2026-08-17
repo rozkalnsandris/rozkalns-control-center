@@ -1,6 +1,7 @@
 import { sign as signRsaSha256 } from "node:crypto";
 
 import type { BranchPolicyEvidenceReader } from "../../shared/authoritative-reconciliation.js";
+import { combineBranchPolicyObservations } from "../../shared/github-policy-evidence.js";
 import {
   parseGitHubInstallationReadScope,
   type GitHubInstallationReadScope,
@@ -20,6 +21,10 @@ import {
   createGitHubAuthoritativeReadProvider,
   type GitHubAuthoritativeReadProvider,
 } from "./authoritative-read-provider.js";
+import {
+  createGitHubClassicBranchProtectionReader,
+  type GitHubClassicBranchProtectionReader,
+} from "./classic-branch-protection-reader.js";
 import {
   createGitHubCredentialDiagnosticGraphqlTransport,
   createGitHubCredentialDiagnosticRestTransport,
@@ -66,10 +71,16 @@ export interface CloudflareGitHubRepositoryReadContext {
   readonly branchPolicyReader: BranchPolicyEvidenceReader;
 }
 
+export interface CloudflareGitHubNeedsChangesReadContext extends CloudflareGitHubRepositoryReadContext {
+  readonly classicScope: GitHubInstallationReadScope;
+  readonly classicBranchProtectionReader: GitHubClassicBranchProtectionReader;
+}
+
 export interface CloudflareGitHubReadRuntime {
   readonly clientId: string;
   readonly installationId: number;
   createRepositoryReadContext(repository: string, observedAt: string): CloudflareGitHubRepositoryReadContext;
+  createRepositoryNeedsChangesReadContext(repository: string, observedAt: string): CloudflareGitHubNeedsChangesReadContext;
 }
 
 export interface CloudflareGitHubReadRuntimeOptions {
@@ -190,46 +201,98 @@ export function createCloudflareGitHubReadRuntime(
 
   const approvedRolloutScope = buildPhase2GitHubReadScopeForStage(installationId, "actions");
 
+  function baseContext(repositoryInput: string, observedAtInput: string): {
+    repository: string;
+    observedAt: string;
+    scope: GitHubInstallationReadScope;
+    provider: GitHubAuthoritativeReadProvider;
+    activeBranchRulesReader: GitHubActiveBranchRulesReader;
+  } {
+    const repository = selectedRepository(approvedRolloutScope, repositoryInput);
+    const observedAt = observedAtValue(observedAtInput);
+    const scope = parseGitHubInstallationReadScope({
+      installationId,
+      repositories: [repository],
+      permissions: approvedRolloutScope.permissions,
+    });
+    const provider = createGitHubAuthoritativeReadProvider({
+      scope,
+      observedAt,
+      restTransport,
+      graphqlMergeStateTransport,
+    });
+    const activeBranchRulesReader = createGitHubActiveBranchRulesReader({
+      scope,
+      observedAt,
+      restTransport,
+    });
+    return { repository, observedAt, scope, provider, activeBranchRulesReader };
+  }
+
+  function assertContext(repositoryInput: string, repository: string, observedAtInput: string, observedAt: string): void {
+    if (repositoryInput.toLowerCase() !== repository.toLowerCase() || observedAtInput !== observedAt) {
+      throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
+    }
+  }
+
   return {
     clientId,
     installationId,
 
     createRepositoryReadContext(repositoryInput: string, observedAtInput: string): CloudflareGitHubRepositoryReadContext {
-      const repository = selectedRepository(approvedRolloutScope, repositoryInput);
-      const observedAt = observedAtValue(observedAtInput);
-      const scope = parseGitHubInstallationReadScope({
-        installationId,
-        repositories: [repository],
-        permissions: approvedRolloutScope.permissions,
-      });
-
-      const provider = createGitHubAuthoritativeReadProvider({
-        scope,
-        observedAt,
-        restTransport,
-        graphqlMergeStateTransport,
-      });
-      const activeBranchRulesReader = createGitHubActiveBranchRulesReader({
-        scope,
-        observedAt,
-        restTransport,
-      });
+      const base = baseContext(repositoryInput, observedAtInput);
       const branchPolicyReader: BranchPolicyEvidenceReader = {
         async readBranchPolicyEvidence(repositoryInputInner, branch, observedAtInner) {
-          if (
-            repositoryInputInner.toLowerCase() !== repository.toLowerCase() ||
-            observedAtInner !== observedAt
-          ) {
-            throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
-          }
-          return activeBranchRulesReader.readPartialBranchPolicyEvidence(repository, branch);
+          assertContext(repositoryInputInner, base.repository, observedAtInner, base.observedAt);
+          return base.activeBranchRulesReader.readPartialBranchPolicyEvidence(base.repository, branch);
         },
       };
 
       return {
-        scope,
-        provider,
-        activeBranchRulesReader,
+        scope: base.scope,
+        provider: base.provider,
+        activeBranchRulesReader: base.activeBranchRulesReader,
+        branchPolicyReader,
+      };
+    },
+
+    createRepositoryNeedsChangesReadContext(
+      repositoryInput: string,
+      observedAtInput: string,
+    ): CloudflareGitHubNeedsChangesReadContext {
+      const base = baseContext(repositoryInput, observedAtInput);
+      const classicScope = parseGitHubInstallationReadScope({
+        installationId,
+        repositories: [base.repository],
+        permissions: { administration: "read" },
+      });
+      const classicBranchProtectionReader = createGitHubClassicBranchProtectionReader({
+        scope: classicScope,
+        observedAt: base.observedAt,
+        restTransport,
+      });
+      const branchPolicyReader: BranchPolicyEvidenceReader = {
+        async readBranchPolicyEvidence(repositoryInputInner, branch, observedAtInner) {
+          assertContext(repositoryInputInner, base.repository, observedAtInner, base.observedAt);
+          const [active, classic] = await Promise.all([
+            base.activeBranchRulesReader.readActiveBranchRules(base.repository, branch),
+            classicBranchProtectionReader.readClassicBranchProtection(base.repository, branch),
+          ]);
+          return combineBranchPolicyObservations(
+            [active, classic],
+            base.repository,
+            branch,
+            base.observedAt,
+          );
+        },
+      };
+
+      return {
+        scope: base.scope,
+        classicScope,
+        provider: base.provider,
+        activeBranchRulesReader: base.activeBranchRulesReader,
+        classicBranchProtectionReader,
         branchPolicyReader,
       };
     },
