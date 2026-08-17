@@ -119,7 +119,7 @@ export function createCloudflareNeedsChangesRuntime(
     async executeDecision(request: NeedsChangesDecisionRequest): Promise<NeedsChangesDecisionResult> {
       const project = requireNeedsChangesProjectPolicy(request.repository);
       const observedAt = normalizedNow(clock);
-      const context = readRuntime.createRepositoryReadContext(project.repository, observedAt);
+      const context = readRuntime.createRepositoryNeedsChangesReadContext(project.repository, observedAt);
 
       return executeNeedsChangesDecision(
         {
