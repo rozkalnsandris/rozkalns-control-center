@@ -30,7 +30,10 @@ function transportFor(
   calls: GitHubReadRequest[],
 ): GitHubInstallationReadTransport {
   return {
-    async get<T>(_scope, request): Promise<GitHubReadResult<T>> {
+    async get<T>(
+      _scope: GitHubInstallationReadScope,
+      request: GitHubReadRequest,
+    ): Promise<GitHubReadResult<T>> {
       calls.push(request);
       return {
         pages: [payload as T],
