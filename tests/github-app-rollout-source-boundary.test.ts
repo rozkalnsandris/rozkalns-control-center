@@ -31,9 +31,20 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
     GITHUB_APP_INSTALLATION_ID: "153121564",
     CONTROL_LIVE_READ_ENABLED: "true",
     CONTROL_WEBHOOK_RUNTIME_ENABLED: "true",
+    CONTROL_NEEDS_CHANGES_ACCESS_ISSUER: "https://super-salad-2357.cloudflareaccess.com",
+    CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE:
+      "c69850b0fcfeef951512b81941aec53e4e406c16e11d396ab0abe25f35728c75",
   });
   assert.equal(config.vars?.CONTROL_LIVE_READ_ENABLED, "true");
   assert.equal(config.vars?.CONTROL_WEBHOOK_RUNTIME_ENABLED, "true");
+  assert.equal(
+    config.vars?.CONTROL_NEEDS_CHANGES_ACCESS_ISSUER,
+    "https://super-salad-2357.cloudflareaccess.com",
+  );
+  assert.equal(
+    config.vars?.CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE,
+    "c69850b0fcfeef951512b81941aec53e4e406c16e11d396ab0abe25f35728c75",
+  );
   assert.deepEqual(config.secrets?.required, ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]);
   assert.doesNotMatch(wrangler, /-----BEGIN|ghs_|test-webhook-secret/i);
 

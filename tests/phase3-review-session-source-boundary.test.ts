@@ -7,7 +7,7 @@ async function source(path: string): Promise<string> {
   return readFile(resolve(process.cwd(), path), "utf8");
 }
 
-test("Phase 3 review write session remains detached from Worker, UI and production configuration", async () => {
+test("Phase 3 review write session is exposed only behind the capability-off Needs changes Worker boundary", async () => {
   const [
     sessionSource,
     workerIndex,
@@ -17,6 +17,7 @@ test("Phase 3 review write session remains detached from Worker, UI and producti
     wranglerSource,
     readSessionSource,
     readContractSource,
+    projectPolicySource,
   ] = await Promise.all([
     source("src/integrations/github/app-installation-review-session.ts"),
     source("src/worker/index.ts"),
@@ -26,6 +27,7 @@ test("Phase 3 review write session remains detached from Worker, UI and producti
     source("wrangler.jsonc"),
     source("src/integrations/github/app-installation-session.ts"),
     source("src/integrations/github/app-installation-read-contract.ts"),
+    source("src/shared/project-policy.ts"),
   ]);
 
   assert.match(sessionSource, /permissions:\s*\{\s*pull_requests:\s*"write"\s*\}/);
@@ -42,9 +44,11 @@ test("Phase 3 review write session remains detached from Worker, UI and producti
     assert.doesNotMatch(runtimeSource, /pull_requests\s*[:=]\s*["']write["']/);
   }
 
-  assert.doesNotMatch(workerIndex, /needs-changes/i);
-  assert.doesNotMatch(workerIndex, /request-changes/i);
+  assert.match(workerIndex, /GITHUB_NEEDS_CHANGES_ROUTE_PATH/);
+  assert.match(workerIndex, /handleGitHubNeedsChangesRequest/);
   assert.doesNotMatch(appSource, /\/api\/.*needs-changes/i);
+  assert.equal((projectPolicySource.match(/canRequestChanges: true/g) ?? []).length, 0);
+  assert.equal((projectPolicySource.match(/canRequestChanges: false/g) ?? []).length, 6);
 
   assert.match(readSessionSource, /parseGitHubInstallationReadScope/);
   assert.doesNotMatch(readSessionSource, /app-installation-review-session/);

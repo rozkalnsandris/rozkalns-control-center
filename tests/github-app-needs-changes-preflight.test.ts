@@ -353,18 +353,19 @@ test("PLAN is credential-free, sanitized and does not imply activation", () => {
   assert.equal(output.includes(secret), false);
 });
 
-test("source boundary keeps Needs changes production route/config/capabilities inactive", async () => {
+test("source boundary wires the Needs changes route while every project capability remains inactive", async () => {
   const [workerIndex, wrangler, projectPolicy] = await Promise.all([
     readFile(path.join(process.cwd(), "src/worker/index.ts"), "utf8"),
     readFile(path.join(process.cwd(), "wrangler.jsonc"), "utf8"),
     readFile(path.join(process.cwd(), "src/shared/project-policy.ts"), "utf8"),
   ]);
 
-  assert.equal(workerIndex.includes("github-needs-changes-route"), false);
-  assert.equal(workerIndex.includes("GITHUB_NEEDS_CHANGES_ROUTE_PATH"), false);
-  assert.equal(wrangler.includes("CONTROL_NEEDS_CHANGES"), false);
-  assert.equal(wrangler.includes("CONTROL_ACCESS_ISSUER"), false);
-  assert.equal(wrangler.includes("CONTROL_ACCESS_AUDIENCE"), false);
+  assert.equal(workerIndex.includes("github-needs-changes-route"), true);
+  assert.equal(workerIndex.includes("GITHUB_NEEDS_CHANGES_ROUTE_PATH"), true);
+  assert.equal(wrangler.includes("CONTROL_NEEDS_CHANGES_ACCESS_ISSUER"), true);
+  assert.equal(wrangler.includes("CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE"), true);
+  assert.equal(wrangler.includes("\"CONTROL_ACCESS_ISSUER\""), false);
+  assert.equal(wrangler.includes("\"CONTROL_ACCESS_AUDIENCE\""), false);
   assert.equal((projectPolicy.match(/canRequestChanges: true/g) ?? []).length, 0);
   assert.equal((projectPolicy.match(/canRequestChanges: false/g) ?? []).length, 6);
 });

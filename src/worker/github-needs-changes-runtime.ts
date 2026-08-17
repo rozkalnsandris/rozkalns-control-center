@@ -32,6 +32,11 @@ export interface CloudflareNeedsChangesRuntimeBindings extends CloudflareGitHubR
   readonly CONTROL_DB: D1DatabaseLike;
 }
 
+export interface CloudflareNeedsChangesProductionBindings extends CloudflareNeedsChangesRuntimeBindings {
+  readonly CONTROL_NEEDS_CHANGES_ACCESS_ISSUER: string;
+  readonly CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE: string;
+}
+
 export interface CloudflareNeedsChangesRuntimeOptions {
   readonly bindings: CloudflareNeedsChangesRuntimeBindings;
   readonly access: CloudflareAccessRequestAuthenticatorConfig;
@@ -46,6 +51,40 @@ function normalizedNow(clock: () => Date): string {
     throw new Error("Needs changes runtime clock is invalid");
   }
   return value.toISOString();
+}
+
+function nonEmptyAccessBinding(value: unknown): string | null {
+  if (
+    typeof value !== "string" ||
+    value.trim() === "" ||
+    value !== value.trim() ||
+    /[\r\n]/.test(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function accessIssuerBinding(value: unknown): string | null {
+  const raw = nonEmptyAccessBinding(value);
+  if (raw === null) return null;
+
+  try {
+    const url = new URL(raw);
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== "" ||
+      url.pathname !== "/"
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
 }
 
 export function createCloudflareNeedsChangesRuntime(
@@ -97,4 +136,21 @@ export function createCloudflareNeedsChangesRuntime(
       );
     },
   };
+}
+
+export function resolveCloudflareNeedsChangesRuntime(
+  bindings: CloudflareNeedsChangesProductionBindings,
+): NeedsChangesWorkerRuntime | null {
+  const issuer = accessIssuerBinding(bindings.CONTROL_NEEDS_CHANGES_ACCESS_ISSUER);
+  const audience = nonEmptyAccessBinding(bindings.CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE);
+  if (issuer === null || audience === null) return null;
+
+  try {
+    return createCloudflareNeedsChangesRuntime({
+      bindings,
+      access: { issuer, audience },
+    });
+  } catch {
+    return null;
+  }
 }
