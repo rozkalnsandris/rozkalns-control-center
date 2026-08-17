@@ -106,7 +106,7 @@ test("production runtime resolver fails closed on missing or malformed Access id
   assert.equal(state.prepares, 0);
 });
 
-test("production entrypoint wires Needs changes while every managed capability remains off", async () => {
+test("production entrypoint wires Needs changes with exactly one source canary capability", async () => {
   const [indexSource, wranglerSource, policySource] = await Promise.all([
     readFile("src/worker/index.ts", "utf8"),
     readFile("wrangler.jsonc", "utf8"),
@@ -131,7 +131,10 @@ test("production entrypoint wires Needs changes while every managed capability r
   assert.equal(wranglerSource.includes("\"CONTROL_ACCESS_AUDIENCE\""), false);
   assert.equal(wranglerSource.includes("pull_requests"), false);
 
-  const capabilityAssignments = policySource.match(/canRequestChanges:\s*false/g) ?? [];
-  assert.equal(capabilityAssignments.length, 6);
-  assert.equal(policySource.includes("canRequestChanges: true"), false);
+  assert.equal((policySource.match(/canRequestChanges:\s*false/g) ?? []).length, 5);
+  assert.equal((policySource.match(/canRequestChanges:\s*true/g) ?? []).length, 1);
+  assert.match(
+    policySource,
+    /id:\s*"ops-workflows"[\s\S]*?repository:\s*"rozkalnsandris\/ops-workflows"[\s\S]*?canRequestChanges:\s*true[\s\S]*?productionAdapter:\s*"none"/,
+  );
 });

@@ -7,7 +7,7 @@ async function source(path: string): Promise<string> {
   return readFile(resolve(process.cwd(), path), "utf8");
 }
 
-test("Phase 3 review write session is exposed only behind the capability-off Needs changes Worker boundary", async () => {
+test("Phase 3 review write session remains isolated behind the one-repo Needs changes source canary", async () => {
   const [
     sessionSource,
     workerIndex,
@@ -47,8 +47,12 @@ test("Phase 3 review write session is exposed only behind the capability-off Nee
   assert.match(workerIndex, /GITHUB_NEEDS_CHANGES_ROUTE_PATH/);
   assert.match(workerIndex, /handleGitHubNeedsChangesRequest/);
   assert.doesNotMatch(appSource, /\/api\/.*needs-changes/i);
-  assert.equal((projectPolicySource.match(/canRequestChanges: true/g) ?? []).length, 0);
-  assert.equal((projectPolicySource.match(/canRequestChanges: false/g) ?? []).length, 6);
+  assert.equal((projectPolicySource.match(/canRequestChanges:\s*true/g) ?? []).length, 1);
+  assert.equal((projectPolicySource.match(/canRequestChanges:\s*false/g) ?? []).length, 5);
+  assert.match(
+    projectPolicySource,
+    /id:\s*"ops-workflows"[\s\S]*?repository:\s*"rozkalnsandris\/ops-workflows"[\s\S]*?canRequestChanges:\s*true[\s\S]*?productionAdapter:\s*"none"/,
+  );
 
   assert.match(readSessionSource, /parseGitHubInstallationReadScope/);
   assert.doesNotMatch(readSessionSource, /app-installation-review-session/);

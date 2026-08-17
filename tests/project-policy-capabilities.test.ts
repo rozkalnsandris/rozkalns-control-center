@@ -11,18 +11,32 @@ import {
   resolveNeedsChangesProjectPolicy,
 } from "../src/shared/project-policy.js";
 
-test("all managed projects remain read-enabled while Needs changes defaults false", () => {
+const CANARY_REPOSITORY = "rozkalnsandris/ops-workflows";
+
+test("exactly one managed project enables the Needs changes canary", () => {
   assert.equal(managedProjectPolicies.length, 6);
+
+  const enabled = managedProjectPolicies.filter((policy) => policy.canRequestChanges);
+  assert.deepEqual(enabled.map((policy) => policy.repository), [CANARY_REPOSITORY]);
+  assert.equal(enabled[0]?.id, "ops-workflows");
+  assert.equal(enabled[0]?.productionAdapter, "none");
 
   for (const policy of managedProjectPolicies) {
     assert.equal(policy.enabled, true);
     assert.equal(policy.githubReadEnabled, true);
-    assert.equal(policy.canRequestChanges, false);
-
     assert.equal(resolveManagedProjectPolicy(policy.repository)?.id, policy.id);
     assert.equal(resolveManagedProjectPolicy(policy.repository.toUpperCase())?.id, policy.id);
     assert.equal(requireManagedProjectPolicy(policy.repository).id, policy.id);
 
+    if (policy.repository === CANARY_REPOSITORY) {
+      assert.equal(policy.canRequestChanges, true);
+      assert.equal(resolveNeedsChangesProjectPolicy(policy.repository)?.id, policy.id);
+      assert.equal(resolveNeedsChangesProjectPolicy(policy.repository.toUpperCase())?.id, policy.id);
+      assert.equal(requireNeedsChangesProjectPolicy(policy.repository).id, policy.id);
+      continue;
+    }
+
+    assert.equal(policy.canRequestChanges, false);
     assert.equal(resolveNeedsChangesProjectPolicy(policy.repository), null);
     assert.throws(
       () => requireNeedsChangesProjectPolicy(policy.repository),
