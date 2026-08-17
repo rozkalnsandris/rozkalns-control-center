@@ -53,7 +53,7 @@ export const managedProjectPolicies = [
     repository: "rozkalnsandris/ops-workflows",
     enabled: true,
     githubReadEnabled: true,
-    canRequestChanges: false,
+    canRequestChanges: true,
     productionAdapter: "none",
   },
   {
