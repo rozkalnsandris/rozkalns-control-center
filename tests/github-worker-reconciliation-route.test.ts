@@ -222,6 +222,9 @@ test("live executor preserves one observation time and explicitly skips commit-s
             branchPolicyReader,
           };
         },
+        createRepositoryNeedsChangesReadContext() {
+          throw new Error("not used by reconciliation route");
+        },
       }),
       reconcile: async (input) => {
         reconcileCalls += 1;
