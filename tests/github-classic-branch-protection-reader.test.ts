@@ -58,6 +58,22 @@ function success<T>(readScope: GitHubInstallationReadScope, payload: T): GitHubR
   };
 }
 
+function scriptedTransport(
+  handler: (
+    readScope: GitHubInstallationReadScope,
+    request: GitHubReadRequest,
+  ) => GitHubReadResult<unknown> | Promise<GitHubReadResult<unknown>>,
+): GitHubInstallationReadTransport {
+  return {
+    async get<T>(
+      readScope: GitHubInstallationReadScope,
+      request: GitHubReadRequest,
+    ): Promise<GitHubReadResult<T>> {
+      return (await handler(readScope, request)) as GitHubReadResult<T>;
+    },
+  };
+}
+
 function readerError(code: GitHubClassicBranchProtectionReaderError["code"]) {
   return (error: unknown) => error instanceof GitHubClassicBranchProtectionReaderError && error.code === code;
 }
@@ -89,12 +105,10 @@ function readerWithTransport(restTransport: GitHubInstallationReadTransport) {
 
 test("reads classic protection through the exact Administration-read endpoint without fallback", async () => {
   const calls: RestCall[] = [];
-  const reader = readerWithTransport({
-    async get<T>(readScope, request): Promise<GitHubReadResult<T>> {
-      calls.push({ scope: readScope, request });
-      return success(readScope, classicPayload() as T);
-    },
-  });
+  const reader = readerWithTransport(scriptedTransport((readScope, request) => {
+    calls.push({ scope: readScope, request });
+    return success(readScope, classicPayload());
+  }));
 
   const observation = await reader.readClassicBranchProtection(repository, "main");
 
@@ -119,12 +133,10 @@ test("requires exact Administration and bounded Contents fallback scopes before 
     permissions: { contents: "read", metadata: "read" },
   });
   let calls = 0;
-  const transport: GitHubInstallationReadTransport = {
-    async get<T>(): Promise<GitHubReadResult<T>> {
-      calls += 1;
-      throw new Error("must not run");
-    },
-  };
+  const transport = scriptedTransport(() => {
+    calls += 1;
+    throw new Error("must not run");
+  });
 
   assert.throws(
     () => createGitHubClassicBranchProtectionReader({
@@ -149,19 +161,17 @@ test("requires exact Administration and bounded Contents fallback scopes before 
 
 test("classic 404 alone is insufficient but exact unprotected branch metadata proves absence", async () => {
   const calls: RestCall[] = [];
-  const reader = readerWithTransport({
-    async get<T>(readScope, request): Promise<GitHubReadResult<T>> {
-      calls.push({ scope: readScope, request });
-      if (request.path.endsWith("/protection")) {
-        throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
-      }
-      return success(readScope, {
-        name: "main",
-        protected: false,
-        protection: { enabled: false },
-      } as T);
-    },
-  });
+  const reader = readerWithTransport(scriptedTransport((readScope, request) => {
+    calls.push({ scope: readScope, request });
+    if (request.path.endsWith("/protection")) {
+      throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
+    }
+    return success(readScope, {
+      name: "main",
+      protected: false,
+      protection: { enabled: false },
+    });
+  }));
 
   const observation = await reader.readClassicBranchProtection(repository, "main");
 
@@ -180,14 +190,12 @@ test("classic 404 fallback fails closed when branch is protected or branch ident
     { name: "main", protected: true, protection: { enabled: true } },
     { name: "other", protected: false, protection: { enabled: false } },
   ]) {
-    const reader = readerWithTransport({
-      async get<T>(readScope, request): Promise<GitHubReadResult<T>> {
-        if (request.path.endsWith("/protection")) {
-          throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
-        }
-        return success(readScope, payload as T);
-      },
-    });
+    const reader = readerWithTransport(scriptedTransport((readScope, request) => {
+      if (request.path.endsWith("/protection")) {
+        throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
+      }
+      return success(readScope, payload);
+    }));
     await assert.rejects(
       () => reader.readClassicBranchProtection(repository, "main"),
       payload.name === "main" ? readerError("READ_FAILED") : readerError("MALFORMED_RESPONSE"),
@@ -196,14 +204,12 @@ test("classic 404 fallback fails closed when branch is protected or branch ident
 });
 
 test("classic 404 fallback fails closed for missing or malformed branch metadata", async () => {
-  const missingBranch = readerWithTransport({
-    async get<T>(_readScope, request): Promise<GitHubReadResult<T>> {
-      if (request.path.endsWith("/protection")) {
-        throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
-      }
+  const missingBranch = readerWithTransport(scriptedTransport((_readScope, request) => {
+    if (request.path.endsWith("/protection")) {
       throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
-    },
-  });
+    }
+    throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
+  }));
   await assert.rejects(
     () => missingBranch.readClassicBranchProtection(repository, "main"),
     readerError("READ_FAILED"),
@@ -214,14 +220,12 @@ test("classic 404 fallback fails closed for missing or malformed branch metadata
     { name: "main", protected: "false" },
     { name: "main", protected: false, protection: { enabled: "false" } },
   ]) {
-    const malformedBranch = readerWithTransport({
-      async get<T>(readScope, request): Promise<GitHubReadResult<T>> {
-        if (request.path.endsWith("/protection")) {
-          throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
-        }
-        return success(readScope, payload as T);
-      },
-    });
+    const malformedBranch = readerWithTransport(scriptedTransport((readScope, request) => {
+      if (request.path.endsWith("/protection")) {
+        throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
+      }
+      return success(readScope, payload);
+    }));
     await assert.rejects(
       () => malformedBranch.readClassicBranchProtection(repository, "main"),
       readerError("MALFORMED_RESPONSE"),
@@ -236,12 +240,10 @@ test("non-404 classic failures never enter the absence fallback", async () => {
     new Error("ambiguous failure text"),
   ]) {
     let calls = 0;
-    const reader = readerWithTransport({
-      async get<T>(): Promise<GitHubReadResult<T>> {
-        calls += 1;
-        throw error;
-      },
-    });
+    const reader = readerWithTransport(scriptedTransport(() => {
+      calls += 1;
+      throw error;
+    }));
     await assert.rejects(
       () => reader.readClassicBranchProtection(repository, "main"),
       readerError("READ_FAILED"),
@@ -251,11 +253,9 @@ test("non-404 classic failures never enter the absence fallback", async () => {
 });
 
 test("fails closed for malformed classic protection payloads", async () => {
-  const reader = readerWithTransport({
-    async get<T>(readScope): Promise<GitHubReadResult<T>> {
-      return success(readScope, { required_status_checks: {} } as T);
-    },
-  });
+  const reader = readerWithTransport(scriptedTransport((readScope) =>
+    success(readScope, { required_status_checks: {} }),
+  ));
 
   await assert.rejects(
     () => reader.readClassicBranchProtection(repository, "main"),
