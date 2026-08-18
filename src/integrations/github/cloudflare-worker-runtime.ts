@@ -73,6 +73,7 @@ export interface CloudflareGitHubRepositoryReadContext {
 
 export interface CloudflareGitHubNeedsChangesReadContext extends CloudflareGitHubRepositoryReadContext {
   readonly classicScope: GitHubInstallationReadScope;
+  readonly branchMetadataScope: GitHubInstallationReadScope;
   readonly classicBranchProtectionReader: GitHubClassicBranchProtectionReader;
 }
 
@@ -266,8 +267,14 @@ export function createCloudflareGitHubReadRuntime(
         repositories: [base.repository],
         permissions: { administration: "read" },
       });
+      const branchMetadataScope = parseGitHubInstallationReadScope({
+        installationId,
+        repositories: [base.repository],
+        permissions: { contents: "read" },
+      });
       const classicBranchProtectionReader = createGitHubClassicBranchProtectionReader({
         scope: classicScope,
+        absenceScope: branchMetadataScope,
         observedAt: base.observedAt,
         restTransport,
       });
@@ -278,6 +285,9 @@ export function createCloudflareGitHubReadRuntime(
             base.activeBranchRulesReader.readActiveBranchRules(base.repository, branch),
             classicBranchProtectionReader.readClassicBranchProtection(base.repository, branch),
           ]);
+          if (classic.classicProtectionState === "ABSENT" && active.activeRuleCount !== 0) {
+            throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
+          }
           return combineBranchPolicyObservations(
             [active, classic],
             base.repository,
@@ -290,6 +300,7 @@ export function createCloudflareGitHubReadRuntime(
       return {
         scope: base.scope,
         classicScope,
+        branchMetadataScope,
         provider: base.provider,
         activeBranchRulesReader: base.activeBranchRulesReader,
         classicBranchProtectionReader,
