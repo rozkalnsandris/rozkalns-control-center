@@ -29,6 +29,10 @@ export class GitHubActiveBranchRulesReaderError extends Error {
   }
 }
 
+export interface GitHubActiveBranchRulesObservation extends BranchPolicyObservation {
+  readonly activeRuleCount: number;
+}
+
 export interface GitHubActiveBranchRulesReaderOptions {
   readonly scope: GitHubInstallationReadScope;
   readonly observedAt: string;
@@ -38,7 +42,7 @@ export interface GitHubActiveBranchRulesReaderOptions {
 export interface GitHubActiveBranchRulesReader {
   readonly scope: GitHubInstallationReadScope;
   readonly observedAt: string;
-  readActiveBranchRules(repository: string, branch: string): Promise<BranchPolicyObservation>;
+  readActiveBranchRules(repository: string, branch: string): Promise<GitHubActiveBranchRulesObservation>;
   readPartialBranchPolicyEvidence(repository: string, branch: string): Promise<BranchPolicyEvidence>;
 }
 
@@ -97,7 +101,10 @@ export function createGitHubActiveBranchRulesReader(
   const observedAt = normalizeObservedAt(options.observedAt);
   const restTransport = options.restTransport;
 
-  async function readActiveBranchRules(repositoryInput: string, branchInput: string): Promise<BranchPolicyObservation> {
+  async function readActiveBranchRules(
+    repositoryInput: string,
+    branchInput: string,
+  ): Promise<GitHubActiveBranchRulesObservation> {
     const repository = canonicalRepository(repositoryInput);
     const branch = normalizeBranch(branchInput);
     const encodedBranch = encodeURIComponent(branch);
@@ -118,7 +125,10 @@ export function createGitHubActiveBranchRulesReader(
     const rules = flattenArrayPages(pages);
 
     try {
-      return mapGitHubActiveBranchRules(rules, repository, branch, observedAt);
+      return {
+        ...mapGitHubActiveBranchRules(rules, repository, branch, observedAt),
+        activeRuleCount: rules.length,
+      };
     } catch {
       return malformed();
     }
