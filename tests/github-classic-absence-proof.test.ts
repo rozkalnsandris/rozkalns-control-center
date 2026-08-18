@@ -23,7 +23,7 @@ function metadataScope(): GitHubInstallationReadScope {
 
 function transport(payload: unknown): GitHubInstallationReadTransport {
   return {
-    async get<T>(scope): Promise<GitHubReadResult<T>> {
+    async get<T>(scope: GitHubInstallationReadScope): Promise<GitHubReadResult<T>> {
       return {
         pages: [[payload] as T],
         credentialLease: {
