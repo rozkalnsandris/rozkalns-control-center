@@ -7,6 +7,10 @@ import type { QueueMessageBatchLike } from "../integrations/cloudflare/reconcili
 import { buildHealthPayload } from "../shared/health";
 import { handleGitHubDashboardRequest } from "./github-dashboard-route";
 import {
+  GITHUB_NEEDS_CHANGES_PREFLIGHT_ROUTE_PATH,
+  handleGitHubNeedsChangesPreflightRequest,
+} from "./github-needs-changes-preflight-route";
+import {
   GITHUB_NEEDS_CHANGES_ROUTE_PATH,
   handleGitHubNeedsChangesRequest,
 } from "./github-needs-changes-route";
@@ -63,6 +67,17 @@ const worker: ExportedHandler<Env> = {
         );
       }
       return handleGitHubReconciliationRequest(request, env, new Date().toISOString());
+    }
+
+    if (url.pathname === GITHUB_NEEDS_CHANGES_PREFLIGHT_ROUTE_PATH) {
+      const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true";
+      if (!liveReadEnabled) {
+        return Response.json(
+          { error: "LIVE_READ_DISABLED" },
+          { status: 503, headers: NO_STORE_HEADERS },
+        );
+      }
+      return handleGitHubNeedsChangesPreflightRequest(request, env, new Date().toISOString());
     }
 
     if (url.pathname === GITHUB_NEEDS_CHANGES_ROUTE_PATH) {
