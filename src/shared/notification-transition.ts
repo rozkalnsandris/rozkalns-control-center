@@ -32,12 +32,15 @@ const FNV64_OFFSET = 0xcbf29ce484222325n;
 const FNV64_PRIME = 0x100000001b3n;
 const FNV64_MASK = 0xffffffffffffffffn;
 
-export function sanitizeNotificationText(value: string | null | undefined, maxLength: number): string {
-  const normalized = (value ?? "")
-    .replace(/[\u0000-\u001f\u007f]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function replaceControlCharacters(value: string): string {
+  return Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || codePoint === 0x7f ? " " : character;
+  }).join("");
+}
 
+export function sanitizeNotificationText(value: string | null | undefined, maxLength: number): string {
+  const normalized = replaceControlCharacters(value ?? "").replace(/\s+/g, " ").trim();
   return Array.from(normalized).slice(0, maxLength).join("");
 }
 
