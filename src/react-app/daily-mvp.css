@@ -88,8 +88,14 @@
 }
 
 #needs-andris,
-#ci-failed {
+#ci-failed,
+.decision-card {
   scroll-margin-top: 16px;
+}
+
+.decision-card:target {
+  outline: 2px solid #6675ee;
+  outline-offset: 3px;
 }
 
 @media (max-width: 430px) {
