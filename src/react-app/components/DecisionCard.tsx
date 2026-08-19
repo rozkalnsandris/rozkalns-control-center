@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+
+import { decisionDeepLinkHash, decisionTargetId } from "../../shared/decision-deep-link";
 import type { DecisionReadModel, MockAction, ProjectReadModel } from "../../shared/control-model";
 import { StatusPill } from "./StatusPill";
 
@@ -66,16 +69,36 @@ function referenceLabel(item: DecisionReadModel) {
 }
 
 export function DecisionCard({ item, project, onMockAction }: DecisionCardProps) {
-  const titleId = `${item.id}-title`;
-  const reasonId = `${item.id}-reason`;
+  const targetId = decisionTargetId(item.id);
+  const titleId = `${targetId}-title`;
+  const reasonId = `${targetId}-reason`;
   const evidenceLabel = `Evidence · ${reconciledLabel(item.lastReconciledAt)} UTC`;
   const reference = referenceLabel(item);
   const title = item.prTitle ?? item.issueTitle ?? "Untitled change";
   const head = headEvidence(item);
   const showReason = item.workflowState === "NEEDS_ANDRIS";
 
+  useEffect(() => {
+    if (window.location.hash !== decisionDeepLinkHash(item.id)) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(targetId);
+      if (!(target instanceof HTMLElement)) return;
+      target.scrollIntoView({ block: "center" });
+      target.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [item.id, targetId]);
+
   return (
-    <article className="decision-card" aria-labelledby={titleId} aria-describedby={showReason ? reasonId : undefined}>
+    <article
+      className="decision-card"
+      id={targetId}
+      tabIndex={-1}
+      aria-labelledby={titleId}
+      aria-describedby={showReason ? reasonId : undefined}
+    >
       <div className="decision-card__topline">
         <span className="project-kicker">{project.displayName}</span>
         <StatusPill
