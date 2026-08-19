@@ -1,0 +1,185 @@
+name: Daily MVP production preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: daily-mvp-production-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: verify Daily MVP production baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production-readonly-reconcile
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      EXPECTED_ACTIVE_VERSION: 5577c64b-81a6-4fc6-910d-7770a1f2315f
+      FROZEN_PRE_DEPLOYMENT: 4a1582f5-5f18-423d-b610-ac51c13c5f5a
+      HOSTNAME: control.rozkalns.net
+      EXPECTED_DOMAIN_ID: ac685929d45e825df5b5f6b803a9814b6dbf5d9d
+      DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
+      EXPECTED_ACCESS_ISSUER: https://super-salad-2357.cloudflareaccess.com
+      EXPECTED_ACCESS_AUDIENCE: c69850b0fcfeef951512b81941aec53e4e406c16e11d396ab0abe25f35728c75
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Verify exact-main CI and production baseline with GET only
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop() {
+            {
+              printf 'DAILY_MVP_PRODUCTION_PREFLIGHT=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'CLOUDFLARE_MUTATION=NO\n'
+              printf 'DEPLOY_STARTED=NO\n'
+              printf 'DEPLOY_AUTHORIZATION=NOT_GRANTED\n'
+            } >&2
+            exit 1
+          }
+
+          for cmd in curl jq; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_API_TOKEN
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          gh_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
+          }
+
+          cf_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_RESPONSE_INVALID
+          }
+
+          printf '%s\n' STAGE=GITHUB_EXACT_MAIN_CI
+          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
+          run_sha="${GITHUB_SHA:-}"
+          [ -n "$run_sha" ] || stop WORKFLOW_SHA_MISSING
+
+          gh_get '/branches/main' "$tmp/main.json"
+          jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+
+          gh_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${run_sha}&per_page=10" "$tmp/ci-runs.json"
+          ci_run_id="$(
+            jq -r --arg sha "$run_sha" '
+              [
+                .workflow_runs[]?
+                | select(
+                    .name == "CI" and
+                    .path == ".github/workflows/ci.yml" and
+                    .head_branch == "main" and
+                    .head_sha == $sha and
+                    .event == "push" and
+                    .status == "completed" and
+                    .conclusion == "success"
+                  )
+              ]
+              | sort_by(.run_number)
+              | last
+              | .id // empty
+            ' "$tmp/ci-runs.json"
+          )"
+          [ -n "$ci_run_id" ] || stop EXACT_MAIN_CI_NOT_SUCCESS
+
+          gh_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
+          jq -e --arg sha "$run_sha" --argjson id "$ci_run_id" '
+            .id == $id and
+            .name == "CI" and
+            .path == ".github/workflows/ci.yml" and
+            .head_branch == "main" and
+            .head_sha == $sha and
+            .event == "push" and
+            .status == "completed" and
+            .conclusion == "success"
+          ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+
+          printf '%s\n' STAGE=CLOUDFLARE_ACTIVE_DEPLOYMENT
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments.json"
+          current_deployment="$(jq -r '.result.deployments[0].id // empty' "$tmp/deployments.json")"
+          current_version="$(jq -r '.result.deployments[0].versions[0].version_id // empty' "$tmp/deployments.json")"
+          current_percentage="$(jq -r '.result.deployments[0].versions[0].percentage // empty' "$tmp/deployments.json")"
+
+          [ -n "$current_deployment" ] || stop CURRENT_DEPLOYMENT_ID_MISSING
+          [ "$current_deployment" != "$FROZEN_PRE_DEPLOYMENT" ] || stop ACTIVE_DEPLOYMENT_REVERTED_TO_FROZEN_PRE_DEPLOYMENT
+          [ "$current_version" = "$EXPECTED_ACTIVE_VERSION" ] || stop ACTIVE_VERSION_DRIFT
+          [ "$current_percentage" = "100" ] || stop ACTIVE_TRAFFIC_NOT_100_PERCENT
+
+          jq -e '
+            (.result.deployments | type == "array") and
+            (.result.deployments | length >= 1) and
+            (.result.deployments[0].versions | type == "array") and
+            (.result.deployments[0].versions | length == 1) and
+            .result.deployments[0].versions[0].percentage == 100
+          ' "$tmp/deployments.json" >/dev/null || stop ACTIVE_DEPLOYMENT_NOT_SINGLE_VERSION_100_PERCENT
+
+          printf '%s\n' STAGE=CLOUDFLARE_VERSION_BINDINGS_DOMAIN
+          cf_get "/workers/scripts/${WORKER_NAME}/versions/${current_version}" "$tmp/version.json"
+          jq -e \
+            --arg ver "$current_version" \
+            --arg db "$DB_ID" \
+            --arg issuer "$EXPECTED_ACCESS_ISSUER" \
+            --arg audience "$EXPECTED_ACCESS_AUDIENCE" '
+              .result.id == $ver and
+              ((.result.resources.bindings // []) as $b |
+                ($b | type == "array") and
+                any($b[]; .name == "GITHUB_APP_PRIVATE_KEY_PEM" and (.type == "secret_text" or .type == "secret_key")) and
+                any($b[]; .name == "GITHUB_WEBHOOK_SECRET" and (.type == "secret_text" or .type == "secret_key")) and
+                any($b[]; .name == "CONTROL_DB" and .type == "d1" and ((.database_id // .id // "") == $db)) and
+                any($b[]; .name == "CONTROL_LIVE_READ_ENABLED" and .type == "plain_text" and .text == "true") and
+                any($b[]; .name == "CONTROL_WEBHOOK_RUNTIME_ENABLED" and .type == "plain_text" and .text == "true") and
+                any($b[]; .name == "CONTROL_NEEDS_CHANGES_ACCESS_ISSUER" and .type == "plain_text" and .text == $issuer) and
+                any($b[]; .name == "CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE" and .type == "plain_text" and .text == $audience)
+              )
+            ' "$tmp/version.json" >/dev/null || stop VERSION_BINDING_IDENTITY_DRIFT
+
+          cf_get "/workers/scripts/${WORKER_NAME}/subdomain" "$tmp/subdomain.json"
+          jq -e '.result.enabled == false and .result.previews_enabled == false' "$tmp/subdomain.json" >/dev/null || stop SUBDOMAIN_OR_PREVIEW_ENABLED
+
+          cf_get "/workers/domains?service=${WORKER_NAME}&hostname=${HOSTNAME}" "$tmp/domains.json"
+          jq -e --arg id "$EXPECTED_DOMAIN_ID" --arg host "$HOSTNAME" --arg service "$WORKER_NAME" '
+            (.result | type == "array") and
+            (.result | length == 1) and
+            .result[0].id == $id and
+            .result[0].hostname == $host and
+            .result[0].service == $service
+          ' "$tmp/domains.json" >/dev/null || stop CUSTOM_DOMAIN_IDENTITY_DRIFT
+
+          printf 'DAILY_MVP_PRODUCTION_PREFLIGHT=PASS\n'
+          printf 'SOURCE_SHA=%s\n' "$run_sha"
+          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+          printf 'CURRENT_VERSION=%s\n' "$current_version"
+          printf 'CURRENT_DEPLOYMENT=%s\n' "$current_deployment"
+          printf 'ACTIVE_TRAFFIC_PERCENT=%s\n' "$current_percentage"
+          printf 'DOMAIN_ID=%s\n' "$EXPECTED_DOMAIN_ID"
+          printf 'ACCESS_RUNTIME_PROBE=NOT_PART_OF_DAILY_MVP_DEPLOY_GATE\n'
+          printf 'CLOUDFLARE_MUTATION=NO\n'
+          printf 'DEPLOY_STARTED=NO\n'
+          printf 'DEPLOY_AUTHORIZATION=NOT_GRANTED\n'
+          printf 'NEXT_GATE=EXPLICIT_OWNER_ONE_SHOT_DEPLOY_AUTHORIZATION\n'
