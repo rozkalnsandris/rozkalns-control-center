@@ -1,5 +1,7 @@
 import { readCloudflareGitHubDashboardSnapshot } from "../github/cloudflare-dashboard-runtime.js";
 import type { CloudflareGitHubRuntimeBindings } from "../github/cloudflare-worker-runtime.js";
+import { reconcileNotificationTransitions } from "../../shared/notification-transition-reconciliation.js";
+import type { NotificationTransitionStore } from "../../shared/notification-transition-store.js";
 import type { DeliveryLifecycleStore } from "./d1-delivery-claim-store.js";
 import {
   consumeReconciliationQueueBatch,
@@ -13,6 +15,7 @@ export interface CloudflareReconciliationBatchRuntimeOptions {
   readonly expectedQueue: string;
   readonly now?: () => string;
   readonly readDashboard?: typeof readCloudflareGitHubDashboardSnapshot;
+  readonly notificationTransitionStore?: NotificationTransitionStore;
 }
 
 export type CloudflareReconciliationBatchHandler = (
@@ -20,14 +23,16 @@ export type CloudflareReconciliationBatchHandler = (
 ) => Promise<readonly ReconciliationQueueConsumeResult[]>;
 
 /**
- * Build a source-only Cloudflare Queue batch handler around the already-proven
- * bounded live dashboard read path.
+ * Build a Cloudflare Queue batch handler around the already-proven bounded live
+ * dashboard read path.
  *
  * The expensive authoritative reread is created lazily by
  * consumeReconciliationQueueBatch and therefore runs at most once for the
- * entire Queue invocation. The returned dashboard snapshot is intentionally
- * not persisted here: the current Phase 2 UI reads GitHub live, while D1 owns
- * delivery lifecycle evidence only.
+ * entire Queue invocation. When an explicitly supplied notification transition
+ * store is present, the same authoritative snapshot is also evaluated for the
+ * provider-neutral high-signal transition contract. The durable claims record
+ * discovery/dedupe only; this runtime does not send a notification provider
+ * request.
  */
 export function createCloudflareReconciliationBatchHandler(
   options: CloudflareReconciliationBatchRuntimeOptions,
@@ -42,10 +47,17 @@ export function createCloudflareReconciliationBatchHandler(
       now,
       reconcileBatch: async () => {
         const observedAt = now();
-        await readDashboard({
+        const snapshot = await readDashboard({
           bindings: options.bindings,
           observedAt,
         });
+        if (options.notificationTransitionStore) {
+          await reconcileNotificationTransitions(
+            snapshot,
+            options.notificationTransitionStore,
+            observedAt,
+          );
+        }
       },
     });
 }
