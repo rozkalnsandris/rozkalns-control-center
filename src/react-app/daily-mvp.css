@@ -1,0 +1,27 @@
+.control-status-strip__refresh {
+  min-height: 48px;
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border: 1px solid #4b5cc4;
+  border-radius: 11px;
+  cursor: pointer;
+  color: #f4f6ff;
+  background: #24317f;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.control-status-strip__refresh:hover:not(:disabled) {
+  background: #303f9c;
+}
+
+.control-status-strip__refresh:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+@media (max-width: 430px) {
+  .control-status-strip__refresh {
+    width: 100%;
+  }
+}

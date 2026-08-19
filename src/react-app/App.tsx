@@ -14,7 +14,7 @@ import type { HealthPayload } from "../shared/health";
 import { DecisionCard } from "./components/DecisionCard";
 import { StatusPill } from "./components/StatusPill";
 
-type LiveDashboardState = "LOADING" | "LIVE" | "DISABLED" | "ERROR";
+type LiveDashboardState = "LOADING" | "LIVE" | "REFRESHING" | "DISABLED" | "ERROR";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -91,6 +91,17 @@ function projectTone(status: ProjectReadModel["status"]) {
   return "info" as const;
 }
 
+function snapshotTimestamp(timestamp: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(new Date(timestamp));
+}
+
 const mockActionLabels: Record<MockAction, string> = {
   MERGE: "Merge",
   NEEDS_CHANGES: "Needs changes",
@@ -103,6 +114,7 @@ export default function App() {
   const [unavailable, setUnavailable] = useState(false);
   const [liveDashboard, setLiveDashboard] = useState<ControlDashboardData | null>(null);
   const [liveState, setLiveState] = useState<LiveDashboardState>("LOADING");
+  const [refreshSequence, setRefreshSequence] = useState(0);
   const [notice, setNotice] = useState("No GitHub action can execute");
 
   useEffect(() => {
@@ -133,7 +145,10 @@ export default function App() {
       .then(async (response) => {
         const payload: unknown = await response.json();
         if (response.status === 503 && isRecord(payload) && payload.error === "LIVE_READ_DISABLED") {
-          if (!ignore) setLiveState("DISABLED");
+          if (!ignore) {
+            setLiveDashboard(null);
+            setLiveState("DISABLED");
+          }
           return;
         }
         if (!response.ok || !isControlDashboardData(payload)) {
@@ -153,10 +168,11 @@ export default function App() {
       ignore = true;
       controller.abort();
     };
-  }, []);
+  }, [refreshSequence]);
 
   const dashboard = liveDashboard ?? controlFixtures;
-  const live = liveState === "LIVE" && liveDashboard !== null;
+  const live = liveDashboard !== null;
+  const refreshInFlight = liveState === "LOADING" || liveState === "REFRESHING";
   const summary = summarizeDashboard(dashboard);
   const needsAndris = decisionsForState(dashboard, "NEEDS_ANDRIS");
   const workingOrWaiting = decisionsForState(dashboard, "WORKING", "WAITING");
@@ -167,15 +183,27 @@ export default function App() {
     setNotice(`${mockActionLabels[action]} selected for fixture ${item.id} · demo only`);
   }
 
+  function refreshLiveDashboard() {
+    if (refreshInFlight) return;
+    setLiveState(liveDashboard ? "REFRESHING" : "LOADING");
+    setRefreshSequence((value) => value + 1);
+  }
+
   const workerLabel = health?.status === "ok" ? "Worker ready" : unavailable ? "Worker unavailable" : "Worker checking";
-  const modeLabel = live ? "LIVE READ-ONLY" : "FIXTURE MODE";
-  const modeStatus = live
-    ? "Live GitHub read-only"
-    : liveState === "ERROR"
-      ? "Live data unavailable · fixture data shown"
-      : liveState === "LOADING"
-        ? "Checking live GitHub data"
-        : "Fixture mode";
+  const snapshotLabel = liveDashboard ? `Snapshot ${snapshotTimestamp(liveDashboard.generatedAt)} UTC` : null;
+  const modeLabel = live ? (liveState === "ERROR" ? "LIVE · STALE" : "LIVE READ-ONLY") : "FIXTURE MODE";
+  const modeStatus =
+    liveState === "REFRESHING" && snapshotLabel
+      ? `Refreshing live GitHub data · ${snapshotLabel}`
+      : liveState === "ERROR" && snapshotLabel
+        ? `Refresh failed · keeping ${snapshotLabel}`
+        : live && snapshotLabel
+          ? snapshotLabel
+          : liveState === "ERROR"
+            ? "Live data unavailable · fixture data shown"
+            : liveState === "LOADING"
+              ? "Checking live GitHub data"
+              : "Fixture mode";
 
   return (
     <div className="app-shell">
@@ -187,18 +215,18 @@ export default function App() {
           <p>Rozkalns Control</p>
           <span>Decision control</span>
         </div>
-        <StatusPill label={modeLabel} tone="info" />
+        <StatusPill label={modeLabel} tone={liveState === "ERROR" && live ? "warning" : "info"} />
       </header>
 
       <main id="main-content" className="dashboard">
         <section className="hero" aria-labelledby="page-title">
           <div>
-            <p className="eyebrow">{live ? "Phase 2 · Live read-only" : "Phase 1 · Read-only prototype"}</p>
+            <p className="eyebrow">{live ? "Daily MVP · Live read-only" : "Daily MVP · Safe fallback"}</p>
             <h1 id="page-title">Current repository control state</h1>
             <p className="summary">
               {live
                 ? "Needs Andris is reserved for genuine owner-action gates. Everything else below is live GitHub read-only state; this screen cannot change GitHub, Cloudflare or RPi5."
-                : "Needs Andris is reserved for genuine owner-action gates. Demo data only; this screen cannot change GitHub, Cloudflare or RPi5."}
+                : "Needs Andris is reserved for genuine owner-action gates. Fixture fallback only; this screen cannot change GitHub, Cloudflare or RPi5."}
             </p>
           </div>
         </section>
@@ -212,6 +240,16 @@ export default function App() {
           <span>{modeStatus}</span>
           <span className="control-status-strip__separator" aria-hidden="true">·</span>
           <span className="control-status-strip__notice">{notice}</span>
+          <button
+            className="control-status-strip__refresh"
+            type="button"
+            onClick={refreshLiveDashboard}
+            disabled={refreshInFlight}
+            aria-label="Refresh live GitHub state"
+            aria-busy={liveState === "REFRESHING"}
+          >
+            {liveState === "REFRESHING" ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
 
         <section className="summary-strip" aria-label="Control summary">
@@ -313,7 +351,7 @@ export default function App() {
 
         <footer className="prototype-footer">
           <p>{live ? "Live snapshot" : "Fixture snapshot"}: {dashboard.generatedAt.replace("T", " ").replace("Z", " UTC")}</p>
-          <p>{live ? "Phase 2 · GitHub read-only · No deployment controls" : "Phase 1 · No live GitHub integration · No deployment controls"}</p>
+          <p>{live ? "Daily MVP · GitHub read-only · No deployment controls" : "Daily MVP fallback · No live GitHub mutation · No deployment controls"}</p>
         </footer>
       </main>
     </div>

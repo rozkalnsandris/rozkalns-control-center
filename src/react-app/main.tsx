@@ -5,6 +5,7 @@ import App from "./App";
 import "./index.css";
 import "./compact-phone.css";
 import "./live-dashboard.css";
+import "./daily-mvp.css";
 
 const root = document.getElementById("root");
 
