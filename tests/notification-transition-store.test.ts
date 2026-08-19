@@ -14,10 +14,7 @@ import type {
   D1RunResultLike,
 } from "../src/integrations/cloudflare/d1-delivery-claim-store.js";
 import type { DecisionReadModel } from "../src/shared/control-model.js";
-import {
-  notificationCandidateForDecision,
-  type NotificationCandidate,
-} from "../src/shared/notification-transition.js";
+import { notificationCandidateForDecision } from "../src/shared/notification-transition.js";
 
 interface PreparedCall {
   readonly sql: string;
