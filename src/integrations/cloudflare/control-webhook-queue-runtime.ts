@@ -8,6 +8,7 @@ import {
   D1DeliveryClaimStore,
   type D1DatabaseLike,
 } from "./d1-delivery-claim-store.js";
+import { D1NotificationTransitionStore } from "./d1-notification-transition-store.js";
 import {
   D1WebhookDeliveryObservabilityReader,
   type WebhookDeliveryObservabilityReader,
@@ -24,6 +25,7 @@ import {
 } from "./webhook-reconciliation-acceptor.js";
 
 export const CONTROL_WEBHOOK_RUNTIME_FLAG = "CONTROL_WEBHOOK_RUNTIME_ENABLED" as const;
+export const CONTROL_NOTIFICATION_TRANSITIONS_FLAG = "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED" as const;
 export const RECONCILIATION_QUEUE_BINDING = "RECONCILIATION_QUEUE" as const;
 export const GITHUB_WEBHOOK_SECRET_BINDING = "GITHUB_WEBHOOK_SECRET" as const;
 export const RECONCILIATION_QUEUE_NAME = "rozkalns-control-reconciliation" as const;
@@ -31,6 +33,7 @@ export const RECONCILIATION_DLQ_NAME = "rozkalns-control-reconciliation-dlq" as 
 
 export interface ControlWebhookQueueRuntimeBindings {
   readonly CONTROL_WEBHOOK_RUNTIME_ENABLED?: unknown;
+  readonly CONTROL_NOTIFICATION_TRANSITIONS_ENABLED?: unknown;
   readonly GITHUB_WEBHOOK_SECRET?: unknown;
   readonly CONTROL_DB?: unknown;
   readonly RECONCILIATION_QUEUE?: unknown;
@@ -71,6 +74,10 @@ export type ControlWebhookQueueRuntimeResolution =
 export interface ControlWebhookQueueRuntimeOptions {
   readonly now?: () => string;
   readonly readDashboard?: CloudflareReconciliationBatchRuntimeOptions["readDashboard"];
+}
+
+export function notificationTransitionsEnabled(value: unknown): boolean {
+  return value === "true";
 }
 
 function bindingString(value: unknown): string {
@@ -144,12 +151,13 @@ async function finalizeDeadLetterBatch(
 }
 
 /**
- * Resolve the dormant Phase 2 webhook/Queue runtime.
+ * Resolve the Phase 2 webhook/Queue runtime plus an optional dormant-by-default
+ * Phase 4 notification-transition discovery path.
  *
- * The feature flag is checked before any other binding is inspected. Production
- * therefore remains inert unless CONTROL_WEBHOOK_RUNTIME_ENABLED is exactly
- * "true". Once explicitly enabled, every required binding must validate before
- * any write-capable adapter is returned.
+ * The webhook feature flag is checked before any other binding is inspected.
+ * Notification transition discovery is enabled only by the exact literal
+ * "true" and is otherwise absent from the Queue reconciliation path. Merely
+ * merging this source does not activate the flag in production configuration.
  */
 export function resolveControlWebhookQueueRuntime(
   bindings: ControlWebhookQueueRuntimeBindings,
@@ -171,6 +179,11 @@ export function resolveControlWebhookQueueRuntime(
 
     const now = options.now ?? (() => new Date().toISOString());
     const deliveryStore = new D1DeliveryClaimStore(database);
+    const notificationTransitionStore = notificationTransitionsEnabled(
+      bindings.CONTROL_NOTIFICATION_TRANSITIONS_ENABLED,
+    )
+      ? new D1NotificationTransitionStore(database)
+      : undefined;
     const webhookAcceptor = new WebhookReconciliationAcceptor({
       deliveryStore,
       queue,
@@ -183,6 +196,7 @@ export function resolveControlWebhookQueueRuntime(
       expectedQueue: RECONCILIATION_QUEUE_NAME,
       now,
       readDashboard: options.readDashboard,
+      notificationTransitionStore,
     });
 
     return {
