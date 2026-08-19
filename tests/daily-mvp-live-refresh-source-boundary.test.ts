@@ -1,0 +1,28 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import test from "node:test";
+
+const appSource = readFileSync(resolve(process.cwd(), "src/react-app/App.tsx"), "utf8");
+const mainSource = readFileSync(resolve(process.cwd(), "src/react-app/main.tsx"), "utf8");
+const refreshCss = readFileSync(resolve(process.cwd(), "src/react-app/daily-mvp.css"), "utf8");
+
+test("Daily MVP refresh stays explicit, GET-only and read-only", () => {
+  assert.match(appSource, /type LiveDashboardState = .*"REFRESHING"/);
+  assert.match(appSource, /const \[refreshSequence, setRefreshSequence\] = useState\(0\)/);
+  assert.match(appSource, /fetch\("\/api\/github\/dashboard"/);
+  assert.match(appSource, /\[refreshSequence\]/);
+  assert.match(appSource, /setLiveState\(liveDashboard \? "REFRESHING" : "LOADING"\)/);
+  assert.match(appSource, /aria-label="Refresh live GitHub state"/);
+  assert.match(appSource, /disabled=\{refreshInFlight\}/);
+  assert.match(appSource, /Refresh failed · keeping/);
+  assert.match(appSource, /const live = liveDashboard !== null/);
+
+  assert.doesNotMatch(appSource, /method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);
+  assert.doesNotMatch(appSource, /\/api\/github\/needs-changes["']/);
+  assert.doesNotMatch(appSource, /setInterval|setTimeout/);
+
+  assert.match(mainSource, /\.\/daily-mvp\.css/);
+  assert.match(refreshCss, /\.control-status-strip__refresh/);
+  assert.match(refreshCss, /min-height:\s*48px/);
+});
