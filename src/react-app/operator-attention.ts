@@ -1,4 +1,4 @@
-import type { DashboardSummary } from "../shared/control-model";
+import type { DashboardSummary } from "../shared/control-model.js";
 
 export type OperatorAttentionTone = "attention" | "danger" | "clear";
 
