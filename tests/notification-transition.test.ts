@@ -33,6 +33,13 @@ function decision(overrides: Partial<DecisionReadModel> = {}): DecisionReadModel
   };
 }
 
+function hasControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || codePoint === 0x7f;
+  });
+}
+
 test("only normalized high-signal Daily MVP states are notification eligible", () => {
   assert.equal(notificationSignalForDecision(decision()), null);
   assert.equal(
@@ -130,8 +137,8 @@ test("candidate fields are bounded and omit privileged/provider-specific source 
 
   assert.ok(Array.from(candidate.title).length <= 160);
   assert.ok(Array.from(candidate.body).length <= 280);
-  assert.doesNotMatch(candidate.title, /[\u0000-\u001f\u007f]/);
-  assert.doesNotMatch(candidate.body, /[\u0000-\u001f\u007f]/);
+  assert.equal(hasControlCharacter(candidate.title), false);
+  assert.equal(hasControlCharacter(candidate.body), false);
   assert.doesNotMatch(serialized, /prUrl|allowedActions|expectedHeadSha|currentHeadSha|mainSha/);
   assert.doesNotMatch(serialized, /MERGE|NEEDS_CHANGES/);
   assert.match(candidate.transitionId, /^notification-v1-needs-andris-[0-9a-f]{16}$/);
