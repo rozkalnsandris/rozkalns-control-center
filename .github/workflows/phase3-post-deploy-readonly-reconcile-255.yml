@@ -45,11 +45,13 @@ jobs:
           umask 077
 
           stop() {
-            printf 'PHASE254_GITHUB_RECONCILIATION=STOP\n'
-            printf 'STOP=%s\n' "$1"
-            printf 'CLOUDFLARE_MUTATION=NO\n'
-            printf 'DEPLOY_RETRY=FORBIDDEN\n'
-            printf 'AUTHORIZATION_CONSUMED=YES\n'
+            {
+              printf 'PHASE254_GITHUB_RECONCILIATION=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'CLOUDFLARE_MUTATION=NO\n'
+              printf 'DEPLOY_RETRY=FORBIDDEN\n'
+              printf 'AUTHORIZATION_CONSUMED=YES\n'
+            } >&2
             exit 1
           }
 
