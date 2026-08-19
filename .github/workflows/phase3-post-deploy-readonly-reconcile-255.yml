@@ -19,8 +19,8 @@ jobs:
     environment: production-readonly-reconcile
     env:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
-      EXPECTED_SOURCE_SHA: bdbe6f235fb3fc6171901de4794b690d7d9f8edd
-      EXPECTED_CI_RUN_ID: "32175863540"
+      EXPECTED_SOURCE_SHA: 3ccce0c75953b0fc44aabf19c2b3ffe4d3110a4d
+      EXPECTED_CI_RUN_ID: "PENDING_EXACT_MAIN_CI"
       CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
       WORKER_NAME: rozkalns-control
       EXPECTED_PRE_VERSION: 744b3cb5-7c08-4aae-a217-a9fec81f27b2
@@ -40,6 +40,17 @@ jobs:
       CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
 
     steps:
+      - name: Block until exact-main CI is bound
+        if: ${{ env.EXPECTED_CI_RUN_ID == 'PENDING_EXACT_MAIN_CI' }}
+        shell: bash
+        run: |
+          echo 'PHASE254_GITHUB_RECONCILIATION=STOP'
+          echo 'STOP=EXACT_MAIN_CI_NOT_BOUND'
+          echo 'CLOUDFLARE_MUTATION=NO'
+          echo 'DEPLOY_RETRY=FORBIDDEN'
+          echo 'AUTHORIZATION_CONSUMED=YES'
+          exit 1
+
       - name: Reconcile already-deployed production state
         shell: bash
         run: |
