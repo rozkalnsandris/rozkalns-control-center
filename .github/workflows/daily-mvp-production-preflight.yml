@@ -21,7 +21,8 @@ jobs:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
       CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
       WORKER_NAME: rozkalns-control
-      EXPECTED_ACTIVE_VERSION: 5577c64b-81a6-4fc6-910d-7770a1f2315f
+      EXPECTED_ACTIVE_VERSION: dab5c9a5-e33a-4b34-933f-5e0c8091243f
+      EXPECTED_ACTIVE_DEPLOYMENT: 0b7cd395-89e7-4037-af5f-37e479a4f13e
       FROZEN_PRE_DEPLOYMENT: 4a1582f5-5f18-423d-b610-ac51c13c5f5a
       HOSTNAME: control.rozkalns.net
       EXPECTED_DOMAIN_ID: ac685929d45e825df5b5f6b803a9814b6dbf5d9d
@@ -126,6 +127,7 @@ jobs:
 
           [ -n "$current_deployment" ] || stop CURRENT_DEPLOYMENT_ID_MISSING
           [ "$current_deployment" != "$FROZEN_PRE_DEPLOYMENT" ] || stop ACTIVE_DEPLOYMENT_REVERTED_TO_FROZEN_PRE_DEPLOYMENT
+          [ "$current_deployment" = "$EXPECTED_ACTIVE_DEPLOYMENT" ] || stop ACTIVE_DEPLOYMENT_DRIFT
           [ "$current_version" = "$EXPECTED_ACTIVE_VERSION" ] || stop ACTIVE_VERSION_DRIFT
           [ "$current_percentage" = "100" ] || stop ACTIVE_TRAFFIC_NOT_100_PERCENT
 
