@@ -19,8 +19,6 @@ jobs:
     environment: production-readonly-reconcile
     env:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
-      EXPECTED_SOURCE_SHA: bdbe6f235fb3fc6171901de4794b690d7d9f8edd
-      EXPECTED_CI_RUN_ID: "32175863540"
       CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
       WORKER_NAME: rozkalns-control
       EXPECTED_PRE_VERSION: 744b3cb5-7c08-4aae-a217-a9fec81f27b2
@@ -98,11 +96,37 @@ jobs:
           }
 
           printf '%s\n' STAGE=GITHUB_SOURCE_CI_RECHECK
-          gh_get '/branches/main' "$tmp/main.json"
-          jq -e --arg sha "$EXPECTED_SOURCE_SHA" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
+          run_sha="${GITHUB_SHA:-}"
+          [ -n "$run_sha" ] || stop WORKFLOW_SHA_MISSING
 
-          gh_get "/actions/runs/${EXPECTED_CI_RUN_ID}" "$tmp/ci.json"
-          jq -e --arg sha "$EXPECTED_SOURCE_SHA" --argjson id "$EXPECTED_CI_RUN_ID" '
+          gh_get '/branches/main' "$tmp/main.json"
+          jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+
+          gh_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${run_sha}&per_page=10" "$tmp/ci-runs.json"
+          ci_run_id="$(
+            jq -r --arg sha "$run_sha" '
+              [
+                .workflow_runs[]?
+                | select(
+                    .name == "CI" and
+                    .head_branch == "main" and
+                    .head_sha == $sha and
+                    .event == "push" and
+                    .status == "completed" and
+                    .conclusion == "success"
+                  )
+              ]
+              | sort_by(.run_number)
+              | last
+              | .id // empty
+            ' "$tmp/ci-runs.json"
+          )"
+          [ -n "$ci_run_id" ] || stop EXACT_MAIN_CI_NOT_SUCCESS
+
+          gh_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
+          jq -e --arg sha "$run_sha" --argjson id "$ci_run_id" '
             .id == $id and .name == "CI" and .head_branch == "main" and .head_sha == $sha and
             .event == "push" and .status == "completed" and .conclusion == "success"
           ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
@@ -174,8 +198,8 @@ jobs:
             ' "$tmp/preflight.json" >/dev/null || stop POST_PREFLIGHT_POLICY_NOT_COMPLETE_PROJECTED
 
           printf 'PHASE254_GITHUB_RECONCILIATION=PASS\n'
-          printf 'SOURCE_SHA=%s\n' "$EXPECTED_SOURCE_SHA"
-          printf 'CI_RUN_ID=%s\n' "$EXPECTED_CI_RUN_ID"
+          printf 'SOURCE_SHA=%s\n' "$run_sha"
+          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
           printf 'NEW_VERSION=%s\n' "$current_version"
           printf 'NEW_DEPLOYMENT=%s\n' "$current_deployment"
           printf 'ACTIVE_TRAFFIC_PERCENT=%s\n' "$current_percentage"
