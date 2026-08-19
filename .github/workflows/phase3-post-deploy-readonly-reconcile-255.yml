@@ -1,19 +1,22 @@
-name: Phase 3 post-deploy read-only reconcile 255
+name: Phase 3 production read-only reconciliation
 
 on:
-  push:
-    branches:
-      - phase3/github-only-post-deploy-reconcile-255
+  workflow_dispatch:
 
 permissions:
   contents: read
   actions: read
+
+concurrency:
+  group: phase3-production-readonly-reconcile
+  cancel-in-progress: false
 
 jobs:
   reconcile:
     name: reconcile production read-only
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    environment: production-readonly-reconcile
     env:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
       EXPECTED_SOURCE_SHA: bdbe6f235fb3fc6171901de4794b690d7d9f8edd
@@ -69,7 +72,7 @@ jobs:
             curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
               -H "Authorization: Bearer ${GITHUB_TOKEN}" \
               -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
               "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
           }
 
@@ -117,7 +120,8 @@ jobs:
           [ "$current_percentage" = "100" ] || stop ACTIVE_TRAFFIC_NOT_100_PERCENT
 
           jq -e '
-            (.result.deployments | type == "array") and (.result.deployments | length >= 1) and
+            (.result.deployments | type == "array") and
+            (.result.deployments | length >= 1) and
             (.result.deployments[0].versions | type == "array") and
             (.result.deployments[0].versions | length == 1) and
             .result.deployments[0].versions[0].percentage == 100
@@ -149,7 +153,6 @@ jobs:
           printf '%s\n' STAGE=ACCESS_GET_ONLY_RUNTIME
           health_http="$(access_get '/api/health' "$tmp/health.json")"
           jq -e --arg service "$WORKER_NAME" '.status == "ok" and .service == $service' "$tmp/health.json" >/dev/null || stop POST_HEALTH_INVALID
-
           dashboard_http="$(access_get '/api/github/dashboard' "$tmp/dashboard.json")"
 
           preflight_path="/api/github/needs-changes/preflight?repository=rozkalnsandris%2Fops-workflows&issue=${TARGET_ISSUE}&pull=${TARGET_PULL}"
