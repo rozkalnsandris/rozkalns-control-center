@@ -13,6 +13,7 @@ import {
 import type { HealthPayload } from "../shared/health";
 import { DecisionCard } from "./components/DecisionCard";
 import { StatusPill } from "./components/StatusPill";
+import { operatorAttentionForSummary } from "./operator-attention";
 
 type LiveDashboardState = "LOADING" | "LIVE" | "REFRESHING" | "DISABLED" | "ERROR";
 
@@ -174,6 +175,7 @@ export default function App() {
   const live = liveDashboard !== null;
   const refreshInFlight = liveState === "LOADING" || liveState === "REFRESHING";
   const summary = summarizeDashboard(dashboard);
+  const attention = operatorAttentionForSummary(summary);
   const needsAndris = decisionsForState(dashboard, "NEEDS_ANDRIS");
   const workingOrWaiting = decisionsForState(dashboard, "WORKING", "WAITING");
   const ciFailed = decisionsForState(dashboard, "CI_FAILED");
@@ -271,7 +273,20 @@ export default function App() {
           </div>
         </section>
 
-        <section className="dashboard-section dashboard-section--primary" aria-labelledby="needs-title">
+        <section className={`operator-attention operator-attention--${attention.tone}`} aria-label="Operator attention">
+          <div>
+            <p className="operator-attention__kicker">What needs attention now</p>
+            <h2>{attention.headline}</h2>
+            <p>{attention.detail}</p>
+          </div>
+          {attention.target && attention.actionLabel ? (
+            <a className="operator-attention__action" href={attention.target}>
+              {attention.actionLabel}
+            </a>
+          ) : null}
+        </section>
+
+        <section id="needs-andris" className="dashboard-section dashboard-section--primary" aria-labelledby="needs-title">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Human gate</p>
@@ -290,41 +305,47 @@ export default function App() {
           )}
         </section>
 
-        <section className="dashboard-section" aria-labelledby="active-title">
-          <div className="section-heading">
-            <div><p className="eyebrow">No action needed</p><h2 id="active-title">Working / Waiting</h2></div>
-            <span className="section-count">{workingOrWaiting.length}</span>
-          </div>
-          <div className="decision-list decision-list--compact">
-            {workingOrWaiting.map((item) => (
-              <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-            ))}
-          </div>
-        </section>
+        {workingOrWaiting.length > 0 ? (
+          <section className="dashboard-section" aria-labelledby="active-title">
+            <div className="section-heading">
+              <div><p className="eyebrow">No action needed</p><h2 id="active-title">Working / Waiting</h2></div>
+              <span className="section-count">{workingOrWaiting.length}</span>
+            </div>
+            <div className="decision-list decision-list--compact">
+              {workingOrWaiting.map((item) => (
+                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
-        <section className="dashboard-section" aria-labelledby="failed-title">
-          <div className="section-heading">
-            <div><p className="eyebrow">Blocked</p><h2 id="failed-title">CI Failed</h2></div>
-            <span className="section-count section-count--danger">{ciFailed.length}</span>
-          </div>
-          <div className="decision-list decision-list--compact">
-            {ciFailed.map((item) => (
-              <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-            ))}
-          </div>
-        </section>
+        {ciFailed.length > 0 ? (
+          <section id="ci-failed" className="dashboard-section" aria-labelledby="failed-title">
+            <div className="section-heading">
+              <div><p className="eyebrow">Blocked</p><h2 id="failed-title">CI Failed</h2></div>
+              <span className="section-count section-count--danger">{ciFailed.length}</span>
+            </div>
+            <div className="decision-list decision-list--compact">
+              {ciFailed.map((item) => (
+                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
-        <section className="dashboard-section" aria-labelledby="ready-title">
-          <div className="section-heading">
-            <div><p className="eyebrow">Visible, not selected</p><h2 id="ready-title">Merge Ready</h2></div>
-            <span className="section-count">{mergeReady.length}</span>
-          </div>
-          <div className="decision-list decision-list--compact">
-            {mergeReady.map((item) => (
-              <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-            ))}
-          </div>
-        </section>
+        {mergeReady.length > 0 ? (
+          <section className="dashboard-section" aria-labelledby="ready-title">
+            <div className="section-heading">
+              <div><p className="eyebrow">Visible, not selected</p><h2 id="ready-title">Merge Ready</h2></div>
+              <span className="section-count">{mergeReady.length}</span>
+            </div>
+            <div className="decision-list decision-list--compact">
+              {mergeReady.map((item) => (
+                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="dashboard-section" aria-labelledby="projects-title">
           <div className="section-heading">
