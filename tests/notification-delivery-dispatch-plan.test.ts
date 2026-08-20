@@ -290,7 +290,10 @@ test("recovered delivery identity or deterministic envelope drift fails before h
   assert.deepEqual(wrongIdentity.historyReader.calls, []);
 
   const drifted = dependencies(
-    foundIntent({ ...envelope, title: "Mutated recovered title" } as NotificationDeliveryEnvelope),
+    foundIntent({
+      ...envelope,
+      transitionId: "notification-v1-ci-failed-fedcba9876543210",
+    } as NotificationDeliveryEnvelope),
   );
   await assert.rejects(
     () => planNotificationDeliveryDispatch(DELIVERY_ID, QUEUED_AT, POLICY, drifted.value),
