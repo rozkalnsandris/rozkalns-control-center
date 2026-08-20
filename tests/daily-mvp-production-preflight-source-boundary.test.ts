@@ -39,4 +39,5 @@ test("Daily MVP production preflight is manual and read-only", () => {
   assert.doesNotMatch(workflow, /CONTROL_ACCESS_CLIENT_(?:ID|SECRET)/);
   assert.doesNotMatch(workflow, /\/api\/github\/needs-changes/);
   assert.doesNotMatch(workflow, /CONTROL_NOTIFICATION_TRANSITIONS_ENABLED/);
+  assert.doesNotMatch(workflow, /CONTROL_NOTIFICATION_TARGET_KEYS/);
 });
