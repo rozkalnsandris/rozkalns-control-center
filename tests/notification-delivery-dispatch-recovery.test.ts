@@ -61,7 +61,7 @@ class FakeAttemptStore implements NotificationDeliveryAttemptStore {
     return this.#history;
   }
 
-  async append(_attempt: NotificationDeliveryAttemptRecord): Promise<NotificationDeliveryAttemptAppendResult> {
+  async append(): Promise<NotificationDeliveryAttemptAppendResult> {
     this.appendCalls += 1;
     throw new Error("restart-safe recovery must never append");
   }
