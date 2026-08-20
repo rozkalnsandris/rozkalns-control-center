@@ -5,7 +5,10 @@ import {
 import type {
   NotificationDeliveryDispatchClaimEvidence,
   NotificationDeliveryDispatchClaimReader,
+  NotificationDeliveryDispatchClaimRecoveryEvidence,
+  NotificationDeliveryDispatchClaimRecoveryReader,
   NotificationDeliveryDispatchClaimResult,
+  NotificationDeliveryDispatchClaimSnapshot,
   NotificationDeliveryDispatchClaimStore,
 } from "../../shared/notification-delivery-dispatch-claim-store.js";
 import {
@@ -56,15 +59,7 @@ interface StoredDispatchClaimRow {
   readonly attempted_at: string;
 }
 
-interface NormalizedDispatchClaim {
-  readonly dispatchId: string;
-  readonly schemaVersion: 1;
-  readonly deliveryId: string;
-  readonly attemptNumber: number;
-  readonly transitionId: string;
-  readonly targetKey: string;
-  readonly attemptedAt: string;
-}
+type NormalizedDispatchClaim = NotificationDeliveryDispatchClaimSnapshot;
 
 export class D1NotificationDeliveryDispatchClaimStoreError extends Error {
   constructor(message: string) {
@@ -247,12 +242,55 @@ function sameClaim(left: NormalizedDispatchClaim, right: NormalizedDispatchClaim
 }
 
 export class D1NotificationDeliveryDispatchClaimStore
-  implements NotificationDeliveryDispatchClaimStore, NotificationDeliveryDispatchClaimReader
+  implements
+    NotificationDeliveryDispatchClaimStore,
+    NotificationDeliveryDispatchClaimReader,
+    NotificationDeliveryDispatchClaimRecoveryReader
 {
   readonly #database: D1DatabaseLike;
 
   constructor(database: D1DatabaseLike) {
     this.#database = database;
+  }
+
+  async readSnapshot(
+    deliveryId: string,
+    attemptNumber: number,
+  ): Promise<NotificationDeliveryDispatchClaimRecoveryEvidence> {
+    let dispatchId: string;
+    try {
+      dispatchId = notificationDeliveryDispatchId(deliveryId, attemptNumber);
+    } catch {
+      throw new D1NotificationDeliveryDispatchClaimStoreError(
+        "notification dispatch recovery identity is malformed",
+      );
+    }
+
+    const existing = await this.#database
+      .prepare(READ_CLAIM_SQL)
+      .bind(dispatchId)
+      .run<StoredDispatchClaimRow>();
+
+    requireSuccessfulResult(existing, "notification dispatch claim recovery read");
+    if (existing.results.length === 0) return { kind: "NOT_CLAIMED" };
+    if (existing.results.length !== 1) {
+      throw new D1NotificationDeliveryDispatchClaimStoreError(
+        "D1 notification dispatch recovery evidence could not be uniquely proven",
+      );
+    }
+
+    const stored = parseStoredClaim(existing.results[0]);
+    if (
+      stored.dispatchId !== dispatchId ||
+      stored.deliveryId !== deliveryId ||
+      stored.attemptNumber !== attemptNumber
+    ) {
+      throw new D1NotificationDeliveryDispatchClaimStoreError(
+        "D1 notification dispatch recovery evidence does not match requested identity",
+      );
+    }
+
+    return { kind: "CLAIMED", claim: stored };
   }
 
   async read(
