@@ -2,6 +2,7 @@ import type { NotificationDeliveryAttemptStore } from "./notification-delivery-a
 import {
   notificationDeliveryDispatchAttempt,
   type NotificationDeliveryDispatchAdapter,
+  type NotificationDeliveryDispatchAttempt,
 } from "./notification-delivery-dispatch-attempt.js";
 import type {
   NotificationDeliveryDispatchClaimRecoveryReader,
@@ -63,7 +64,7 @@ export class NotificationDeliveryDispatchCoordinatorError extends Error {
 function validationProbe(
   envelope: NotificationDeliveryEnvelope,
   decision: NotificationDeliveryDispatchDecision,
-) {
+): NotificationDeliveryDispatchAttempt {
   if (!decision || typeof decision !== "object" || decision.kind !== "READY") {
     throw new NotificationDeliveryDispatchCoordinatorError("INVALID_INPUT");
   }
@@ -143,7 +144,7 @@ export async function coordinateNotificationDeliveryDispatch(
   const initial = recoveredResult(initialRecovery);
   if (initial) return initial;
 
-  let attempt;
+  let attempt: NotificationDeliveryDispatchAttempt;
   try {
     attempt = notificationDeliveryDispatchAttempt(
       probe.envelope,
