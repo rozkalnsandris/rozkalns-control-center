@@ -3,6 +3,8 @@ import {
   type NotificationDeliveryDispatchAttempt,
 } from "../../shared/notification-delivery-dispatch-attempt.js";
 import type {
+  NotificationDeliveryDispatchClaimEvidence,
+  NotificationDeliveryDispatchClaimReader,
   NotificationDeliveryDispatchClaimResult,
   NotificationDeliveryDispatchClaimStore,
 } from "../../shared/notification-delivery-dispatch-claim-store.js";
@@ -245,12 +247,39 @@ function sameClaim(left: NormalizedDispatchClaim, right: NormalizedDispatchClaim
 }
 
 export class D1NotificationDeliveryDispatchClaimStore
-  implements NotificationDeliveryDispatchClaimStore
+  implements NotificationDeliveryDispatchClaimStore, NotificationDeliveryDispatchClaimReader
 {
   readonly #database: D1DatabaseLike;
 
   constructor(database: D1DatabaseLike) {
     this.#database = database;
+  }
+
+  async read(
+    attempt: NotificationDeliveryDispatchAttempt,
+  ): Promise<NotificationDeliveryDispatchClaimEvidence> {
+    const claim = normalizeAttempt(attempt);
+    const existing = await this.#database
+      .prepare(READ_CLAIM_SQL)
+      .bind(claim.dispatchId)
+      .run<StoredDispatchClaimRow>();
+
+    requireSuccessfulResult(existing, "notification dispatch claim evidence read");
+    if (existing.results.length === 0) return { kind: "NOT_CLAIMED" };
+    if (existing.results.length !== 1) {
+      throw new D1NotificationDeliveryDispatchClaimStoreError(
+        "D1 notification dispatch claim evidence could not be uniquely proven",
+      );
+    }
+
+    const stored = parseStoredClaim(existing.results[0]);
+    if (!sameClaim(stored, claim)) {
+      throw new D1NotificationDeliveryDispatchClaimStoreError(
+        "D1 notification dispatch claim evidence does not match exact attempt",
+      );
+    }
+
+    return { kind: "CLAIMED" };
   }
 
   async claim(
