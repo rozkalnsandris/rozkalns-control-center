@@ -5,6 +5,7 @@ import {
   ControlWebhookQueueRuntimeError,
   RECONCILIATION_DLQ_NAME,
   RECONCILIATION_QUEUE_NAME,
+  notificationTargetKeys,
   resolveControlWebhookQueueRuntime,
   type ControlWebhookQueueRuntimeBindings,
 } from "../src/integrations/cloudflare/control-webhook-queue-runtime.js";
@@ -178,6 +179,59 @@ test("exactly enabled but incomplete bindings fail closed without touching D1", 
 
   assert.deepEqual(resolution, { status: "INVALID" });
   assert.equal(prepares, 0);
+});
+
+test("notification target binding stays uninspected while notification transitions are dormant", () => {
+  const database = new RuntimeD1();
+  let inspected = 0;
+  const bindings = {
+    ...enabledBindings(database),
+    CONTROL_NOTIFICATION_TRANSITIONS_ENABLED: "false",
+    get CONTROL_NOTIFICATION_TARGET_KEYS() {
+      inspected += 1;
+      throw new Error("target config must stay dormant");
+    },
+  } as ControlWebhookQueueRuntimeBindings;
+
+  assert.equal(resolveControlWebhookQueueRuntime(bindings).status, "READY");
+  assert.equal(inspected, 0);
+  assert.equal(database.queries.length, 0);
+});
+
+test("enabled notification durability requires an explicit valid finite target-key JSON array", () => {
+  const database = new RuntimeD1();
+
+  assert.deepEqual(notificationTargetKeys('["primary","backup"]'), ["primary", "backup"]);
+
+  for (const value of [
+    undefined,
+    "",
+    "not-json",
+    "{}",
+    "[]",
+    '["primary","primary"]',
+    '["Bad target"]',
+  ]) {
+    assert.throws(
+      () => notificationTargetKeys(value),
+      (error: unknown) => error instanceof ControlWebhookQueueRuntimeError,
+    );
+  }
+
+  const missingTarget = {
+    ...enabledBindings(database),
+    CONTROL_NOTIFICATION_TRANSITIONS_ENABLED: "true",
+  };
+  assert.deepEqual(resolveControlWebhookQueueRuntime(missingTarget), { status: "INVALID" });
+  assert.equal(database.queries.length, 0);
+
+  const validTarget = {
+    ...enabledBindings(database),
+    CONTROL_NOTIFICATION_TRANSITIONS_ENABLED: "true",
+    CONTROL_NOTIFICATION_TARGET_KEYS: '["primary","backup"]',
+  };
+  assert.equal(resolveControlWebhookQueueRuntime(validTarget).status, "READY");
+  assert.equal(database.queries.length, 0);
 });
 
 test("ready runtime rejects an unexpected queue before D1 or GitHub work", async () => {

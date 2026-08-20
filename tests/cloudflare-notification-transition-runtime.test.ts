@@ -11,6 +11,11 @@ import type { QueueMessageControlLike } from "../src/integrations/cloudflare/rec
 import type { CloudflareGitHubRuntimeBindings } from "../src/integrations/github/cloudflare-worker-runtime.js";
 import type { ControlDashboardData, DecisionReadModel } from "../src/shared/control-model.js";
 import type {
+  NotificationDeliveryIntent,
+  NotificationDeliveryIntentEnqueueResult,
+  NotificationDeliveryIntentStore,
+} from "../src/shared/notification-delivery-intent-store.js";
+import type {
   NotificationTransitionClaim,
   NotificationTransitionClaimResult,
   NotificationTransitionStore,
@@ -192,14 +197,33 @@ class FakeTransitionStore implements NotificationTransitionStore {
   }
 }
 
+class FakeIntentStore implements NotificationDeliveryIntentStore {
+  readonly calls: NotificationDeliveryIntent[] = [];
+  readonly durable = new Map<string, NotificationDeliveryIntent>();
+  failTarget: string | null = null;
+
+  async enqueue(
+    intent: NotificationDeliveryIntent,
+  ): Promise<NotificationDeliveryIntentEnqueueResult> {
+    this.calls.push(intent);
+    if (intent.envelope.targetKey === this.failTarget) {
+      throw new Error("fake intent store failure");
+    }
+    if (this.durable.has(intent.envelope.deliveryId)) return { kind: "DUPLICATE" };
+    this.durable.set(intent.envelope.deliveryId, intent);
+    return { kind: "ENQUEUED" };
+  }
+}
+
 function messageBatch(message: FakeQueueMessage) {
   return { queue: QUEUE, messages: [message] };
 }
 
-test("optional transition store claims only high-signal decisions after one dashboard read", async () => {
+test("optional notification delivery runtime materializes high-signal decisions after one dashboard read", async () => {
   const lifecycle = new FakeLifecycleStore();
   lifecycle.add("delivery-1");
   const transitions = new FakeTransitionStore();
+  const intents = new FakeIntentStore();
   let dashboardReads = 0;
   const snapshot = dashboard([
     decision("needs", "NEEDS_ANDRIS", "PASS", "Owner decision required"),
@@ -215,7 +239,11 @@ test("optional transition store claims only high-signal decisions after one dash
       dashboardReads += 1;
       return snapshot;
     },
-    notificationTransitionStore: transitions,
+    notificationDelivery: {
+      transitionStore: transitions,
+      intentStore: intents,
+      targetKeys: ["primary", "backup"],
+    },
   });
   const message = new FakeQueueMessage(queueBody("delivery-1"));
 
@@ -228,14 +256,22 @@ test("optional transition store claims only high-signal decisions after one dash
     ["needs", "failed"],
   );
   assert.ok(transitions.claims.every((claim) => claim.claimedAt === NOW));
-  assert.ok(
-    transitions.claims.every((claim) => claim.candidate.deepLinkPath.startsWith("/#decision-")),
+  assert.deepEqual(
+    intents.calls.map((intent) => [intent.envelope.decisionId, intent.envelope.targetKey]),
+    [
+      ["needs", "primary"],
+      ["needs", "backup"],
+      ["failed", "primary"],
+      ["failed", "backup"],
+    ],
   );
+  assert.ok(intents.calls.every((intent) => intent.queuedAt === NOW));
 });
 
-test("unchanged snapshots become durable duplicates while changed evidence creates a new transition", async () => {
+test("unchanged snapshots replay duplicate transitions and duplicate intents while changed evidence creates new durable work", async () => {
   const lifecycle = new FakeLifecycleStore();
   const transitions = new FakeTransitionStore();
+  const intents = new FakeIntentStore();
   let current = dashboard([
     decision("needs", "NEEDS_ANDRIS", "PASS", "Owner decision required"),
     decision("failed", "CI_FAILED", "FAIL", "CI failed and needs inspection"),
@@ -250,7 +286,11 @@ test("unchanged snapshots become durable duplicates while changed evidence creat
       dashboardReads += 1;
       return current;
     },
-    notificationTransitionStore: transitions,
+    notificationDelivery: {
+      transitionStore: transitions,
+      intentStore: intents,
+      targetKeys: ["primary"],
+    },
   });
 
   for (const deliveryId of ["delivery-a", "delivery-b"]) {
@@ -262,6 +302,8 @@ test("unchanged snapshots become durable duplicates while changed evidence creat
   assert.equal(transitions.claimedCount, 2);
   assert.equal(transitions.duplicateCount, 2);
   assert.equal(transitions.seen.size, 2);
+  assert.equal(intents.durable.size, 2);
+  assert.equal(intents.calls.length, 4);
 
   current = dashboard([
     decision("needs", "NEEDS_ANDRIS", "PASS", "Owner decision changed materially"),
@@ -275,38 +317,69 @@ test("unchanged snapshots become durable duplicates while changed evidence creat
   assert.equal(transitions.claimedCount, 3);
   assert.equal(transitions.duplicateCount, 3);
   assert.equal(transitions.seen.size, 3);
+  assert.equal(intents.durable.size, 3);
 });
 
-test("transition-store failure keeps Queue delivery retryable and does not report success", async () => {
+test("transition-store failure keeps Queue delivery retryable and does not enqueue an intent", async () => {
   const lifecycle = new FakeLifecycleStore();
-  lifecycle.add("delivery-fail");
+  lifecycle.add("delivery-transition-fail");
   const transitions = new FakeTransitionStore();
   transitions.failDecisionId = "needs";
-  let dashboardReads = 0;
+  const intents = new FakeIntentStore();
   const handler = createCloudflareReconciliationBatchHandler({
     bindings: GITHUB_BINDINGS,
     deliveryStore: lifecycle,
     expectedQueue: QUEUE,
     now: () => NOW,
-    readDashboard: async () => {
-      dashboardReads += 1;
-      return dashboard([decision("needs", "NEEDS_ANDRIS", "PASS", "Owner decision required")]);
+    readDashboard: async () =>
+      dashboard([decision("needs", "NEEDS_ANDRIS", "PASS", "Owner decision required")]),
+    notificationDelivery: {
+      transitionStore: transitions,
+      intentStore: intents,
+      targetKeys: ["primary"],
     },
-    notificationTransitionStore: transitions,
   });
-  const message = new FakeQueueMessage(queueBody("delivery-fail"));
+  const message = new FakeQueueMessage(queueBody("delivery-transition-fail"));
 
   assert.deepEqual(await handler(messageBatch(message)), ["RETRY_REQUESTED"]);
-  assert.equal(dashboardReads, 1);
   assert.deepEqual(message.controls, ["retry"]);
-  assert.equal(lifecycle.deliveries.get("delivery-fail")?.state, "RETRY_PENDING");
+  assert.equal(lifecycle.deliveries.get("delivery-transition-fail")?.state, "RETRY_PENDING");
   assert.equal(
-    lifecycle.deliveries.get("delivery-fail")?.lastErrorCode,
+    lifecycle.deliveries.get("delivery-transition-fail")?.lastErrorCode,
     "AUTHORITATIVE_RECONCILIATION_FAILED",
   );
+  assert.deepEqual(intents.calls, []);
 });
 
-test("omitting the optional transition store preserves the existing reconciliation-only path", async () => {
+test("intent-store failure keeps Queue delivery retryable after the durable transition claim", async () => {
+  const lifecycle = new FakeLifecycleStore();
+  lifecycle.add("delivery-intent-fail");
+  const transitions = new FakeTransitionStore();
+  const intents = new FakeIntentStore();
+  intents.failTarget = "primary";
+  const handler = createCloudflareReconciliationBatchHandler({
+    bindings: GITHUB_BINDINGS,
+    deliveryStore: lifecycle,
+    expectedQueue: QUEUE,
+    now: () => NOW,
+    readDashboard: async () =>
+      dashboard([decision("needs", "NEEDS_ANDRIS", "PASS", "Owner decision required")]),
+    notificationDelivery: {
+      transitionStore: transitions,
+      intentStore: intents,
+      targetKeys: ["primary"],
+    },
+  });
+  const message = new FakeQueueMessage(queueBody("delivery-intent-fail"));
+
+  assert.deepEqual(await handler(messageBatch(message)), ["RETRY_REQUESTED"]);
+  assert.deepEqual(message.controls, ["retry"]);
+  assert.equal(transitions.claimedCount, 1);
+  assert.equal(intents.calls.length, 1);
+  assert.equal(lifecycle.deliveries.get("delivery-intent-fail")?.state, "RETRY_PENDING");
+});
+
+test("omitting the optional notification delivery runtime preserves the existing reconciliation-only path", async () => {
   const lifecycle = new FakeLifecycleStore();
   lifecycle.add("delivery-dormant");
   let dashboardReads = 0;

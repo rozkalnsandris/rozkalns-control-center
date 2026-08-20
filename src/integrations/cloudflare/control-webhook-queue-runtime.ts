@@ -1,5 +1,7 @@
 import type { CloudflareGitHubRuntimeBindings } from "../github/cloudflare-worker-runtime.js";
 import { createCloudflareGitHubReadRuntime } from "../github/cloudflare-worker-runtime.js";
+import { NOTIFICATION_DELIVERY_INTENT_MAX_TARGETS } from "../../shared/notification-delivery-intent-materialization.js";
+import type { NotificationDeliveryTargetKey } from "../../shared/notification-delivery.js";
 import {
   createCloudflareReconciliationBatchHandler,
   type CloudflareReconciliationBatchRuntimeOptions,
@@ -8,6 +10,7 @@ import {
   D1DeliveryClaimStore,
   type D1DatabaseLike,
 } from "./d1-delivery-claim-store.js";
+import { D1NotificationDeliveryIntentStore } from "./d1-notification-delivery-intent-store.js";
 import { D1NotificationTransitionStore } from "./d1-notification-transition-store.js";
 import {
   D1WebhookDeliveryObservabilityReader,
@@ -26,6 +29,7 @@ import {
 
 export const CONTROL_WEBHOOK_RUNTIME_FLAG = "CONTROL_WEBHOOK_RUNTIME_ENABLED" as const;
 export const CONTROL_NOTIFICATION_TRANSITIONS_FLAG = "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED" as const;
+export const CONTROL_NOTIFICATION_TARGET_KEYS_BINDING = "CONTROL_NOTIFICATION_TARGET_KEYS" as const;
 export const RECONCILIATION_QUEUE_BINDING = "RECONCILIATION_QUEUE" as const;
 export const GITHUB_WEBHOOK_SECRET_BINDING = "GITHUB_WEBHOOK_SECRET" as const;
 export const RECONCILIATION_QUEUE_NAME = "rozkalns-control-reconciliation" as const;
@@ -34,6 +38,7 @@ export const RECONCILIATION_DLQ_NAME = "rozkalns-control-reconciliation-dlq" as 
 export interface ControlWebhookQueueRuntimeBindings {
   readonly CONTROL_WEBHOOK_RUNTIME_ENABLED?: unknown;
   readonly CONTROL_NOTIFICATION_TRANSITIONS_ENABLED?: unknown;
+  readonly CONTROL_NOTIFICATION_TARGET_KEYS?: unknown;
   readonly GITHUB_WEBHOOK_SECRET?: unknown;
   readonly CONTROL_DB?: unknown;
   readonly RECONCILIATION_QUEUE?: unknown;
@@ -78,6 +83,45 @@ export interface ControlWebhookQueueRuntimeOptions {
 
 export function notificationTransitionsEnabled(value: unknown): boolean {
   return value === "true";
+}
+
+const TARGET_KEY_PATTERN = /^[a-z0-9](?:[a-z0-9._:-]{0,63})$/;
+
+export function notificationTargetKeys(value: unknown): readonly NotificationDeliveryTargetKey[] {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+  }
+
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    parsed.length > NOTIFICATION_DELIVERY_INTENT_MAX_TARGETS
+  ) {
+    throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+  }
+
+  const targetKeys: NotificationDeliveryTargetKey[] = [];
+  const seen = new Set<string>();
+  for (const targetKey of parsed) {
+    if (
+      typeof targetKey !== "string" ||
+      !TARGET_KEY_PATTERN.test(targetKey) ||
+      seen.has(targetKey)
+    ) {
+      throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+    }
+    seen.add(targetKey);
+    targetKeys.push(targetKey);
+  }
+
+  return targetKeys;
 }
 
 function bindingString(value: unknown): string {
@@ -152,12 +196,13 @@ async function finalizeDeadLetterBatch(
 
 /**
  * Resolve the Phase 2 webhook/Queue runtime plus an optional dormant-by-default
- * Phase 4 notification-transition discovery path.
+ * Phase 4 notification transition→delivery-intent path.
  *
  * The webhook feature flag is checked before any other binding is inspected.
- * Notification transition discovery is enabled only by the exact literal
- * "true" and is otherwise absent from the Queue reconciliation path. Merely
- * merging this source does not activate the flag in production configuration.
+ * Notification durability is enabled only by the exact literal "true" and then
+ * additionally requires an explicit provider-neutral JSON target-key array.
+ * When the notification flag is absent/off, the target binding is not inspected.
+ * Merging this source does not add either binding to production configuration.
  */
 export function resolveControlWebhookQueueRuntime(
   bindings: ControlWebhookQueueRuntimeBindings,
@@ -179,10 +224,14 @@ export function resolveControlWebhookQueueRuntime(
 
     const now = options.now ?? (() => new Date().toISOString());
     const deliveryStore = new D1DeliveryClaimStore(database);
-    const notificationTransitionStore = notificationTransitionsEnabled(
+    const notificationDelivery = notificationTransitionsEnabled(
       bindings.CONTROL_NOTIFICATION_TRANSITIONS_ENABLED,
     )
-      ? new D1NotificationTransitionStore(database)
+      ? {
+          transitionStore: new D1NotificationTransitionStore(database),
+          intentStore: new D1NotificationDeliveryIntentStore(database),
+          targetKeys: notificationTargetKeys(bindings.CONTROL_NOTIFICATION_TARGET_KEYS),
+        }
       : undefined;
     const webhookAcceptor = new WebhookReconciliationAcceptor({
       deliveryStore,
@@ -196,7 +245,7 @@ export function resolveControlWebhookQueueRuntime(
       expectedQueue: RECONCILIATION_QUEUE_NAME,
       now,
       readDashboard: options.readDashboard,
-      notificationTransitionStore,
+      notificationDelivery,
     });
 
     return {
