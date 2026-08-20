@@ -275,21 +275,22 @@ test("low-signal decisions remain ignored without transition or intent mutation"
   assert.deepEqual(intents.calls, []);
 });
 
-test("restart-safe transition-to-intent reconciliation remains detached from Worker and React runtime", () => {
-  const runtimeSources = [
-    readFileSync(resolve(process.cwd(), "src/worker/index.ts"), "utf8"),
-    readFileSync(
-      resolve(process.cwd(), "src/integrations/cloudflare/cloudflare-reconciliation-batch-runtime.ts"),
-      "utf8",
-    ),
-    readFileSync(
-      resolve(process.cwd(), "src/integrations/cloudflare/control-webhook-queue-runtime.ts"),
-      "utf8",
-    ),
-    readFileSync(resolve(process.cwd(), "src/react-app/App.tsx"), "utf8"),
-  ];
+test("restart-safe transition-to-intent reconciliation is confined to dormant Cloudflare Queue runtime wiring", () => {
+  const worker = readFileSync(resolve(process.cwd(), "src/worker/index.ts"), "utf8");
+  const batchRuntime = readFileSync(
+    resolve(process.cwd(), "src/integrations/cloudflare/cloudflare-reconciliation-batch-runtime.ts"),
+    "utf8",
+  );
+  const queueRuntime = readFileSync(
+    resolve(process.cwd(), "src/integrations/cloudflare/control-webhook-queue-runtime.ts"),
+    "utf8",
+  );
+  const reactApp = readFileSync(resolve(process.cwd(), "src/react-app/App.tsx"), "utf8");
   const runtimePattern =
     /notification-transition-delivery-reconciliation|reconcileNotificationTransitionDeliveries/;
 
-  for (const source of runtimeSources) assert.doesNotMatch(source, runtimePattern);
+  assert.match(batchRuntime, runtimePattern);
+  assert.match(queueRuntime, /notificationDelivery/);
+  assert.doesNotMatch(worker, runtimePattern);
+  assert.doesNotMatch(reactApp, runtimePattern);
 });

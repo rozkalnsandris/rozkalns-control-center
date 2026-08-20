@@ -1,6 +1,8 @@
 import { readCloudflareGitHubDashboardSnapshot } from "../github/cloudflare-dashboard-runtime.js";
 import type { CloudflareGitHubRuntimeBindings } from "../github/cloudflare-worker-runtime.js";
-import { reconcileNotificationTransitions } from "../../shared/notification-transition-reconciliation.js";
+import type { NotificationDeliveryTargetKey } from "../../shared/notification-delivery.js";
+import type { NotificationDeliveryIntentStore } from "../../shared/notification-delivery-intent-store.js";
+import { reconcileNotificationTransitionDeliveries } from "../../shared/notification-transition-delivery-reconciliation.js";
 import type { NotificationTransitionStore } from "../../shared/notification-transition-store.js";
 import type { DeliveryLifecycleStore } from "./d1-delivery-claim-store.js";
 import {
@@ -9,13 +11,19 @@ import {
 } from "./reconciliation-queue-batch-consumer.js";
 import type { ReconciliationQueueConsumeResult } from "./reconciliation-queue-consumer.js";
 
+export interface CloudflareNotificationDeliveryRuntimeOptions {
+  readonly transitionStore: NotificationTransitionStore;
+  readonly intentStore: NotificationDeliveryIntentStore;
+  readonly targetKeys: readonly NotificationDeliveryTargetKey[];
+}
+
 export interface CloudflareReconciliationBatchRuntimeOptions {
   readonly bindings: CloudflareGitHubRuntimeBindings;
   readonly deliveryStore: DeliveryLifecycleStore;
   readonly expectedQueue: string;
   readonly now?: () => string;
   readonly readDashboard?: typeof readCloudflareGitHubDashboardSnapshot;
-  readonly notificationTransitionStore?: NotificationTransitionStore;
+  readonly notificationDelivery?: CloudflareNotificationDeliveryRuntimeOptions;
 }
 
 export type CloudflareReconciliationBatchHandler = (
@@ -28,11 +36,10 @@ export type CloudflareReconciliationBatchHandler = (
  *
  * The expensive authoritative reread is created lazily by
  * consumeReconciliationQueueBatch and therefore runs at most once for the
- * entire Queue invocation. When an explicitly supplied notification transition
- * store is present, the same authoritative snapshot is also evaluated for the
- * provider-neutral high-signal transition contract. The durable claims record
- * discovery/dedupe only; this runtime does not send a notification provider
- * request.
+ * entire Queue invocation. When an explicitly supplied notification-delivery
+ * runtime is present, the same authoritative snapshot is reconciled through the
+ * restart-safe provider-neutral transition→intent contract. This creates only
+ * durable transition/intent evidence; no notification provider request is sent.
  */
 export function createCloudflareReconciliationBatchHandler(
   options: CloudflareReconciliationBatchRuntimeOptions,
@@ -51,11 +58,15 @@ export function createCloudflareReconciliationBatchHandler(
           bindings: options.bindings,
           observedAt,
         });
-        if (options.notificationTransitionStore) {
-          await reconcileNotificationTransitions(
-            snapshot,
-            options.notificationTransitionStore,
-            observedAt,
+        if (options.notificationDelivery) {
+          await reconcileNotificationTransitionDeliveries(
+            {
+              snapshot,
+              observedAt,
+              targetKeys: options.notificationDelivery.targetKeys,
+            },
+            options.notificationDelivery.transitionStore,
+            options.notificationDelivery.intentStore,
           );
         }
       },

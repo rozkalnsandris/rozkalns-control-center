@@ -208,17 +208,17 @@ test("unexpected store evidence fails closed after the exact attempted enqueue",
   );
 });
 
-test("delivery-intent materialization remains detached from Worker and React runtime", () => {
-  const runtimeSources = [
-    readFileSync(resolve(process.cwd(), "src/worker/index.ts"), "utf8"),
-    readFileSync(
-      resolve(process.cwd(), "src/integrations/cloudflare/control-webhook-queue-runtime.ts"),
-      "utf8",
-    ),
-    readFileSync(resolve(process.cwd(), "src/react-app/App.tsx"), "utf8"),
-  ];
+test("delivery-intent materialization is confined to dormant Cloudflare Queue runtime wiring", () => {
+  const worker = readFileSync(resolve(process.cwd(), "src/worker/index.ts"), "utf8");
+  const queueRuntime = readFileSync(
+    resolve(process.cwd(), "src/integrations/cloudflare/control-webhook-queue-runtime.ts"),
+    "utf8",
+  );
+  const reactApp = readFileSync(resolve(process.cwd(), "src/react-app/App.tsx"), "utf8");
   const runtimePattern =
     /notification-delivery-intent-materialization|materializeNotificationDeliveryIntents/;
 
-  for (const source of runtimeSources) assert.doesNotMatch(source, runtimePattern);
+  assert.match(queueRuntime, runtimePattern);
+  assert.doesNotMatch(worker, runtimePattern);
+  assert.doesNotMatch(reactApp, runtimePattern);
 });
