@@ -5,12 +5,15 @@ import {
 import type {
   NotificationDeliveryIntent,
   NotificationDeliveryIntentEnqueueResult,
+  NotificationDeliveryIntentRecoveryEvidence,
+  NotificationDeliveryIntentRecoveryReader,
   NotificationDeliveryIntentStore,
 } from "../../shared/notification-delivery-intent-store.js";
 import type { NotificationCandidate } from "../../shared/notification-transition.js";
 import type { D1DatabaseLike, D1RunResultLike } from "./d1-delivery-claim-store.js";
 
 const utcTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const deliveryIdPattern = /^delivery-v1-[0-9a-f]{16}$/;
 
 const INSERT_INTENT_SQL = `
 INSERT INTO notification_delivery_intents (
@@ -91,6 +94,13 @@ function requireUtcTimestamp(value: string, field: string): string {
     throw new D1NotificationDeliveryIntentStoreError(`${field} must be a UTC ISO timestamp`);
   }
   return new Date(value).toISOString();
+}
+
+function requireDeliveryId(value: unknown): string {
+  if (typeof value !== "string" || !deliveryIdPattern.test(value)) {
+    throw new D1NotificationDeliveryIntentStoreError("deliveryId is malformed");
+  }
+  return value;
 }
 
 function candidateFromEnvelope(envelope: NotificationDeliveryEnvelope): NotificationCandidate {
@@ -196,11 +206,38 @@ function sameEnvelope(
   );
 }
 
-export class D1NotificationDeliveryIntentStore implements NotificationDeliveryIntentStore {
+export class D1NotificationDeliveryIntentStore
+  implements NotificationDeliveryIntentStore, NotificationDeliveryIntentRecoveryReader
+{
   readonly #database: D1DatabaseLike;
 
   constructor(database: D1DatabaseLike) {
     this.#database = database;
+  }
+
+  async read(deliveryIdInput: string): Promise<NotificationDeliveryIntentRecoveryEvidence> {
+    const deliveryId = requireDeliveryId(deliveryIdInput);
+    const existing = await this.#database
+      .prepare(READ_INTENT_SQL)
+      .bind(deliveryId)
+      .run<StoredDeliveryIntentRow>();
+
+    requireSuccessfulResult(existing, "notification delivery intent recovery read");
+    if (existing.results.length === 0) return { kind: "NOT_FOUND" };
+    if (existing.results.length !== 1) {
+      throw new D1NotificationDeliveryIntentStoreError(
+        "D1 notification delivery intent recovery identity could not be uniquely proven",
+      );
+    }
+
+    const intent = parseStoredIntent(existing.results[0]);
+    if (intent.envelope.deliveryId !== deliveryId) {
+      throw new D1NotificationDeliveryIntentStoreError(
+        "D1 notification delivery intent recovery row does not match requested identity",
+      );
+    }
+
+    return { kind: "FOUND", intent };
   }
 
   async enqueue(input: NotificationDeliveryIntent): Promise<NotificationDeliveryIntentEnqueueResult> {
