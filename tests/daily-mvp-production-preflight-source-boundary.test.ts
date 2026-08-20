@@ -19,8 +19,8 @@ test("Daily MVP production preflight is manual and read-only", () => {
   assert.match(workflow, /\.conclusion == "success"/);
   assert.match(workflow, /MAIN_SHA_DRIFT/);
 
-  assert.match(workflow, /EXPECTED_ACTIVE_VERSION:\s*a31c4318-9ff6-4a05-9748-c923c453262d/);
-  assert.match(workflow, /EXPECTED_ACTIVE_DEPLOYMENT:\s*8e536678-a89d-4079-a8ef-92d3103dbcbf/);
+  assert.match(workflow, /EXPECTED_ACTIVE_VERSION:\s*83eb326a-3a0e-4548-b253-7a463bc934ac/);
+  assert.match(workflow, /EXPECTED_ACTIVE_DEPLOYMENT:\s*9392d84b-5458-4b33-9dda-9918a8d535d4/);
   assert.match(workflow, /ACTIVE_DEPLOYMENT_REVERTED_TO_FROZEN_PRE_DEPLOYMENT/);
   assert.match(workflow, /ACTIVE_DEPLOYMENT_DRIFT/);
   assert.match(workflow, /ACTIVE_VERSION_DRIFT/);
