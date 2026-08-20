@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { notificationTransitionsEnabled } from "../src/integrations/cloudflare/control-webhook-queue-runtime.js";
+import {
+  notificationTargetKeys,
+  notificationTransitionsEnabled,
+} from "../src/integrations/cloudflare/control-webhook-queue-runtime.js";
 
-test("notification transition runtime flag is exact and dormant by default", async () => {
+test("notification delivery-intent runtime wiring is exact and dormant by default", async () => {
   assert.equal(notificationTransitionsEnabled("true"), true);
   for (const value of [undefined, null, false, true, "false", "TRUE", "true ", " true", 1]) {
     assert.equal(notificationTransitionsEnabled(value), false);
   }
+  assert.deepEqual(notificationTargetKeys('["primary","backup"]'), ["primary", "backup"]);
 
   const [runtimeAssembly, batchRuntime, worker, wranglerSource] = await Promise.all([
     readFile("src/integrations/cloudflare/control-webhook-queue-runtime.ts", "utf8"),
@@ -21,19 +25,21 @@ test("notification transition runtime flag is exact and dormant by default", asy
   };
 
   assert.match(runtimeAssembly, /CONTROL_NOTIFICATION_TRANSITIONS_ENABLED/);
+  assert.match(runtimeAssembly, /CONTROL_NOTIFICATION_TARGET_KEYS/);
   assert.match(runtimeAssembly, /D1NotificationTransitionStore/);
+  assert.match(runtimeAssembly, /D1NotificationDeliveryIntentStore/);
   assert.match(runtimeAssembly, /notificationTransitionsEnabled/);
-  assert.match(batchRuntime, /reconcileNotificationTransitions/);
-  assert.match(batchRuntime, /notificationTransitionStore/);
+  assert.match(runtimeAssembly, /notificationTargetKeys/);
+  assert.match(batchRuntime, /reconcileNotificationTransitionDeliveries/);
+  assert.match(batchRuntime, /notificationDelivery/);
 
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(
-      wrangler.vars ?? {},
-      "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED",
-    ),
-    false,
-  );
-  assert.doesNotMatch(worker, /CONTROL_NOTIFICATION_TRANSITIONS_ENABLED/);
+  for (const binding of [
+    "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED",
+    "CONTROL_NOTIFICATION_TARGET_KEYS",
+  ]) {
+    assert.equal(Object.prototype.hasOwnProperty.call(wrangler.vars ?? {}, binding), false);
+    assert.doesNotMatch(worker, new RegExp(binding));
+  }
 
   const combined = `${runtimeAssembly}\n${batchRuntime}`;
   assert.doesNotMatch(combined, /api\.telegram\.org|webpush|pushsubscription|vapid/i);
