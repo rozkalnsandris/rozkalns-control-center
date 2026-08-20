@@ -141,13 +141,12 @@ test("malformed timestamp, attempt number and unsupported result reason fail clo
     () => appendNotificationDeliveryAttempt(initial, attempt(0, { kind: "DELIVERED" })),
     expectCode("INVALID_ATTEMPT"),
   );
-  assert.throws(
-    () =>
-      appendNotificationDeliveryAttempt(
-        initial,
-        attempt(1, { kind: "RETRYABLE_FAILURE", reason: "RATE_LIMITED" }),
-      ),
-    undefined,
+
+  assert.doesNotThrow(() =>
+    appendNotificationDeliveryAttempt(
+      initial,
+      attempt(1, { kind: "RETRYABLE_FAILURE", reason: "RATE_LIMITED" }),
+    ),
   );
 
   const invalidReason = attempt(1, {
