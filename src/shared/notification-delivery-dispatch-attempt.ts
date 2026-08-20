@@ -113,6 +113,26 @@ function normalizeReadyDecision(
   return decision;
 }
 
+/** Deterministic non-secret identity for one exact delivery attempt. */
+export function notificationDeliveryDispatchId(
+  deliveryId: string,
+  attemptNumber: number,
+): string {
+  const deliveryIdentity = DELIVERY_ID_PATTERN.exec(deliveryId);
+  if (!deliveryIdentity) {
+    throw new NotificationDeliveryDispatchAttemptError("INVALID_ENVELOPE");
+  }
+  if (
+    !Number.isSafeInteger(attemptNumber) ||
+    attemptNumber < 1 ||
+    attemptNumber > MAX_ATTEMPT_NUMBER
+  ) {
+    throw new NotificationDeliveryDispatchAttemptError("INVALID_DECISION");
+  }
+
+  return `dispatch-v1-${deliveryIdentity[1]}-${attemptNumber}`;
+}
+
 /**
  * Build one provider-neutral dispatch-attempt identity from already-validated
  * READY evidence. `dispatchId` is a bounded, non-secret replay/idempotency key
@@ -132,14 +152,9 @@ export function notificationDeliveryDispatchAttempt(
     throw new NotificationDeliveryDispatchAttemptError("BEFORE_ELIGIBLE");
   }
 
-  const deliveryIdentity = DELIVERY_ID_PATTERN.exec(envelope.deliveryId);
-  if (!deliveryIdentity) {
-    throw new NotificationDeliveryDispatchAttemptError("INVALID_ENVELOPE");
-  }
-
   return {
     schemaVersion: 1,
-    dispatchId: `dispatch-v1-${deliveryIdentity[1]}-${decision.attemptNumber}`,
+    dispatchId: notificationDeliveryDispatchId(envelope.deliveryId, decision.attemptNumber),
     deliveryId: envelope.deliveryId,
     attemptNumber: decision.attemptNumber,
     attemptedAt,
