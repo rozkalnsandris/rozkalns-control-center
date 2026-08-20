@@ -19,8 +19,8 @@ test("Daily MVP production preflight is manual and read-only", () => {
   assert.match(workflow, /\.conclusion == "success"/);
   assert.match(workflow, /MAIN_SHA_DRIFT/);
 
-  assert.match(workflow, /EXPECTED_ACTIVE_VERSION:\s*dab5c9a5-e33a-4b34-933f-5e0c8091243f/);
-  assert.match(workflow, /EXPECTED_ACTIVE_DEPLOYMENT:\s*0b7cd395-89e7-4037-af5f-37e479a4f13e/);
+  assert.match(workflow, /EXPECTED_ACTIVE_VERSION:\s*a31c4318-9ff6-4a05-9748-c923c453262d/);
+  assert.match(workflow, /EXPECTED_ACTIVE_DEPLOYMENT:\s*8e536678-a89d-4079-a8ef-92d3103dbcbf/);
   assert.match(workflow, /ACTIVE_DEPLOYMENT_REVERTED_TO_FROZEN_PRE_DEPLOYMENT/);
   assert.match(workflow, /ACTIVE_DEPLOYMENT_DRIFT/);
   assert.match(workflow, /ACTIVE_VERSION_DRIFT/);
@@ -38,4 +38,5 @@ test("Daily MVP production preflight is manual and read-only", () => {
   assert.doesNotMatch(workflow, /(?:^|\s)--request\s+(?:POST|PUT|PATCH|DELETE)\b/m);
   assert.doesNotMatch(workflow, /CONTROL_ACCESS_CLIENT_(?:ID|SECRET)/);
   assert.doesNotMatch(workflow, /\/api\/github\/needs-changes/);
+  assert.doesNotMatch(workflow, /CONTROL_NOTIFICATION_TRANSITIONS_ENABLED/);
 });
