@@ -1,5 +1,6 @@
 import {
   notificationDeliveryEnvelope,
+  type NotificationDeliveryEnvelope,
   type NotificationDeliveryTargetKey,
 } from "./notification-delivery.js";
 import type {
@@ -16,6 +17,11 @@ export interface NotificationDeliveryIntentMaterializationInput {
   readonly candidate: NotificationCandidate;
   readonly queuedAt: string;
   readonly targetKeys: readonly NotificationDeliveryTargetKey[];
+}
+
+export interface NotificationDeliveryIntentMaterializationPlan {
+  readonly queuedAt: string;
+  readonly envelopes: readonly NotificationDeliveryEnvelope[];
 }
 
 export interface NotificationDeliveryIntentMaterializationEvidence {
@@ -82,6 +88,28 @@ function requireTargetKeys(value: unknown): readonly NotificationDeliveryTargetK
 }
 
 /**
+ * Prevalidate one provider-neutral delivery-intent batch without mutating a
+ * durable store. Higher-level reconciliation can use this before claiming any
+ * transition so a malformed later candidate/target cannot strand a partial
+ * transition→intent composition.
+ */
+export function prepareNotificationDeliveryIntentMaterialization(
+  input: NotificationDeliveryIntentMaterializationInput,
+): NotificationDeliveryIntentMaterializationPlan {
+  if (!input || typeof input !== "object") {
+    throw new NotificationDeliveryIntentMaterializationError("INVALID_INPUT");
+  }
+
+  const queuedAt = requireQueuedAt(input.queuedAt);
+  const targetKeys = requireTargetKeys(input.targetKeys);
+  const envelopes = targetKeys.map((targetKey) =>
+    notificationDeliveryEnvelope(input.candidate, targetKey),
+  );
+
+  return { queuedAt, envelopes };
+}
+
+/**
  * Materialize durable provider-neutral delivery intents for one already-selected
  * notification candidate and an explicit finite caller-supplied target set.
  *
@@ -96,20 +124,11 @@ export async function materializeNotificationDeliveryIntents(
   input: NotificationDeliveryIntentMaterializationInput,
   store: NotificationDeliveryIntentStore,
 ): Promise<NotificationDeliveryIntentMaterializationResult> {
-  if (!input || typeof input !== "object" || !store || typeof store.enqueue !== "function") {
+  if (!store || typeof store.enqueue !== "function") {
     throw new NotificationDeliveryIntentMaterializationError("INVALID_INPUT");
   }
 
-  const queuedAt = requireQueuedAt(input.queuedAt);
-  const targetKeys = requireTargetKeys(input.targetKeys);
-
-  // Precompute every envelope before any store mutation. This validates the
-  // candidate and every target key through the existing deterministic delivery
-  // contract, preventing a malformed later target from producing a partial batch.
-  const envelopes = targetKeys.map((targetKey) =>
-    notificationDeliveryEnvelope(input.candidate, targetKey),
-  );
-
+  const { queuedAt, envelopes } = prepareNotificationDeliveryIntentMaterialization(input);
   const intents: NotificationDeliveryIntentMaterializationEvidence[] = [];
   let enqueued = 0;
   let duplicates = 0;
