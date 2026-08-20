@@ -8,6 +8,23 @@ export type NotificationDeliveryDispatchClaimEvidence =
   | { readonly kind: "NOT_CLAIMED" }
   | { readonly kind: "CLAIMED" };
 
+export interface NotificationDeliveryDispatchClaimSnapshot {
+  readonly schemaVersion: 1;
+  readonly dispatchId: string;
+  readonly deliveryId: string;
+  readonly attemptNumber: number;
+  readonly transitionId: string;
+  readonly targetKey: string;
+  readonly attemptedAt: string;
+}
+
+export type NotificationDeliveryDispatchClaimRecoveryEvidence =
+  | { readonly kind: "NOT_CLAIMED" }
+  | {
+      readonly kind: "CLAIMED";
+      readonly claim: NotificationDeliveryDispatchClaimSnapshot;
+    };
+
 export interface NotificationDeliveryDispatchClaimReader {
   /**
    * Read exact durable claim evidence without creating, expiring or reclaiming
@@ -16,6 +33,21 @@ export interface NotificationDeliveryDispatchClaimReader {
   read(
     attempt: NotificationDeliveryDispatchAttempt,
   ): Promise<NotificationDeliveryDispatchClaimEvidence>;
+}
+
+export interface NotificationDeliveryDispatchClaimRecoveryReader {
+  /**
+   * Recover immutable durable claim evidence from deterministic delivery/attempt
+   * identity only. This exists for restart/crash reconciliation when the original
+   * `attemptedAt` is no longer available in volatile caller state.
+   *
+   * A returned claim is a replay barrier. This method never expires, reclaims,
+   * rewrites or otherwise turns an existing claim into resend permission.
+   */
+  readSnapshot(
+    deliveryId: string,
+    attemptNumber: number,
+  ): Promise<NotificationDeliveryDispatchClaimRecoveryEvidence>;
 }
 
 export interface NotificationDeliveryDispatchClaimStore {
