@@ -69,6 +69,7 @@ function sealBindings(input: readonly ContinuationTaskBinding[]): ContinuationTa
       issueNumber: binding.issueNumber,
       taskState: binding.taskState,
       activePullRequestNumber: binding.activePullRequestNumber,
+      expectedHeadSha: binding.expectedHeadSha,
       priority: binding.priority,
     };
   });
