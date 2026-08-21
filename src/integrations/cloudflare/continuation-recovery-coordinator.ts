@@ -72,9 +72,7 @@ export async function recoverAndCoordinateAuthoritativeContinuation(
   }
 
   const recovery = await reader.read(identity);
-  if (!recovery || typeof recovery !== "object") fail("INVALID_INPUT");
   if (recovery.kind === "NOT_FOUND") return { kind: "NOT_FOUND" };
-  if (recovery.kind !== "FOUND") fail("INVALID_INPUT");
 
   if (
     recovery.campaign.campaignId !== identity.campaignId ||
