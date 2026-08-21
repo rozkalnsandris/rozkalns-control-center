@@ -301,7 +301,7 @@ test("exact next-task proposal is applied with one campaign-only CAS write", asy
   );
 
   assert.deepEqual(result, { kind: "APPLIED" });
-  assert.deepEqual(campaignRow(database), {
+  assert.deepEqual({ ...campaignRow(database) }, {
     next_task_id: NEXT_TASK_ID,
     observed_at: READY_AT,
     updated_at: READY_AT,
@@ -469,7 +469,7 @@ test("postwrite durable drift fails verification and never becomes retry permiss
 });
 
 test("source boundary stays detached from Worker/runtime configuration", () => {
-  const workerSource = readFileSync(resolve(process.cwd(), "src/worker.ts"), "utf8");
+  const workerSource = readFileSync(resolve(process.cwd(), "src/worker/index.ts"), "utf8");
   const wrangler = readFileSync(resolve(process.cwd(), "wrangler.jsonc"), "utf8");
 
   assert.doesNotMatch(workerSource, /d1-continuation-next-task-store/);
