@@ -287,7 +287,7 @@ test("invalid stored schema, mode, flags, UTC and task pairing fail before task 
     { human_gate: "AUTO_DEPLOY" },
     { observed_at: "2026-08-21T12:00:00Z" },
     { updated_at: "2026-08-21T11:59:59.999Z" },
-  ]) {
+  ] as StoredRow[]) {
     const database = new FakeD1Database([result([campaign(override)])]);
     await assert.rejects(
       () => new D1ContinuationCampaignReader(database).read(identity),
@@ -307,7 +307,7 @@ test("owner gates, pause, disabled continuation and unfinished work cannot retai
     { human_gate: "PRODUCTION_MUTATION" },
     { current_task_id: "task:516", current_task_state: "WORKING" },
     { current_task_id: "task:517", current_task_state: "DONE" },
-  ]) {
+  ] as StoredRow[]) {
     const database = new FakeD1Database([
       result([campaign({ next_task_id: "task:517", ...override })]),
     ]);
@@ -394,7 +394,7 @@ test("cross-campaign/project/repository task attribution never reaches final rea
     { campaign_id: "campaign:other" },
     { project_id: "hermes-tech" },
     { repository: "rozkalnsandris/hermes-tech" },
-  ]) {
+  ] as StoredRow[]) {
     const database = new FakeD1Database([
       result([campaign()]),
       result([task(override)]),
@@ -420,7 +420,7 @@ test("malformed task state, PR/head pairing, bounds and UTC fail closed", async 
     { priority: -1 },
     { priority: 1_000_001 },
     { updated_at: "2026-08-21T12:00:00Z" },
-  ]) {
+  ] as StoredRow[]) {
     const database = new FakeD1Database([
       result([campaign()]),
       result([task(override)]),
