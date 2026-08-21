@@ -23,7 +23,8 @@ jobs:
       WORKER_NAME: rozkalns-control
       EXPECTED_PRE_VERSION: 744b3cb5-7c08-4aae-a217-a9fec81f27b2
       EXPECTED_PRE_DEPLOYMENT: 4a1582f5-5f18-423d-b610-ac51c13c5f5a
-      EXPECTED_NEW_VERSION: 5577c64b-81a6-4fc6-910d-7770a1f2315f
+      EXPECTED_NEW_VERSION: 83eb326a-3a0e-4548-b253-7a463bc934ac
+      EXPECTED_NEW_DEPLOYMENT: 9392d84b-5458-4b33-9dda-9918a8d535d4
       HOSTNAME: control.rozkalns.net
       EXPECTED_DOMAIN_ID: ac685929d45e825df5b5f6b803a9814b6dbf5d9d
       DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
@@ -141,6 +142,7 @@ jobs:
 
           [ -n "$current_deployment" ] || stop POST_DEPLOYMENT_ID_MISSING
           [ "$current_deployment" != "$EXPECTED_PRE_DEPLOYMENT" ] || stop ACTIVE_DEPLOYMENT_STILL_PRE_DEPLOYMENT
+          [ "$current_deployment" = "$EXPECTED_NEW_DEPLOYMENT" ] || stop ACTIVE_DEPLOYMENT_NOT_ACCEPTED_DEPLOYMENT
           [ "$current_version" = "$EXPECTED_NEW_VERSION" ] || stop ACTIVE_VERSION_NOT_WRANGLER_OBSERVED_VERSION
           [ "$current_version" != "$EXPECTED_PRE_VERSION" ] || stop ACTIVE_VERSION_STILL_PRE_VERSION
           [ "$current_percentage" = "100" ] || stop ACTIVE_TRAFFIC_NOT_100_PERCENT
