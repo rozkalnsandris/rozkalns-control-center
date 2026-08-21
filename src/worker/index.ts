@@ -1,4 +1,8 @@
 import {
+  resolveCloudflareContinuationRuntime,
+  type CloudflareContinuationRuntimeBindings,
+} from "../integrations/cloudflare/continuation-runtime";
+import {
   ControlWebhookQueueRuntimeError,
   resolveControlWebhookQueueRuntime,
   type ControlWebhookQueueRuntimeBindings,
@@ -26,6 +30,17 @@ import {
 import { handleGitHubWebhookRequest } from "./github-webhook-route";
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
+
+/**
+ * Source-only continuation composition point. No Worker route/queue/scheduler
+ * invokes this resolver in the current slice, and production config does not set
+ * its exact opt-in flag.
+ */
+export function resolveContinuationRuntime(env: Env) {
+  return resolveCloudflareContinuationRuntime(
+    env as unknown as CloudflareContinuationRuntimeBindings,
+  );
+}
 
 function resolveWebhookQueueRuntime(env: Env) {
   return resolveControlWebhookQueueRuntime(
