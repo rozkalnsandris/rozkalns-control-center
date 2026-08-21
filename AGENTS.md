@@ -15,8 +15,8 @@ If an implementation request conflicts with the master contract, reconcile the c
 
 ## 2. Scope discipline
 
-- Work on one explicit task/issue at a time.
-- Make the smallest coherent change that satisfies that task.
+- Work on one explicit task/issue at a time unless the FAST-LANE rule below allows a coherent related-work batch.
+- Make the smallest coherent change that satisfies that task or FAST batch.
 - Do not opportunistically expand UI, automation, permissions or production scope.
 - Preserve unrelated work.
 - Prefer fail-closed behavior when state, permissions or deploy impact are unknown.
@@ -33,7 +33,7 @@ Rules:
 - never use broad staging such as `git add .`, `git add -A` or `git add --all`;
 - stage only exact intended paths;
 - no force-push/history rewrite unless separately and explicitly authorized;
-- one task should normally produce one PR;
+- one task should normally produce one PR, except 2-5 tightly related same-risk FAST work items may share one PR when they form one coherent acceptance story;
 - PR description must state scope, tests, security impact and deploy impact.
 
 ## 4. MVP trust boundaries
@@ -133,3 +133,18 @@ Report:
 - unresolved uncertainty/blockers;
 - security/deploy impact;
 - next safe step from the current phase.
+
+<!-- BEGIN FAST-LANE-V2.1-MANAGED -->
+## 13. FAST-LANE v2.1 Hybrid
+
+Read `docs/FAST_LANE_V2_1.md` for the local adoption of the cross-project standard.
+
+- **FAST** covers source-only work through Ready when it neither expands GitHub/Cloudflare/RPi5 authority nor performs a production/live mutation.
+- A FAST PR may batch **2-5 closely related same-risk work items** when they share one phase/subsystem and one coherent acceptance story.
+- After initial publication, at most **two scope-preserving corrective commits** may address CI/review findings. A third correction or material scope/risk expansion requires STOP and new authorization.
+- Use one Ready receipt; immediately before merge refresh only mutable GitHub evidence.
+- **STRICT** includes production DB writes/migrations, GitHub permission expansion, Cloudflare mutation, RPi5/root/systemd/Docker/network changes, secrets/credentials and production rollout.
+- Merge remains explicit owner authority and never authorizes deployment, DB or host mutation.
+
+The phase contract in issue #1 and all stricter trust-boundary rules remain authoritative.
+<!-- END FAST-LANE-V2.1-MANAGED -->
