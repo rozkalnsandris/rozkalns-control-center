@@ -44,6 +44,11 @@ interface SqliteD1Options {
   readonly afterUpdate?: (() => void) | null;
 }
 
+function sqliteBindings(query: string, values: readonly unknown[]): readonly unknown[] {
+  if (!/\?[1-9]\d*/u.test(query)) return values;
+  return [Object.fromEntries(values.map((value, index) => [String(index + 1), value]))];
+}
+
 class SqliteD1PreparedStatement implements D1PreparedStatementLike {
   readonly #database: DatabaseSync;
   readonly #query: string;
@@ -82,15 +87,16 @@ class SqliteD1PreparedStatement implements D1PreparedStatementLike {
     }
 
     const statement = this.#database.prepare(this.#query) as unknown as SqliteStatementLike;
+    const boundValues = sqliteBindings(this.#query, this.#values);
     if (isSelect) {
       return {
         success: true,
         meta: { changes: 0 },
-        results: statement.all(...this.#values) as Row[],
+        results: statement.all(...boundValues) as Row[],
       };
     }
 
-    const result = statement.run(...this.#values);
+    const result = statement.run(...boundValues);
     if (isCampaignUpdate) this.#options.afterUpdate?.();
     return {
       success: true,
