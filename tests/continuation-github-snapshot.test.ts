@@ -20,6 +20,7 @@ import type { IssueRead, PullRequestRead } from "../src/shared/source-control-re
 const REPOSITORY = "rozkalnsandris/hermes-deals";
 const PROJECT_ID = "hermes-deals";
 const MAIN_SHA = "0123456789abcdef0123456789abcdef01234567";
+const PR_HEAD_SHA = "1111111111111111111111111111111111111111";
 const OBSERVED_AT = "2026-08-21T10:00:00.000Z";
 
 function task(number: number, overrides: Partial<ContinuationTaskBinding> = {}): ContinuationTaskBinding {
@@ -30,6 +31,7 @@ function task(number: number, overrides: Partial<ContinuationTaskBinding> = {}):
     issueNumber: number,
     taskState: "DISCOVERED",
     activePullRequestNumber: null,
+    expectedHeadSha: null,
     priority: 10,
     ...overrides,
   };
@@ -54,7 +56,7 @@ function pull(number: number, overrides: Partial<PullRequestRead> = {}): PullReq
     baseRef: "main",
     baseSha: MAIN_SHA,
     headRef: `feature-${number}`,
-    headSha: "1111111111111111111111111111111111111111",
+    headSha: PR_HEAD_SHA,
     changedFiles: 2,
     htmlUrl: `https://github.com/${REPOSITORY}/pull/${number}`,
     ...overrides,
@@ -116,7 +118,18 @@ test("authoritative read-only snapshot rechecks exact main around issue and PR o
     repository: REPOSITORY,
     mainSha: MAIN_SHA,
     observedAt: OBSERVED_AT,
-    candidates: [{ ...task(517), issueState: "OPEN" }],
+    candidates: [
+      {
+        taskId: "task:517",
+        projectId: PROJECT_ID,
+        repository: REPOSITORY,
+        issueNumber: 517,
+        issueState: "OPEN",
+        taskState: "DISCOVERED",
+        activePullRequestNumber: null,
+        priority: 10,
+      },
+    ],
   });
   assert.deepEqual(calls, [
     `repository:${REPOSITORY}`,
@@ -133,7 +146,10 @@ test("snapshot composes with detached planner without weakening owner gates", as
     provider,
     REPOSITORY,
     PROJECT_ID,
-    [task(517, { activePullRequestNumber: 600 }), task(518)],
+    [
+      task(517, { activePullRequestNumber: 600, expectedHeadSha: PR_HEAD_SHA }),
+      task(518),
+    ],
     OBSERVED_AT,
   );
   const campaign: ContinuationCampaignSnapshot = {
@@ -199,12 +215,30 @@ test("excluded projects, cross-project bindings and malformed input never call G
   assert.deepEqual(calls, []);
 });
 
+test("active PR and expected head must be paired and exact before GitHub reads", async () => {
+  const { provider, calls } = fakeProvider();
+  for (const binding of [
+    task(517, { activePullRequestNumber: 600 }),
+    task(517, { expectedHeadSha: PR_HEAD_SHA }),
+    task(517, { activePullRequestNumber: 600, expectedHeadSha: "ABC" }),
+  ]) {
+    await expectError(
+      () => readContinuationGithubSnapshot(provider, REPOSITORY, PROJECT_ID, [binding], OBSERVED_AT),
+      "INVALID_INPUT",
+    );
+  }
+  assert.deepEqual(calls, []);
+});
+
 test("duplicate task, issue or PR bindings fail before the first read", async () => {
   const { provider, calls } = fakeProvider();
   for (const bindings of [
     [task(517), task(518, { taskId: "task:517" })],
     [task(517), task(517, { taskId: "task:other" })],
-    [task(517, { activePullRequestNumber: 600 }), task(518, { activePullRequestNumber: 600 })],
+    [
+      task(517, { activePullRequestNumber: 600, expectedHeadSha: PR_HEAD_SHA }),
+      task(518, { activePullRequestNumber: 600, expectedHeadSha: PR_HEAD_SHA }),
+    ],
   ]) {
     await expectError(
       () => readContinuationGithubSnapshot(provider, REPOSITORY, PROJECT_ID, bindings, OBSERVED_AT),
@@ -322,10 +356,28 @@ test("unattributed open PRs and stale explicit PR bindings fail closed", async (
         missing.provider,
         REPOSITORY,
         PROJECT_ID,
-        [task(517, { activePullRequestNumber: 600 })],
+        [task(517, { activePullRequestNumber: 600, expectedHeadSha: PR_HEAD_SHA })],
         OBSERVED_AT,
       ),
     "PULL_REQUEST_EVIDENCE_MISSING",
+  );
+});
+
+test("explicit PR binding fails closed when the observed head drifts", async () => {
+  const drifted = fakeProvider(
+    [issue(517)],
+    [pull(600, { headSha: "2222222222222222222222222222222222222222" })],
+  );
+  await expectError(
+    () =>
+      readContinuationGithubSnapshot(
+        drifted.provider,
+        REPOSITORY,
+        PROJECT_ID,
+        [task(517, { activePullRequestNumber: 600, expectedHeadSha: PR_HEAD_SHA })],
+        OBSERVED_AT,
+      ),
+    "EXPECTED_PULL_REQUEST_HEAD_DRIFT",
   );
 });
 
@@ -368,7 +420,7 @@ test("cross-repository issue or PR URLs and duplicate observations are rejected"
         wrongPull.provider,
         REPOSITORY,
         PROJECT_ID,
-        [task(517, { activePullRequestNumber: 600 })],
+        [task(517, { activePullRequestNumber: 600, expectedHeadSha: PR_HEAD_SHA })],
         OBSERVED_AT,
       ),
     "REPOSITORY_EVIDENCE_MISMATCH",
