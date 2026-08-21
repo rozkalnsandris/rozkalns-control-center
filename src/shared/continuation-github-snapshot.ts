@@ -16,7 +16,9 @@ export type ContinuationGithubReadProvider = Pick<
   "getRepository" | "getDefaultBranchHead" | "listOpenIssues" | "listOpenPullRequests"
 >;
 
-export type ContinuationTaskBinding = Omit<ContinuationTaskCandidate, "issueState">;
+export type ContinuationTaskBinding = Omit<ContinuationTaskCandidate, "issueState"> & {
+  readonly expectedHeadSha: string | null;
+};
 
 export type ContinuationGithubSnapshotErrorCode =
   | "INVALID_INPUT"
@@ -28,6 +30,7 @@ export type ContinuationGithubSnapshotErrorCode =
   | "ISSUE_EVIDENCE_MISSING"
   | "UNSUPPORTED_ISSUE_EVIDENCE"
   | "PULL_REQUEST_EVIDENCE_MISSING"
+  | "EXPECTED_PULL_REQUEST_HEAD_DRIFT"
   | "UNATTRIBUTED_OPEN_PULL_REQUEST";
 
 export class ContinuationGithubSnapshotError extends Error {
@@ -125,6 +128,11 @@ function validateBindings(
     }
     taskIds.add(binding.taskId);
     issueNumbers.add(binding.issueNumber);
+
+    const hasActivePullRequest = binding.activePullRequestNumber !== null;
+    const hasExpectedHead = binding.expectedHeadSha !== null;
+    if (hasActivePullRequest !== hasExpectedHead) fail("INVALID_INPUT");
+    if (binding.expectedHeadSha !== null) requireMainSha(binding.expectedHeadSha);
 
     if (binding.activePullRequestNumber !== null) {
       if (!validNumber(binding.activePullRequestNumber)) fail("INVALID_INPUT");
@@ -241,12 +249,23 @@ export async function readContinuationGithubSnapshot(
   for (const binding of bindings) {
     if (!openIssues.has(binding.issueNumber)) fail("ISSUE_EVIDENCE_MISSING");
     if (binding.activePullRequestNumber !== null) {
-      if (!openPulls.has(binding.activePullRequestNumber)) {
-        fail("PULL_REQUEST_EVIDENCE_MISSING");
+      const observedPull = openPulls.get(binding.activePullRequestNumber);
+      if (!observedPull) fail("PULL_REQUEST_EVIDENCE_MISSING");
+      if (observedPull.headSha !== binding.expectedHeadSha) {
+        fail("EXPECTED_PULL_REQUEST_HEAD_DRIFT");
       }
       attributedPulls.add(binding.activePullRequestNumber);
     }
-    candidates.push({ ...binding, issueState: "OPEN" });
+    candidates.push({
+      taskId: binding.taskId,
+      projectId: binding.projectId,
+      repository: binding.repository,
+      issueNumber: binding.issueNumber,
+      issueState: "OPEN",
+      taskState: binding.taskState,
+      activePullRequestNumber: binding.activePullRequestNumber,
+      priority: binding.priority,
+    });
   }
 
   if (openPulls.size !== attributedPulls.size) fail("UNATTRIBUTED_OPEN_PULL_REQUEST");
