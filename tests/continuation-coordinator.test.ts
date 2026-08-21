@@ -24,6 +24,7 @@ import type { IssueRead, PullRequestRead } from "../src/shared/source-control-re
 const REPOSITORY = "rozkalnsandris/hermes-deals";
 const PROJECT_ID = "hermes-deals";
 const MAIN_SHA = "0123456789abcdef0123456789abcdef01234567";
+const PR_HEAD_SHA = "1111111111111111111111111111111111111111";
 const OTHER_SHA = "2222222222222222222222222222222222222222";
 const OBSERVED_AT = "2026-08-21T11:00:00.000Z";
 
@@ -54,6 +55,7 @@ function binding(
     issueNumber: number,
     taskState: "DISCOVERED",
     activePullRequestNumber: null,
+    expectedHeadSha: null,
     priority: 10,
     ...overrides,
   };
@@ -77,7 +79,7 @@ function pull(number: number): PullRequestRead {
     baseRef: "main",
     baseSha: MAIN_SHA,
     headRef: `feature-${number}`,
-    headSha: "1111111111111111111111111111111111111111",
+    headSha: PR_HEAD_SHA,
     changedFiles: 2,
     htmlUrl: `https://github.com/${REPOSITORY}/pull/${number}`,
   };
@@ -367,13 +369,33 @@ test("exact task-to-PR attribution keeps existing PR tasks ineligible", async ()
   const deps = dependencies({ issues: [issue(517), issue(518)], pulls: [pull(600)] });
   const result = await coordinateAuthoritativeContinuation(
     campaign(),
-    [binding(517, { activePullRequestNumber: 600 }), binding(518)],
+    [
+      binding(517, { activePullRequestNumber: 600, expectedHeadSha: PR_HEAD_SHA }),
+      binding(518),
+    ],
     MAIN_SHA,
     deps.value,
   );
 
   assert.equal(result.kind, "READY");
   if (result.kind === "READY") assert.equal(result.issueNumber, 518);
+});
+
+test("expected task PR head drift propagates through the coordinator fail closed", async () => {
+  const deps = dependencies({ issues: [issue(517)], pulls: [pull(600)] });
+
+  await assert.rejects(
+    () =>
+      coordinateAuthoritativeContinuation(
+        campaign(),
+        [binding(517, { activePullRequestNumber: 600, expectedHeadSha: OTHER_SHA })],
+        MAIN_SHA,
+        deps.value,
+      ),
+    (error: unknown) =>
+      error instanceof ContinuationGithubSnapshotError &&
+      error.code === "EXPECTED_PULL_REQUEST_HEAD_DRIFT",
+  );
 });
 
 test("no eligible issue remains evidence only after one read-only observation", async () => {
