@@ -79,7 +79,8 @@ class SqliteD1Database implements D1DatabaseLike {
           }
           return value;
         });
-        const rows = this.#database.prepare(call.sql).all(...values) as Row[];
+        const sqliteSql = call.sql.replace(/\?[1-9]\d*/gu, "?");
+        const rows = this.#database.prepare(sqliteSql).all(...values) as Row[];
         return { success: true, meta: { changes: 0 }, results: rows };
       },
     };
@@ -158,7 +159,7 @@ function rejectionCode(code: string) {
 
 function insertRow(database: DatabaseSync, table: string, row: StoredRow): void {
   const columns = Object.keys(row);
-  const placeholders = columns.map((_, index) => `?${index + 1}`).join(", ");
+  const placeholders = columns.map(() => "?").join(", ");
   const values = columns.map((column) => row[column]);
   database
     .prepare(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`)
