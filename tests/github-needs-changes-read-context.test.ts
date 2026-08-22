@@ -38,7 +38,10 @@ test("Needs changes isolates Administration classic reads and Contents branch-me
   assert.equal("administration" in dashboard.scope.permissions, false);
   assert.equal("administration" in needsChanges.scope.permissions, false);
   assert.deepEqual(needsChanges.classicScope.repositories, ["rozkalnsandris/ops-workflows"]);
-  assert.deepEqual(needsChanges.classicScope.permissions, { administration: "read" });
+  assert.deepEqual(needsChanges.classicScope.permissions, {
+    metadata: "read",
+    administration: "read",
+  });
   assert.deepEqual(needsChanges.branchMetadataScope.repositories, ["rozkalnsandris/ops-workflows"]);
   assert.deepEqual(needsChanges.branchMetadataScope.permissions, { contents: "read" });
   assert.deepEqual(needsChanges.classicBranchProtectionReader.absenceScope.permissions, { contents: "read" });
