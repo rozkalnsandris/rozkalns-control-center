@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { GitHubActiveBranchRulesReaderError } from "../src/integrations/github/active-branch-rules-reader.js";
+import { GitHubAuthoritativeReadProviderError } from "../src/integrations/github/authoritative-read-provider.js";
+import { GitHubClassicBranchProtectionReaderError } from "../src/integrations/github/classic-branch-protection-reader.js";
+import { CloudflareGitHubRuntimeError } from "../src/integrations/github/cloudflare-worker-runtime.js";
+import { GitHubTransportStageDiagnosticError } from "../src/integrations/github/credential-stage-diagnostics.js";
+import { GitHubGraphqlMergeStateError } from "../src/integrations/github/graphql-merge-state-transport.js";
+import { GitHubRestReadError } from "../src/integrations/github/rest-read-transport.js";
 import type { AuthoritativeReconciliationResult } from "../src/shared/authoritative-reconciliation.js";
 import {
   GITHUB_NEEDS_CHANGES_PREFLIGHT_ROUTE_PATH,
@@ -42,10 +49,32 @@ function request(query: string, method = "GET") {
   });
 }
 
+function validRequest() {
+  return request(`repository=${encodeURIComponent(REPOSITORY)}&issue=4&pull=3`);
+}
+
+async function projectFailure(error: Error) {
+  return handleGitHubNeedsChangesPreflightRequest(
+    validRequest(),
+    bindings,
+    OBSERVED_AT,
+    async () => {
+      throw error;
+    },
+  );
+}
+
+async function expectDiagnostic(error: Error, status: number, expected: Record<string, unknown>) {
+  const response = await projectFailure(error);
+  assert.equal(response.status, status);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), expected);
+}
+
 test("GET-only Needs changes preflight returns bounded normalized COMPLETE evidence", async () => {
   let captured: LiveGitHubNeedsChangesPreflightInput | null = null;
   const response = await handleGitHubNeedsChangesPreflightRequest(
-    request(`repository=${encodeURIComponent(REPOSITORY)}&issue=4&pull=3`),
+    validRequest(),
     bindings,
     OBSERVED_AT,
     async (input) => {
@@ -178,9 +207,126 @@ test("live preflight executor uses elevated Needs changes read context and never
   assert.equal(reconcileCalls, 1);
 });
 
+test("preflight projects bounded REST and GraphQL read failures", async () => {
+  await expectDiagnostic(
+    new GitHubRestReadError("FORBIDDEN", { status: 403 }),
+    502,
+    { error: "GITHUB_FORBIDDEN" },
+  );
+  await expectDiagnostic(
+    new GitHubRestReadError("CREDENTIAL_UNAVAILABLE"),
+    503,
+    { error: "GITHUB_CREDENTIAL_UNAVAILABLE" },
+  );
+  await expectDiagnostic(
+    new GitHubGraphqlMergeStateError("UNAUTHORIZED", { status: 401 }),
+    502,
+    { error: "GITHUB_UNAUTHORIZED" },
+  );
+  await expectDiagnostic(
+    new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE", { status: 200 }),
+    502,
+    { error: "GITHUB_RESPONSE_INVALID" },
+  );
+});
+
+test("preflight preserves bounded transport stage and unexpected upstream status", async () => {
+  await expectDiagnostic(
+    new GitHubTransportStageDiagnosticError("token-exchange"),
+    502,
+    { error: "GITHUB_TRANSPORT_FAILED", stage: "token-exchange" },
+  );
+  await expectDiagnostic(
+    new GitHubRestReadError("TRANSPORT_FAILURE"),
+    502,
+    { error: "GITHUB_TRANSPORT_FAILED", stage: "rest" },
+  );
+  await expectDiagnostic(
+    new GitHubGraphqlMergeStateError("TRANSPORT_FAILURE"),
+    502,
+    { error: "GITHUB_TRANSPORT_FAILED", stage: "graphql" },
+  );
+  await expectDiagnostic(
+    new GitHubRestReadError("UNEXPECTED_STATUS", { status: 502 }),
+    502,
+    { error: "GITHUB_UNEXPECTED_STATUS", stage: "rest", upstreamStatus: 502 },
+  );
+  await expectDiagnostic(
+    new GitHubGraphqlMergeStateError("UNEXPECTED_STATUS", { status: 600 }),
+    502,
+    { error: "GITHUB_UNEXPECTED_STATUS", stage: "graphql" },
+  );
+});
+
+test("preflight projects bounded provider and runtime failure categories", async () => {
+  await expectDiagnostic(
+    new GitHubAuthoritativeReadProviderError("MALFORMED_RESPONSE"),
+    502,
+    { error: "GITHUB_RESPONSE_INVALID" },
+  );
+  await expectDiagnostic(
+    new GitHubActiveBranchRulesReaderError("INVALID_REQUEST"),
+    502,
+    { error: "GITHUB_READ_INVALID" },
+  );
+  await expectDiagnostic(
+    new CloudflareGitHubRuntimeError("INVALID_BINDING"),
+    503,
+    { error: "RUNTIME_UNAVAILABLE" },
+  );
+});
+
+test("preflight distinguishes bounded Classic Branch Protection failure categories", async () => {
+  await expectDiagnostic(
+    new GitHubClassicBranchProtectionReaderError("READ_FAILED"),
+    502,
+    { error: "GITHUB_CLASSIC_PROTECTION_READ_FAILED" },
+  );
+  await expectDiagnostic(
+    new GitHubClassicBranchProtectionReaderError("MALFORMED_RESPONSE"),
+    502,
+    { error: "GITHUB_RESPONSE_INVALID" },
+  );
+  await expectDiagnostic(
+    new GitHubClassicBranchProtectionReaderError("INVALID_REQUEST"),
+    502,
+    { error: "GITHUB_READ_INVALID" },
+  );
+});
+
+test("bounded preflight diagnostics never expose typed error metadata or arbitrary upstream payloads", async () => {
+  const error = new GitHubRestReadError("UNEXPECTED_STATUS", { status: 502 });
+  Object.defineProperty(error, "message", {
+    value: "PRIVATE KEY jwt-token raw-upstream-body https://api.github.com/private",
+  });
+  Object.defineProperty(error, "responseBody", {
+    value: "response-body-secret",
+  });
+  Object.defineProperty(error, "responseHeaders", {
+    value: { authorization: "Bearer secret-token" },
+  });
+
+  const response = await projectFailure(error);
+  const body = await response.text();
+
+  assert.equal(response.status, 502);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(body.includes("PRIVATE KEY"), false);
+  assert.equal(body.includes("jwt-token"), false);
+  assert.equal(body.includes("raw-upstream-body"), false);
+  assert.equal(body.includes("api.github.com"), false);
+  assert.equal(body.includes("response-body-secret"), false);
+  assert.equal(body.includes("secret-token"), false);
+  assert.deepEqual(JSON.parse(body), {
+    error: "GITHUB_UNEXPECTED_STATUS",
+    stage: "rest",
+    upstreamStatus: 502,
+  });
+});
+
 test("preflight sanitizes unexpected failures", async () => {
   const response = await handleGitHubNeedsChangesPreflightRequest(
-    request(`repository=${encodeURIComponent(REPOSITORY)}&issue=4&pull=3`),
+    validRequest(),
     bindings,
     OBSERVED_AT,
     async () => {
