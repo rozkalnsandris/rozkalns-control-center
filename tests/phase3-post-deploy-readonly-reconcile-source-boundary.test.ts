@@ -54,15 +54,13 @@ test("Phase 3 production reconciliation stays manual, exact-baseline, and read-o
 
   assert.match(workflow, /TARGET_REPO:\s*rozkalnsandris\/ops-workflows/);
   assert.doesNotMatch(workflow, /^\s*TARGET_MAIN_SHA:/m);
-  assert.ok(workflow.includes("gh_repo_get()"));
-  assert.ok(workflow.includes('"https://api.github.com/repos/${repo}${path}"'));
-  assert.ok(workflow.includes('gh_repo_get "$TARGET_REPO" \'/branches/main\' "$tmp/target-main.json"'));
-  assert.match(workflow, /TARGET_MAIN_BRANCH_DRIFT/);
-  assert.match(workflow, /TARGET_MAIN_SHA_INVALID/);
+  assert.doesNotMatch(workflow, /e2fa7ecb1b1cdfab0711d8e3e147b5ae03a9a3f2/);
+  assert.doesNotMatch(workflow, /gh_repo_get\s*\(/);
+  assert.ok(workflow.includes('preflight_main_sha="$(jq -r \'.decision.mainSha // empty\' "$tmp/preflight.json")"'));
+  assert.match(workflow, /POST_PREFLIGHT_MAIN_SHA_INVALID/);
   assert.match(workflow, /\^\[0-9a-f\]\{40\}\$/);
-  assert.ok(workflow.includes("OBSERVED_TARGET_MAIN_SHA=%s\\n"));
-  assert.ok(workflow.includes('--arg main "$target_main_sha"'));
-  assert.ok(workflow.includes('PREFLIGHT_MAIN_SHA=%s\\n\' "$target_main_sha"'));
+  assert.ok(workflow.includes('(.decision.mainSha | type == "string" and test("^[0-9a-f]{40}$"))'));
+  assert.ok(workflow.includes('PREFLIGHT_MAIN_SHA=%s\\n\' "$preflight_main_sha"'));
 
   assert.match(workflow, /access_get '\/api\/health'/);
   assert.match(workflow, /access_get '\/api\/github\/dashboard'/);
