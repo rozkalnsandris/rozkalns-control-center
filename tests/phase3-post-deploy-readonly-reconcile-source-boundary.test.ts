@@ -76,11 +76,18 @@ test("Phase 3 production reconciliation stays manual, exact-baseline, and read-o
   assert.match(workflow, /wc -c < "\$out"/);
 
   assert.ok(workflow.includes("access_error_code()"));
+  assert.ok(workflow.includes("access_error_stage()"));
+  assert.ok(workflow.includes("access_upstream_status()"));
   assert.ok(workflow.includes('[ "$body_bytes" -le 512 ] || return 0'));
-  assert.ok(
-    workflow.includes("EVIDENCE_INVALID|LIVE_READ_FAILED|LIVE_READ_DISABLED|INVALID_REQUEST"),
-  );
+  assert.ok(workflow.includes("EVIDENCE_INVALID|LIVE_READ_FAILED|LIVE_READ_DISABLED|INVALID_REQUEST"));
+  assert.ok(workflow.includes("GITHUB_CREDENTIAL_UNAVAILABLE|GITHUB_CREDENTIAL_UNUSABLE|GITHUB_RATE_LIMITED"));
+  assert.ok(workflow.includes("GITHUB_TRANSPORT_FAILED|GITHUB_RESPONSE_INVALID|GITHUB_GRAPHQL_FAILED|GITHUB_UNEXPECTED_STATUS"));
+  assert.ok(workflow.includes("GITHUB_READ_INVALID|GITHUB_CLASSIC_PROTECTION_READ_FAILED"));
+  assert.ok(workflow.includes("token-exchange|rest|graphql"));
+  assert.ok(workflow.includes('$status >= 100 and $status <= 599'));
   assert.ok(workflow.includes('error_code="$(access_error_code "$out" "$body_bytes")"'));
+  assert.ok(workflow.includes('error_stage="$(access_error_stage "$out" "$body_bytes" "$error_code")"'));
+  assert.ok(workflow.includes('upstream_status="$(access_upstream_status "$out" "$body_bytes" "$error_code")"'));
 
   const accessDiagnosticMarkers = [
     "ACCESS_OBSERVED_HTTP_STATUS=%s\\n",
@@ -90,6 +97,8 @@ test("Phase 3 production reconciliation stays manual, exact-baseline, and read-o
     "ACCESS_OBSERVED_CF_MITIGATED=%s\\n",
     "ACCESS_OBSERVED_BODY_BYTES=%s\\n",
     "ACCESS_OBSERVED_ERROR_CODE=%s\\n",
+    "ACCESS_OBSERVED_ERROR_STAGE=%s\\n",
+    "ACCESS_OBSERVED_UPSTREAM_STATUS=%s\\n",
   ];
   let previousAccessDiagnosticIndex = -1;
   for (const marker of accessDiagnosticMarkers) {
