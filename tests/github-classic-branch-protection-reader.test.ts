@@ -233,9 +233,10 @@ test("classic 404 fallback fails closed for missing or malformed branch metadata
   }
 });
 
-test("non-404 classic failures never enter the absence fallback", async () => {
+test("non-404 classic failures preserve bounded transport diagnostics and never enter the absence fallback", async () => {
   for (const error of [
     new GitHubRestReadError("FORBIDDEN", { status: 403 }),
+    new GitHubRestReadError("INVALID_REQUEST", { status: 422 }),
     new GitHubRestReadError("TRANSPORT_FAILURE"),
     new Error("ambiguous failure text"),
   ]) {
@@ -246,7 +247,7 @@ test("non-404 classic failures never enter the absence fallback", async () => {
     }));
     await assert.rejects(
       () => reader.readClassicBranchProtection(repository, "main"),
-      readerError("READ_FAILED"),
+      (observed) => observed === error,
     );
     assert.equal(calls, 1);
   }
