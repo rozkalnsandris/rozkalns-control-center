@@ -5,16 +5,33 @@ import {
   type AuthoritativeReconciliationResult,
 } from "../shared/authoritative-reconciliation.js";
 import { resolveNeedsChangesProjectPolicy } from "../shared/project-policy.js";
+import { GitHubActiveBranchRulesReaderError } from "../integrations/github/active-branch-rules-reader.js";
+import { GitHubAuthoritativeReadProviderError } from "../integrations/github/authoritative-read-provider.js";
+import { GitHubClassicBranchProtectionReaderError } from "../integrations/github/classic-branch-protection-reader.js";
 import {
+  CloudflareGitHubRuntimeError,
   createCloudflareGitHubReadRuntime,
   type CloudflareGitHubReadRuntime,
   type CloudflareGitHubRuntimeBindings,
 } from "../integrations/github/cloudflare-worker-runtime.js";
+import { GitHubTransportStageDiagnosticError } from "../integrations/github/credential-stage-diagnostics.js";
+import {
+  GitHubGraphqlMergeStateError,
+  type GitHubGraphqlMergeStateFailureCode,
+} from "../integrations/github/graphql-merge-state-transport.js";
+import {
+  GitHubRestReadError,
+  type GitHubRestReadFailureCode,
+} from "../integrations/github/rest-read-transport.js";
 
 export const GITHUB_NEEDS_CHANGES_PREFLIGHT_ROUTE_PATH = "/api/github/needs-changes/preflight" as const;
 
 const QUERY_KEYS = ["repository", "issue", "pull"] as const;
 type QueryKey = (typeof QUERY_KEYS)[number];
+type GitHubReadFailureCode = GitHubRestReadFailureCode | GitHubGraphqlMergeStateFailureCode;
+type GitHubProjectionFailureCode = "INVALID_REQUEST" | "MALFORMED_RESPONSE";
+type GitHubTransportStage = "token-exchange" | "rest" | "graphql";
+type GitHubUpstreamStage = "rest" | "graphql";
 
 export interface LiveGitHubNeedsChangesPreflightInput {
   readonly bindings: CloudflareGitHubRuntimeBindings;
@@ -54,6 +71,25 @@ function jsonResponse(body: unknown, status = 200, extraHeaders?: HeadersInit): 
 
 function routeError(code: string, status: number, extraHeaders?: HeadersInit): Response {
   return jsonResponse({ error: code }, status, extraHeaders);
+}
+
+function transportStageError(stage: GitHubTransportStage): Response {
+  return jsonResponse({ error: "GITHUB_TRANSPORT_FAILED", stage }, 502);
+}
+
+function boundedHttpStatus(value: number | null): number | null {
+  if (value === null || !Number.isSafeInteger(value) || value < 100 || value > 599) return null;
+  return value;
+}
+
+function unexpectedStatusError(stage: GitHubUpstreamStage, status: number | null): Response {
+  const upstreamStatus = boundedHttpStatus(status);
+  return jsonResponse(
+    upstreamStatus === null
+      ? { error: "GITHUB_UNEXPECTED_STATUS", stage }
+      : { error: "GITHUB_UNEXPECTED_STATUS", stage, upstreamStatus },
+    502,
+  );
 }
 
 function exactQueryValue(params: URLSearchParams, key: QueryKey): string {
@@ -119,12 +155,94 @@ export async function executeLiveGitHubNeedsChangesPreflight(
   });
 }
 
+function mapGitHubReadFailure(code: GitHubReadFailureCode): Response {
+  switch (code) {
+    case "CREDENTIAL_UNAVAILABLE":
+      return routeError("GITHUB_CREDENTIAL_UNAVAILABLE", 503);
+    case "CREDENTIAL_UNUSABLE":
+      return routeError("GITHUB_CREDENTIAL_UNUSABLE", 503);
+    case "RATE_LIMITED":
+      return routeError("GITHUB_RATE_LIMITED", 503);
+    case "UNAUTHORIZED":
+      return routeError("GITHUB_UNAUTHORIZED", 502);
+    case "FORBIDDEN":
+      return routeError("GITHUB_FORBIDDEN", 502);
+    case "NOT_FOUND":
+    case "RESOURCE_NOT_FOUND":
+      return routeError("GITHUB_RESOURCE_NOT_FOUND", 502);
+    case "TRANSPORT_FAILURE":
+      return routeError("GITHUB_TRANSPORT_FAILED", 502);
+    case "MALFORMED_RESPONSE":
+    case "PAGINATION_BOUNDARY_VIOLATION":
+    case "PAGINATION_CYCLE":
+    case "PAGINATION_BUDGET_EXHAUSTED":
+      return routeError("GITHUB_RESPONSE_INVALID", 502);
+    case "GRAPHQL_ERROR":
+      return routeError("GITHUB_GRAPHQL_FAILED", 502);
+    case "UNEXPECTED_STATUS":
+      return routeError("GITHUB_UNEXPECTED_STATUS", 502);
+    case "INVALID_REQUEST":
+      return routeError("GITHUB_READ_INVALID", 502);
+    default:
+      return routeError("LIVE_READ_FAILED", 502);
+  }
+}
+
+function mapGitHubProjectionFailure(code: GitHubProjectionFailureCode): Response {
+  switch (code) {
+    case "MALFORMED_RESPONSE":
+      return routeError("GITHUB_RESPONSE_INVALID", 502);
+    case "INVALID_REQUEST":
+      return routeError("GITHUB_READ_INVALID", 502);
+    default:
+      return routeError("LIVE_READ_FAILED", 502);
+  }
+}
+
+function mapClassicBranchProtectionFailure(error: GitHubClassicBranchProtectionReaderError): Response {
+  switch (error.code) {
+    case "INVALID_REQUEST":
+      return routeError("GITHUB_READ_INVALID", 502);
+    case "MALFORMED_RESPONSE":
+      return routeError("GITHUB_RESPONSE_INVALID", 502);
+    case "READ_FAILED":
+      return routeError("GITHUB_CLASSIC_PROTECTION_READ_FAILED", 502);
+    default:
+      return routeError("LIVE_READ_FAILED", 502);
+  }
+}
+
 function mapFailure(error: unknown): Response {
   if (error instanceof RouteInputError) return routeError("INVALID_REQUEST", 400);
   if (error instanceof AuthoritativeReconciliationError) {
     if (error.code === "ISSUE_NOT_FOUND") return routeError("ISSUE_NOT_FOUND", 404);
     if (error.code === "INVALID_REQUEST") return routeError("INVALID_REQUEST", 400);
     return routeError("EVIDENCE_INVALID", 502);
+  }
+  if (error instanceof CloudflareGitHubRuntimeError) {
+    return routeError("RUNTIME_UNAVAILABLE", 503);
+  }
+  if (error instanceof GitHubTransportStageDiagnosticError) {
+    return transportStageError(error.stage);
+  }
+  if (error instanceof GitHubRestReadError) {
+    if (error.code === "TRANSPORT_FAILURE") return transportStageError("rest");
+    if (error.code === "UNEXPECTED_STATUS") return unexpectedStatusError("rest", error.status);
+    return mapGitHubReadFailure(error.code);
+  }
+  if (error instanceof GitHubGraphqlMergeStateError) {
+    if (error.code === "TRANSPORT_FAILURE") return transportStageError("graphql");
+    if (error.code === "UNEXPECTED_STATUS") return unexpectedStatusError("graphql", error.status);
+    return mapGitHubReadFailure(error.code);
+  }
+  if (error instanceof GitHubClassicBranchProtectionReaderError) {
+    return mapClassicBranchProtectionFailure(error);
+  }
+  if (
+    error instanceof GitHubAuthoritativeReadProviderError ||
+    error instanceof GitHubActiveBranchRulesReaderError
+  ) {
+    return mapGitHubProjectionFailure(error.code);
   }
   return routeError("LIVE_READ_FAILED", 502);
 }
