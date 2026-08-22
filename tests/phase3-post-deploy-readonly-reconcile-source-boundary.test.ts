@@ -55,6 +55,41 @@ test("Phase 3 production reconciliation stays manual, exact-baseline, and read-o
   assert.match(workflow, /access_get '\/api\/health'/);
   assert.match(workflow, /access_get '\/api\/github\/dashboard'/);
   assert.match(workflow, /\/api\/github\/needs-changes\/preflight\?/);
+
+  assert.ok(workflow.includes('headers="${out}.headers"'));
+  assert.ok(workflow.includes('-D "$headers" -o "$out" -w \'%{http_code}\''));
+  assert.ok(workflow.includes("access_header_value 'cf-ray' \"$headers\""));
+  assert.ok(workflow.includes("access_header_value 'server' \"$headers\""));
+  assert.ok(workflow.includes("access_header_value 'content-type' \"$headers\""));
+  assert.ok(workflow.includes("access_header_value 'cf-mitigated' \"$headers\""));
+  assert.ok(workflow.includes("tr -cd '[:print:]' | cut -c1-160"));
+  assert.match(workflow, /wc -c < "\$out"/);
+
+  const accessDiagnosticMarkers = [
+    "ACCESS_OBSERVED_HTTP_STATUS=%s\\n",
+    "ACCESS_OBSERVED_CF_RAY=%s\\n",
+    "ACCESS_OBSERVED_SERVER=%s\\n",
+    "ACCESS_OBSERVED_CONTENT_TYPE=%s\\n",
+    "ACCESS_OBSERVED_CF_MITIGATED=%s\\n",
+    "ACCESS_OBSERVED_BODY_BYTES=%s\\n",
+  ];
+  let previousAccessDiagnosticIndex = -1;
+  for (const marker of accessDiagnosticMarkers) {
+    const markerIndex = workflow.indexOf(marker);
+    assert.ok(markerIndex > previousAccessDiagnosticIndex, `${marker} must be present in reviewed order`);
+    previousAccessDiagnosticIndex = markerIndex;
+  }
+
+  const emitAccessDiagnostics = workflow.indexOf(
+    'emit_access_diagnostics "$status" "$headers" "$out"',
+  );
+  const accessHttpStop = workflow.indexOf('stop "ACCESS_HTTP_${status}"');
+  assert.ok(emitAccessDiagnostics >= 0, "non-200 Access responses must emit bounded diagnostics");
+  assert.ok(
+    accessHttpStop > emitAccessDiagnostics,
+    "bounded Access diagnostics must be emitted before fail-closed HTTP STOP",
+  );
+
   assert.match(workflow, /NEEDS_CHANGES_POST=NOT_CALLED/);
   assert.match(workflow, /CLOUDFLARE_MUTATION=NO/);
 
@@ -63,6 +98,10 @@ test("Phase 3 production reconciliation stays manual, exact-baseline, and read-o
     workflow,
     /printf[^\n]*(?:CLOUDFLARE_API_TOKEN|CONTROL_ACCESS_CLIENT_ID|CONTROL_ACCESS_CLIENT_SECRET)/,
   );
+  assert.doesNotMatch(workflow, /ACCESS_OBSERVED_(?:LOCATION|COOKIE|SET_COOKIE)/);
+  assert.doesNotMatch(workflow, /access_header_value\s+['"](?:location|cookie|set-cookie)['"]/i);
+  assert.doesNotMatch(workflow, /cat\s+["']?\$out/);
+  assert.doesNotMatch(workflow, /cat\s+["']?\$headers/);
   assert.doesNotMatch(workflow, /cat\s+["']?\$tmp\/deployments\.json/);
   assert.doesNotMatch(workflow, /wrangler\s+deploy/);
   assert.doesNotMatch(workflow, /(?:^|\s)-X\s+(?:POST|PUT|PATCH|DELETE)\b/m);
