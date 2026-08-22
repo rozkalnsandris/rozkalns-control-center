@@ -270,7 +270,7 @@ export function createCloudflareGitHubReadRuntime(
       const branchMetadataScope = parseGitHubInstallationReadScope({
         installationId,
         repositories: [base.repository],
-        permissions: { contents: "read" },
+        permissions: { metadata: "read", contents: "read" },
       });
       const classicBranchProtectionReader = createGitHubClassicBranchProtectionReader({
         scope: classicScope,
