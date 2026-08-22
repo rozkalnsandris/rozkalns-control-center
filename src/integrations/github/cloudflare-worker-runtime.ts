@@ -265,7 +265,7 @@ export function createCloudflareGitHubReadRuntime(
       const classicScope = parseGitHubInstallationReadScope({
         installationId,
         repositories: [base.repository],
-        permissions: { administration: "read" },
+        permissions: { metadata: "read", administration: "read" },
       });
       const branchMetadataScope = parseGitHubInstallationReadScope({
         installationId,
