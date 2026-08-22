@@ -32,7 +32,6 @@ jobs:
       TARGET_ISSUE: "4"
       TARGET_PULL: "3"
       TARGET_HEAD_SHA: d4c5b27e2b32d89447fe3ea1acdde9d2d2a7672e
-      TARGET_MAIN_SHA: e2fa7ecb1b1cdfab0711d8e3e147b5ae03a9a3f2
       GITHUB_TOKEN: ${{ github.token }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
@@ -77,6 +76,15 @@ jobs:
               "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
           }
 
+          gh_repo_get() {
+            local repo="$1" path="$2" out="$3"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${repo}${path}" > "$out" || stop TARGET_GITHUB_GET_FAILED
+          }
+
           cf_get() {
             local path="$1" out="$2"
             curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
@@ -96,12 +104,35 @@ jobs:
             LC_ALL=C printf '%s' "$line" | tr -cd '[:print:]' | cut -c1-160
           }
 
+          access_error_code() {
+            local out="$1" body_bytes="$2" error_code=""
+            [ -f "$out" ] || return 0
+            [ "$body_bytes" -le 512 ] || return 0
+            error_code="$(
+              jq -r '
+                if type == "object" and (.error | type) == "string"
+                then .error
+                else empty
+                end
+              ' "$out" 2>/dev/null || true
+            )"
+            case "$error_code" in
+              EVIDENCE_INVALID|LIVE_READ_FAILED|LIVE_READ_DISABLED|INVALID_REQUEST)
+                printf '%s' "$error_code"
+                ;;
+              *)
+                printf '%s' ""
+                ;;
+            esac
+          }
+
           emit_access_diagnostics() {
-            local status="$1" headers="$2" out="$3" body_bytes
+            local status="$1" headers="$2" out="$3" body_bytes error_code
             body_bytes=0
             if [ -f "$out" ]; then
               body_bytes="$(wc -c < "$out" | tr -d '[:space:]')"
             fi
+            error_code="$(access_error_code "$out" "$body_bytes")"
             {
               printf 'ACCESS_OBSERVED_HTTP_STATUS=%s\n' "$status"
               printf 'ACCESS_OBSERVED_CF_RAY=%s\n' "$(access_header_value 'cf-ray' "$headers")"
@@ -109,6 +140,7 @@ jobs:
               printf 'ACCESS_OBSERVED_CONTENT_TYPE=%s\n' "$(access_header_value 'content-type' "$headers")"
               printf 'ACCESS_OBSERVED_CF_MITIGATED=%s\n' "$(access_header_value 'cf-mitigated' "$headers")"
               printf 'ACCESS_OBSERVED_BODY_BYTES=%s\n' "$body_bytes"
+              printf 'ACCESS_OBSERVED_ERROR_CODE=%s\n' "$error_code"
             } >&2
           }
 
@@ -163,6 +195,13 @@ jobs:
             .id == $id and .name == "CI" and .head_branch == "main" and .head_sha == $sha and
             .event == "push" and .status == "completed" and .conclusion == "success"
           ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+
+          printf '%s\n' STAGE=TARGET_GITHUB_STATE_RECHECK
+          gh_repo_get "$TARGET_REPO" '/branches/main' "$tmp/target-main.json"
+          jq -e '.name == "main"' "$tmp/target-main.json" >/dev/null || stop TARGET_MAIN_BRANCH_DRIFT
+          target_main_sha="$(jq -r '.commit.sha // empty' "$tmp/target-main.json")"
+          [[ "$target_main_sha" =~ ^[0-9a-f]{40}$ ]] || stop TARGET_MAIN_SHA_INVALID
+          printf 'OBSERVED_TARGET_MAIN_SHA=%s\n' "$target_main_sha"
 
           printf '%s\n' STAGE=CLOUDFLARE_ACTIVE_DEPLOYMENT
           cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments.json"
@@ -230,7 +269,7 @@ jobs:
             --argjson issue "$TARGET_ISSUE" \
             --argjson pull "$TARGET_PULL" \
             --arg head "$TARGET_HEAD_SHA" \
-            --arg main "$TARGET_MAIN_SHA" '
+            --arg main "$target_main_sha" '
               .kind == "PROJECTED" and
               .repository == $repo and .issueNumber == $issue and .pullNumber == $pull and
               .policy.coverage == "COMPLETE" and
@@ -253,7 +292,7 @@ jobs:
           printf 'PREFLIGHT_KIND=PROJECTED\n'
           printf 'PREFLIGHT_POLICY_COVERAGE=COMPLETE\n'
           printf 'PREFLIGHT_HEAD_SHA=%s\n' "$TARGET_HEAD_SHA"
-          printf 'PREFLIGHT_MAIN_SHA=%s\n' "$TARGET_MAIN_SHA"
+          printf 'PREFLIGHT_MAIN_SHA=%s\n' "$target_main_sha"
           printf 'NEEDS_CHANGES_POST=NOT_CALLED\n'
           printf 'CLOUDFLARE_MUTATION=NO\n'
           printf 'DEPLOY_RETRY=FORBIDDEN\n'
