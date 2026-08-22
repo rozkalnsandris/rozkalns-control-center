@@ -135,15 +135,24 @@ Report:
 - next safe step from the current phase.
 
 <!-- BEGIN FAST-LANE-V2.1-MANAGED -->
-## 13. FAST-LANE v2.1 Hybrid
+## 13. FAST-LANE v2.2 Composite
 
-Read `docs/FAST_LANE_V2_1.md` for the local adoption of the cross-project standard.
+Read `docs/FAST_LANE_V2_1.md` for the full local v2.2 operating contract. The filename is retained only as a compatibility entrypoint.
+
+**Primary rule:** the human approves the **RISK / DECISION**; automation executes the **TECHNICAL STEPS**.
 
 - **FAST** covers source-only work through Ready when it neither expands GitHub/Cloudflare/RPi5 authority nor performs a production/live mutation.
+- `START`, `turpini`, or equivalent continuation may run the safe source envelope through branch, implementation, tests, Draft PR, CI/review and up to two scope-preserving corrections until Ready.
 - A FAST PR may batch **2-5 closely related same-risk work items** when they share one phase/subsystem and one coherent acceptance story.
-- After initial publication, at most **two scope-preserving corrective commits** may address CI/review findings. A third correction or material scope/risk expansion requires STOP and new authorization.
-- Use one Ready receipt; immediately before merge refresh only mutable GitHub evidence.
-- **STRICT** includes production DB writes/migrations, GitHub permission expansion, Cloudflare mutation, RPi5/root/systemd/Docker/network changes, secrets/credentials and production rollout.
+- Normal end-to-end delivery has at most **two owner decision gates**: `MERGE`, then `COMPOSITE LIVE` only when live mutation is actually required.
+- **Read-only checkpoints MUST NOT create owner gates.** CI polling, GET/preflight, evidence refresh, diff inspection, checkout discovery, clean/ancestor checks, build preparation, candidate GET verification and GET-only reconciliation are technical automation steps.
+- A Composite Live authorization must bind the exact Git SHA, exact target, allowed mutation categories, hard limits where practical, explicit exclusions and expected baseline when relevant.
+- When explicitly named in that envelope, trusted checkout `git fetch` + `git merge --ff-only` may run in the same one-shot as the bounded rollout; `reset`, `rebase`, `clean`, force operations and unlisted mutations remain forbidden.
+- Preflight belongs at the beginning of the one-shot and must fail closed before first mutation. Revalidate approved SHA/target/baseline before live write; STOP on drift.
+- Prefer pinned tooling, build once, verify the exact candidate/version and deploy that exact verified artifact/version without rebuilding in between.
+- Authorization is consumed when the first authorized mutation starts. After that, any error/ambiguity requires evidence preservation and STOP; no automatic retry, rollback, cleanup or alternate mutation path unless explicitly pre-authorized.
+- Use one Ready receipt and one final live receipt. Put any real owner decision visibly at the **end** under `ACTION REQUIRED`; provide exact copyable owner input/commands in a fenced `bash` block.
+- **STRICT** still includes production DB writes/migrations, GitHub permission expansion, Cloudflare mutation, RPi5/root/systemd/Docker/network changes, secrets/credentials and production rollout.
 - Merge remains explicit owner authority and never authorizes deployment, DB or host mutation.
 
 The phase contract in issue #1 and all stricter trust-boundary rules remain authoritative.
