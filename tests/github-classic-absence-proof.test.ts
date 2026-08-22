@@ -60,7 +60,7 @@ test("runtime accepts classic absence only with zero active rules and keeps fall
     readFile("src/integrations/github/classic-branch-protection-reader.ts", "utf8"),
   ]);
 
-  assert.match(runtime, /permissions: \{ administration: "read" \}/);
+  assert.match(runtime, /permissions: \{ metadata: "read", administration: "read" \}/);
   assert.match(runtime, /permissions: \{ contents: "read" \}/);
   assert.match(runtime, /classic\.classicProtectionState === "ABSENT" && active\.activeRuleCount !== 0/);
   assert.match(runtime, /throw new CloudflareGitHubRuntimeError\("INVALID_CONTEXT"\)/);
