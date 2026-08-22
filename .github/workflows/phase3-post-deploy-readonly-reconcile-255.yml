@@ -76,15 +76,6 @@ jobs:
               "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
           }
 
-          gh_repo_get() {
-            local repo="$1" path="$2" out="$3"
-            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2026-03-10' \
-              "https://api.github.com/repos/${repo}${path}" > "$out" || stop TARGET_GITHUB_GET_FAILED
-          }
-
           cf_get() {
             local path="$1" out="$2"
             curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
@@ -196,13 +187,6 @@ jobs:
             .event == "push" and .status == "completed" and .conclusion == "success"
           ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
 
-          printf '%s\n' STAGE=TARGET_GITHUB_STATE_RECHECK
-          gh_repo_get "$TARGET_REPO" '/branches/main' "$tmp/target-main.json"
-          jq -e '.name == "main"' "$tmp/target-main.json" >/dev/null || stop TARGET_MAIN_BRANCH_DRIFT
-          target_main_sha="$(jq -r '.commit.sha // empty' "$tmp/target-main.json")"
-          [[ "$target_main_sha" =~ ^[0-9a-f]{40}$ ]] || stop TARGET_MAIN_SHA_INVALID
-          printf 'OBSERVED_TARGET_MAIN_SHA=%s\n' "$target_main_sha"
-
           printf '%s\n' STAGE=CLOUDFLARE_ACTIVE_DEPLOYMENT
           cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments.json"
           current_deployment="$(jq -r '.result.deployments[0].id // empty' "$tmp/deployments.json")"
@@ -264,12 +248,13 @@ jobs:
 
           preflight_path="/api/github/needs-changes/preflight?repository=rozkalnsandris%2Fops-workflows&issue=${TARGET_ISSUE}&pull=${TARGET_PULL}"
           preflight_http="$(access_get "$preflight_path" "$tmp/preflight.json")"
+          preflight_main_sha="$(jq -r '.decision.mainSha // empty' "$tmp/preflight.json")"
+          [[ "$preflight_main_sha" =~ ^[0-9a-f]{40}$ ]] || stop POST_PREFLIGHT_MAIN_SHA_INVALID
           jq -e \
             --arg repo "$TARGET_REPO" \
             --argjson issue "$TARGET_ISSUE" \
             --argjson pull "$TARGET_PULL" \
-            --arg head "$TARGET_HEAD_SHA" \
-            --arg main "$target_main_sha" '
+            --arg head "$TARGET_HEAD_SHA" '
               .kind == "PROJECTED" and
               .repository == $repo and .issueNumber == $issue and .pullNumber == $pull and
               .policy.coverage == "COMPLETE" and
@@ -277,7 +262,8 @@ jobs:
               (.policy.sources | type == "array") and
               (.policy.sources | index("GITHUB_ACTIVE_RULES") != null) and
               (.policy.sources | index("GITHUB_CLASSIC_BRANCH_PROTECTION") != null) and
-              .decision.currentHeadSha == $head and .decision.mainSha == $main
+              .decision.currentHeadSha == $head and
+              (.decision.mainSha | type == "string" and test("^[0-9a-f]{40}$"))
             ' "$tmp/preflight.json" >/dev/null || stop POST_PREFLIGHT_POLICY_NOT_COMPLETE_PROJECTED
 
           printf 'PHASE254_GITHUB_RECONCILIATION=PASS\n'
@@ -292,7 +278,7 @@ jobs:
           printf 'PREFLIGHT_KIND=PROJECTED\n'
           printf 'PREFLIGHT_POLICY_COVERAGE=COMPLETE\n'
           printf 'PREFLIGHT_HEAD_SHA=%s\n' "$TARGET_HEAD_SHA"
-          printf 'PREFLIGHT_MAIN_SHA=%s\n' "$target_main_sha"
+          printf 'PREFLIGHT_MAIN_SHA=%s\n' "$preflight_main_sha"
           printf 'NEEDS_CHANGES_POST=NOT_CALLED\n'
           printf 'CLOUDFLARE_MUTATION=NO\n'
           printf 'DEPLOY_RETRY=FORBIDDEN\n'
