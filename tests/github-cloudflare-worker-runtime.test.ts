@@ -74,6 +74,44 @@ test("Cloudflare runtime validates non-secret identity bindings and creates an e
   assert.equal(fetchCount, 0);
 });
 
+test("Needs-changes runtime keeps normal reads unchanged and narrows classic token to metadata plus administration", () => {
+  const fixture = rsaFixture();
+  let fetchCount = 0;
+  const runtime = createCloudflareGitHubReadRuntime({
+    bindings: bindings(fixture.privateKeyPem),
+    fetchRequest: async () => {
+      fetchCount += 1;
+      throw new Error("network must not run while constructing the Needs-changes context");
+    },
+  });
+
+  const context = runtime.createRepositoryNeedsChangesReadContext(
+    "rozkalnsandris/ops-workflows",
+    "2026-08-22T17:30:25.000Z",
+  );
+
+  assert.deepEqual(context.scope.repositories, ["rozkalnsandris/ops-workflows"]);
+  assert.deepEqual(context.scope.permissions, {
+    metadata: "read",
+    contents: "read",
+    issues: "read",
+    pull_requests: "read",
+    checks: "read",
+    actions: "read",
+  });
+  assert.equal("administration" in context.scope.permissions, false);
+
+  assert.deepEqual(context.classicScope.repositories, ["rozkalnsandris/ops-workflows"]);
+  assert.deepEqual(context.classicScope.permissions, {
+    metadata: "read",
+    administration: "read",
+  });
+
+  assert.deepEqual(context.branchMetadataScope.repositories, ["rozkalnsandris/ops-workflows"]);
+  assert.deepEqual(context.branchMetadataScope.permissions, { contents: "read" });
+  assert.equal(fetchCount, 0);
+});
+
 test("Cloudflare runtime rejects unselected repositories and inconsistent reconciliation context before network access", async () => {
   const fixture = rsaFixture();
   let fetchCount = 0;
