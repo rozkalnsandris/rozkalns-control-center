@@ -134,10 +134,10 @@ Report:
 - security/deploy impact;
 - next safe step from the current phase.
 
-<!-- BEGIN FAST-LANE-V2.1-MANAGED -->
+<!-- BEGIN FAST-LANE-V2.2-MANAGED -->
 ## 13. FAST-LANE v2.2 Composite
 
-Read `docs/FAST_LANE_V2_1.md` for the full local v2.2 operating contract. The filename is retained only as a compatibility entrypoint.
+Read `docs/FAST_LANE_V2_2.md` as the active local v2.2 startup and operating contract.
 
 **Primary rule:** the human approves the **RISK / DECISION**; automation executes the **TECHNICAL STEPS**.
 
@@ -156,4 +156,4 @@ Read `docs/FAST_LANE_V2_1.md` for the full local v2.2 operating contract. The fi
 - Merge remains explicit owner authority and never authorizes deployment, DB or host mutation.
 
 The phase contract in issue #1 and all stricter trust-boundary rules remain authoritative.
-<!-- END FAST-LANE-V2.1-MANAGED -->
+<!-- END FAST-LANE-V2.2-MANAGED -->
