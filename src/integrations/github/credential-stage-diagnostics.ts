@@ -26,6 +26,44 @@ export class GitHubTransportStageDiagnosticError extends Error {
   }
 }
 
+export type GitHubValidationDiagnosticCode =
+  | "TOKEN_SCOPE_REJECTED"
+  | "TOKEN_SCOPE_MISMATCH"
+  | "READ_REQUEST_INVALID"
+  | "GRAPHQL_REQUEST_INVALID";
+
+export class GitHubRestValidationDiagnosticError extends GitHubRestReadError {
+  readonly diagnosticCode: GitHubValidationDiagnosticCode;
+
+  constructor(diagnosticCode: GitHubValidationDiagnosticCode) {
+    super("INVALID_REQUEST");
+    this.name = "GitHubRestValidationDiagnosticError";
+    this.diagnosticCode = diagnosticCode;
+  }
+}
+
+export class GitHubGraphqlValidationDiagnosticError extends GitHubGraphqlMergeStateError {
+  readonly diagnosticCode: GitHubValidationDiagnosticCode;
+
+  constructor(diagnosticCode: GitHubValidationDiagnosticCode) {
+    super("INVALID_REQUEST");
+    this.name = "GitHubGraphqlValidationDiagnosticError";
+    this.diagnosticCode = diagnosticCode;
+  }
+}
+
+function validationDiagnosticCode(error: GitHubAppSessionError): GitHubValidationDiagnosticCode | null {
+  switch (error.code) {
+    case "TOKEN_SCOPE_REJECTED":
+    case "TOKEN_SCOPE_MISMATCH":
+    case "READ_REQUEST_INVALID":
+    case "GRAPHQL_REQUEST_INVALID":
+      return error.code;
+    default:
+      return null;
+  }
+}
+
 function restFailureCode(error: GitHubAppSessionError): GitHubRestReadFailureCode {
   switch (error.code) {
     case "TOKEN_UNAUTHORIZED":
@@ -100,6 +138,10 @@ export function createGitHubCredentialDiagnosticRestTransport(
         session = await acquireSession(scope, observedAt);
       } catch (error) {
         if (error instanceof GitHubAppSessionError) {
+          const validationCode = validationDiagnosticCode(error);
+          if (validationCode !== null) {
+            throw new GitHubRestValidationDiagnosticError(validationCode);
+          }
           if (tokenExchangeTransportFailure(error)) {
             throw new GitHubTransportStageDiagnosticError("token-exchange");
           }
@@ -123,6 +165,10 @@ export function createGitHubCredentialDiagnosticGraphqlTransport(
         session = await acquireSession(scope, observedAt);
       } catch (error) {
         if (error instanceof GitHubAppSessionError) {
+          const validationCode = validationDiagnosticCode(error);
+          if (validationCode !== null) {
+            throw new GitHubGraphqlValidationDiagnosticError(validationCode);
+          }
           if (tokenExchangeTransportFailure(error)) {
             throw new GitHubTransportStageDiagnosticError("token-exchange");
           }

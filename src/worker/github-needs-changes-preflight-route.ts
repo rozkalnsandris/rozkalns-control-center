@@ -14,7 +14,12 @@ import {
   type CloudflareGitHubReadRuntime,
   type CloudflareGitHubRuntimeBindings,
 } from "../integrations/github/cloudflare-worker-runtime.js";
-import { GitHubTransportStageDiagnosticError } from "../integrations/github/credential-stage-diagnostics.js";
+import {
+  GitHubGraphqlValidationDiagnosticError,
+  GitHubRestValidationDiagnosticError,
+  GitHubTransportStageDiagnosticError,
+  type GitHubValidationDiagnosticCode,
+} from "../integrations/github/credential-stage-diagnostics.js";
 import {
   GitHubGraphqlMergeStateError,
   type GitHubGraphqlMergeStateFailureCode,
@@ -188,6 +193,21 @@ function mapGitHubReadFailure(code: GitHubReadFailureCode): Response {
   }
 }
 
+function mapGitHubValidationDiagnostic(code: GitHubValidationDiagnosticCode): Response {
+  switch (code) {
+    case "TOKEN_SCOPE_REJECTED":
+      return routeError("GITHUB_TOKEN_SCOPE_REJECTED", 502);
+    case "TOKEN_SCOPE_MISMATCH":
+      return routeError("GITHUB_TOKEN_SCOPE_MISMATCH", 502);
+    case "READ_REQUEST_INVALID":
+      return routeError("GITHUB_REST_REQUEST_INVALID", 502);
+    case "GRAPHQL_REQUEST_INVALID":
+      return routeError("GITHUB_GRAPHQL_REQUEST_INVALID", 502);
+    default:
+      return routeError("GITHUB_READ_INVALID", 502);
+  }
+}
+
 function mapGitHubProjectionFailure(code: GitHubProjectionFailureCode): Response {
   switch (code) {
     case "MALFORMED_RESPONSE":
@@ -224,6 +244,12 @@ function mapFailure(error: unknown): Response {
   }
   if (error instanceof GitHubTransportStageDiagnosticError) {
     return transportStageError(error.stage);
+  }
+  if (
+    error instanceof GitHubRestValidationDiagnosticError ||
+    error instanceof GitHubGraphqlValidationDiagnosticError
+  ) {
+    return mapGitHubValidationDiagnostic(error.diagnosticCode);
   }
   if (error instanceof GitHubRestReadError) {
     if (error.code === "TRANSPORT_FAILURE") return transportStageError("rest");
