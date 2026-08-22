@@ -231,7 +231,7 @@ export function createGitHubClassicBranchProtectionReader(
         if (classicNotFound(error)) {
           return readAbsenceProof(repository, branch, encodedBranch);
         }
-        return readFailed();
+        throw error;
       }
 
       if (!Array.isArray(pages) || pages.length !== 1) return malformed();
