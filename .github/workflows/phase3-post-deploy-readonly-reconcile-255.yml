@@ -56,7 +56,7 @@ jobs:
             exit 1
           }
 
-          for cmd in curl jq; do
+          for cmd in curl jq grep cut tr wc; do
             command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
           done
 
@@ -86,14 +86,44 @@ jobs:
             jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_RESPONSE_INVALID
           }
 
+          access_header_value() {
+            local header_name="$1" header_file="$2" line
+            line="$(grep -i -m1 "^${header_name}:" "$header_file" 2>/dev/null || true)"
+            line="${line#*:}"
+            line="${line//$'\r'/}"
+            line="${line//$'\n'/}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            LC_ALL=C printf '%s' "$line" | tr -cd '[:print:]' | cut -c1-160
+          }
+
+          emit_access_diagnostics() {
+            local status="$1" headers="$2" out="$3" body_bytes
+            body_bytes=0
+            if [ -f "$out" ]; then
+              body_bytes="$(wc -c < "$out" | tr -d '[:space:]')"
+            fi
+            {
+              printf 'ACCESS_OBSERVED_HTTP_STATUS=%s\n' "$status"
+              printf 'ACCESS_OBSERVED_CF_RAY=%s\n' "$(access_header_value 'cf-ray' "$headers")"
+              printf 'ACCESS_OBSERVED_SERVER=%s\n' "$(access_header_value 'server' "$headers")"
+              printf 'ACCESS_OBSERVED_CONTENT_TYPE=%s\n' "$(access_header_value 'content-type' "$headers")"
+              printf 'ACCESS_OBSERVED_CF_MITIGATED=%s\n' "$(access_header_value 'cf-mitigated' "$headers")"
+              printf 'ACCESS_OBSERVED_BODY_BYTES=%s\n' "$body_bytes"
+            } >&2
+          }
+
           access_get() {
-            local path="$1" out="$2" status
+            local path="$1" out="$2" status headers
+            headers="${out}.headers"
             status="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
               -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}" \
               -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}" \
               -H 'Accept: application/json' \
-              -o "$out" -w '%{http_code}' "https://${HOSTNAME}${path}")" || stop ACCESS_GET_FAILED
-            [ "$status" = "200" ] || stop "ACCESS_HTTP_${status}"
+              -D "$headers" -o "$out" -w '%{http_code}' "https://${HOSTNAME}${path}")" || stop ACCESS_GET_FAILED
+            if [ "$status" != "200" ]; then
+              emit_access_diagnostics "$status" "$headers" "$out"
+              stop "ACCESS_HTTP_${status}"
+            fi
             jq -e 'type == "object"' "$out" >/dev/null || stop ACCESS_RESPONSE_NOT_JSON_OBJECT
             printf '%s' "$status"
           }
