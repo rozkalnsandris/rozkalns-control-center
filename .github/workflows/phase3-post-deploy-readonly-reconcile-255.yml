@@ -108,7 +108,7 @@ jobs:
               ' "$out" 2>/dev/null || true
             )"
             case "$error_code" in
-              EVIDENCE_INVALID|LIVE_READ_FAILED|LIVE_READ_DISABLED|INVALID_REQUEST)
+              EVIDENCE_INVALID|LIVE_READ_FAILED|LIVE_READ_DISABLED|INVALID_REQUEST|ISSUE_NOT_FOUND|RUNTIME_UNAVAILABLE|GITHUB_CREDENTIAL_UNAVAILABLE|GITHUB_CREDENTIAL_UNUSABLE|GITHUB_RATE_LIMITED|GITHUB_UNAUTHORIZED|GITHUB_FORBIDDEN|GITHUB_RESOURCE_NOT_FOUND|GITHUB_TRANSPORT_FAILED|GITHUB_RESPONSE_INVALID|GITHUB_GRAPHQL_FAILED|GITHUB_UNEXPECTED_STATUS|GITHUB_READ_INVALID|GITHUB_CLASSIC_PROTECTION_READ_FAILED)
                 printf '%s' "$error_code"
                 ;;
               *)
@@ -117,13 +117,58 @@ jobs:
             esac
           }
 
+          access_error_stage() {
+            local out="$1" body_bytes="$2" error_code="$3" error_stage=""
+            [ -f "$out" ] || return 0
+            [ "$body_bytes" -le 512 ] || return 0
+            case "$error_code" in
+              GITHUB_TRANSPORT_FAILED|GITHUB_UNEXPECTED_STATUS) ;;
+              *) return 0 ;;
+            esac
+            error_stage="$(
+              jq -r '
+                if type == "object" and (.stage | type) == "string"
+                then .stage
+                else empty
+                end
+              ' "$out" 2>/dev/null || true
+            )"
+            case "$error_stage" in
+              token-exchange|rest|graphql)
+                printf '%s' "$error_stage"
+                ;;
+              *)
+                printf '%s' ""
+                ;;
+            esac
+          }
+
+          access_upstream_status() {
+            local out="$1" body_bytes="$2" error_code="$3"
+            [ -f "$out" ] || return 0
+            [ "$body_bytes" -le 512 ] || return 0
+            [ "$error_code" = "GITHUB_UNEXPECTED_STATUS" ] || return 0
+            jq -r '
+              if type == "object"
+              then (.upstreamStatus as $status |
+                if (($status | type) == "number") and (($status | floor) == $status) and $status >= 100 and $status <= 599
+                then ($status | tostring)
+                else empty
+                end)
+              else empty
+              end
+            ' "$out" 2>/dev/null || true
+          }
+
           emit_access_diagnostics() {
-            local status="$1" headers="$2" out="$3" body_bytes error_code
+            local status="$1" headers="$2" out="$3" body_bytes error_code error_stage upstream_status
             body_bytes=0
             if [ -f "$out" ]; then
               body_bytes="$(wc -c < "$out" | tr -d '[:space:]')"
             fi
             error_code="$(access_error_code "$out" "$body_bytes")"
+            error_stage="$(access_error_stage "$out" "$body_bytes" "$error_code")"
+            upstream_status="$(access_upstream_status "$out" "$body_bytes" "$error_code")"
             {
               printf 'ACCESS_OBSERVED_HTTP_STATUS=%s\n' "$status"
               printf 'ACCESS_OBSERVED_CF_RAY=%s\n' "$(access_header_value 'cf-ray' "$headers")"
@@ -132,6 +177,8 @@ jobs:
               printf 'ACCESS_OBSERVED_CF_MITIGATED=%s\n' "$(access_header_value 'cf-mitigated' "$headers")"
               printf 'ACCESS_OBSERVED_BODY_BYTES=%s\n' "$body_bytes"
               printf 'ACCESS_OBSERVED_ERROR_CODE=%s\n' "$error_code"
+              printf 'ACCESS_OBSERVED_ERROR_STAGE=%s\n' "$error_stage"
+              printf 'ACCESS_OBSERVED_UPSTREAM_STATUS=%s\n' "$upstream_status"
             } >&2
           }
 
