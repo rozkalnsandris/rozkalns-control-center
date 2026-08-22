@@ -61,10 +61,13 @@ test("runtime accepts classic absence only with zero active rules and keeps fall
   ]);
 
   assert.match(runtime, /permissions: \{ metadata: "read", administration: "read" \}/);
-  assert.match(runtime, /permissions: \{ contents: "read" \}/);
+  assert.match(runtime, /permissions: \{ metadata: "read", contents: "read" \}/);
   assert.match(runtime, /classic\.classicProtectionState === "ABSENT" && active\.activeRuleCount !== 0/);
   assert.match(runtime, /throw new CloudflareGitHubRuntimeError\("INVALID_CONTEXT"\)/);
 
+  assert.match(classic, /scope\.permissions\.metadata !== "read"/);
+  assert.match(classic, /scope\.permissions\.contents !== "read"/);
+  assert.match(classic, /Object\.keys\(scope\.permissions\)\.length !== 2/);
   assert.match(classic, /error instanceof GitHubRestReadError && error\.code === "NOT_FOUND" && error\.status === 404/);
   assert.match(classic, /`\/repos\/\$\{repository\}\/branches\/\$\{encodedBranch\}`/);
   assert.match(classic, /"contents"/);

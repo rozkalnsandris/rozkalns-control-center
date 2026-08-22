@@ -74,7 +74,7 @@ test("Cloudflare runtime validates non-secret identity bindings and creates an e
   assert.equal(fetchCount, 0);
 });
 
-test("Needs-changes runtime keeps normal reads unchanged and narrows classic token to metadata plus administration", () => {
+test("Needs-changes runtime keeps normal reads unchanged and narrows classic and absence tokens to metadata baselines", () => {
   const fixture = rsaFixture();
   let fetchCount = 0;
   const runtime = createCloudflareGitHubReadRuntime({
@@ -108,7 +108,10 @@ test("Needs-changes runtime keeps normal reads unchanged and narrows classic tok
   });
 
   assert.deepEqual(context.branchMetadataScope.repositories, ["rozkalnsandris/ops-workflows"]);
-  assert.deepEqual(context.branchMetadataScope.permissions, { contents: "read" });
+  assert.deepEqual(context.branchMetadataScope.permissions, {
+    metadata: "read",
+    contents: "read",
+  });
   assert.equal(fetchCount, 0);
 });
 

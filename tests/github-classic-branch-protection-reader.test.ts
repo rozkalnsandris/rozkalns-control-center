@@ -18,19 +18,19 @@ import { GitHubRestReadError } from "../src/integrations/github/rest-read-transp
 const repository = "rozkalnsandris/ops-workflows";
 const observedAt = "2026-08-17T18:00:00.000Z";
 
-function administrationScope(): GitHubInstallationReadScope {
+function classicScope(): GitHubInstallationReadScope {
   return parseGitHubInstallationReadScope({
     installationId: 153121564,
     repositories: [repository],
-    permissions: { administration: "read" },
+    permissions: { metadata: "read", administration: "read" },
   });
 }
 
-function contentsScope(): GitHubInstallationReadScope {
+function absenceScope(): GitHubInstallationReadScope {
   return parseGitHubInstallationReadScope({
     installationId: 153121564,
     repositories: [repository],
-    permissions: { contents: "read" },
+    permissions: { metadata: "read", contents: "read" },
   });
 }
 
@@ -78,6 +78,11 @@ function readerError(code: GitHubClassicBranchProtectionReaderError["code"]) {
   return (error: unknown) => error instanceof GitHubClassicBranchProtectionReaderError && error.code === code;
 }
 
+function restError(code: GitHubRestReadError["code"], status: number | null = null) {
+  return (error: unknown) =>
+    error instanceof GitHubRestReadError && error.code === code && error.status === status;
+}
+
 function classicPayload() {
   return {
     required_status_checks: {
@@ -96,8 +101,8 @@ function classicPayload() {
 
 function readerWithTransport(restTransport: GitHubInstallationReadTransport) {
   return createGitHubClassicBranchProtectionReader({
-    scope: administrationScope(),
-    absenceScope: contentsScope(),
+    scope: classicScope(),
+    absenceScope: absenceScope(),
     observedAt,
     restTransport,
   });
@@ -121,16 +126,21 @@ test("reads classic protection through the exact Administration-read endpoint wi
   ]);
 });
 
-test("requires exact Administration and bounded Contents fallback scopes before transport", () => {
+test("requires Administration and an exact Metadata-plus-Contents absence scope before transport", () => {
   const metadataOnly = parseGitHubInstallationReadScope({
     installationId: 153121564,
     repositories: [repository],
     permissions: { metadata: "read" },
   });
+  const contentsOnly = parseGitHubInstallationReadScope({
+    installationId: 153121564,
+    repositories: [repository],
+    permissions: { contents: "read" },
+  });
   const broadFallback = parseGitHubInstallationReadScope({
     installationId: 153121564,
     repositories: [repository],
-    permissions: { contents: "read", metadata: "read" },
+    permissions: { metadata: "read", contents: "read", issues: "read" },
   });
   let calls = 0;
   const transport = scriptedTransport(() => {
@@ -141,7 +151,7 @@ test("requires exact Administration and bounded Contents fallback scopes before 
   assert.throws(
     () => createGitHubClassicBranchProtectionReader({
       scope: metadataOnly,
-      absenceScope: contentsScope(),
+      absenceScope: absenceScope(),
       observedAt,
       restTransport: transport,
     }),
@@ -149,7 +159,16 @@ test("requires exact Administration and bounded Contents fallback scopes before 
   );
   assert.throws(
     () => createGitHubClassicBranchProtectionReader({
-      scope: administrationScope(),
+      scope: classicScope(),
+      absenceScope: contentsOnly,
+      observedAt,
+      restTransport: transport,
+    }),
+    readerError("INVALID_REQUEST"),
+  );
+  assert.throws(
+    () => createGitHubClassicBranchProtectionReader({
+      scope: classicScope(),
       absenceScope: broadFallback,
       observedAt,
       restTransport: transport,
@@ -180,8 +199,8 @@ test("classic 404 alone is insufficient but exact unprotected branch metadata pr
   assert.equal(observation.requiredApprovals, 0);
   assert.equal(observation.hasUnresolvedRequiredCheckSourceIdentity, false);
   assert.deepEqual(calls.map(({ scope, request }) => [scope.permissions, request.path, request.requiredPermission]), [
-    [{ administration: "read" }, `/repos/${repository}/branches/main/protection`, "administration"],
-    [{ contents: "read" }, `/repos/${repository}/branches/main`, "contents"],
+    [{ metadata: "read", administration: "read" }, `/repos/${repository}/branches/main/protection`, "administration"],
+    [{ metadata: "read", contents: "read" }, `/repos/${repository}/branches/main`, "contents"],
   ]);
 });
 
@@ -203,18 +222,21 @@ test("classic 404 fallback fails closed when branch is protected or branch ident
   }
 });
 
-test("classic 404 fallback fails closed for missing or malformed branch metadata", async () => {
+test("classic 404 fallback preserves a missing branch as bounded REST not-found evidence", async () => {
   const missingBranch = readerWithTransport(scriptedTransport((_readScope, request) => {
     if (request.path.endsWith("/protection")) {
       throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
     }
     throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
   }));
+
   await assert.rejects(
     () => missingBranch.readClassicBranchProtection(repository, "main"),
-    readerError("READ_FAILED"),
+    restError("NOT_FOUND", 404),
   );
+});
 
+test("classic 404 fallback fails closed for malformed branch metadata", async () => {
   for (const payload of [
     { name: "main" },
     { name: "main", protected: "false" },
@@ -230,6 +252,28 @@ test("classic 404 fallback fails closed for missing or malformed branch metadata
       () => malformedBranch.readClassicBranchProtection(repository, "main"),
       readerError("MALFORMED_RESPONSE"),
     );
+  }
+});
+
+test("classic 404 fallback preserves bounded transport diagnostics instead of collapsing them", async () => {
+  for (const error of [
+    new GitHubRestReadError("FORBIDDEN", { status: 403 }),
+    new GitHubRestReadError("INVALID_REQUEST", { status: 422 }),
+    new GitHubRestReadError("TRANSPORT_FAILURE"),
+    new Error("ambiguous failure text"),
+  ]) {
+    let calls = 0;
+    const reader = readerWithTransport(scriptedTransport(() => {
+      calls += 1;
+      if (calls === 1) throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
+      throw error;
+    }));
+
+    await assert.rejects(
+      () => reader.readClassicBranchProtection(repository, "main"),
+      (observed) => observed === error,
+    );
+    assert.equal(calls, 2);
   }
 });
 

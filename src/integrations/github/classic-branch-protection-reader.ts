@@ -78,8 +78,9 @@ function normalizeAbsenceScope(
 ): GitHubInstallationReadScope {
   try {
     const scope = parseGitHubInstallationReadScope(value);
+    if (scope.permissions.metadata !== "read") return invalid();
     if (scope.permissions.contents !== "read") return invalid();
-    if (Object.keys(scope.permissions).length !== 1) return invalid();
+    if (Object.keys(scope.permissions).length !== 2) return invalid();
     if (scope.installationId !== classicScope.installationId) return invalid();
     if (
       scope.repositories.length !== classicScope.repositories.length ||
@@ -189,12 +190,7 @@ export function createGitHubClassicBranchProtectionReader(
       return invalid();
     }
 
-    let pages: readonly unknown[];
-    try {
-      pages = (await restTransport.get<unknown>(absenceScope, request, observedAt)).pages;
-    } catch {
-      return readFailed();
-    }
+    const pages = (await restTransport.get<unknown>(absenceScope, request, observedAt)).pages;
     if (!Array.isArray(pages) || pages.length !== 1) return malformed();
     return mapUnprotectedBranchMetadata(pages[0], repository, branch, observedAt);
   }
