@@ -3,6 +3,7 @@ import {
   reconcileAuthoritativePullRequestDecision,
   type BranchPolicyEvidenceReader,
 } from "./authoritative-reconciliation.js";
+import { isReviewRequirementSatisfied } from "./github-projection.js";
 import type { SourceControlReadProvider } from "./source-control-read.js";
 import { requireManagedProjectPolicy } from "./project-policy.js";
 import {
@@ -349,7 +350,7 @@ export async function executeNeedsChangesDecision(
     decision.issueNumber !== normalized.issueNumber ||
     decision.workflowState !== "MERGE_READY" ||
     decision.ci !== "PASS" ||
-    decision.review !== "PASS"
+    !isReviewRequirementSatisfied(decision.review)
   ) {
     return failBeforeWrite(
       dependencies.auditStore,
