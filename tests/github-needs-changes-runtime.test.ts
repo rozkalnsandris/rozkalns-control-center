@@ -123,8 +123,12 @@ test("production entrypoint wires Needs changes with exactly one source canary c
   assert.equal(wranglerSource.includes("CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE"), true);
   assert.equal(wranglerSource.includes("https://super-salad-2357.cloudflareaccess.com"), true);
   assert.equal(
-    wranglerSource.includes("c69850b0fcfeef951512b81941aec53e4e406c16e11d396ab0abe25f35728c75"),
+    wranglerSource.includes("a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc"),
     true,
+  );
+  assert.equal(
+    wranglerSource.includes("c69850b0fcfeef951512b81941aec53e4e406c16e11d396ab0abe25f35728c75"),
+    false,
   );
   assert.equal(wranglerSource.includes("CONTROL_ACCESS_AUTH_CANARY_ENABLED"), false);
   assert.equal(wranglerSource.includes("\"CONTROL_ACCESS_ISSUER\""), false);
