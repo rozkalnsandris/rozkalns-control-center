@@ -161,6 +161,14 @@ export function aggregateReviewState(
   return approvals >= policy.requiredApprovals ? "PASS" : "PENDING";
 }
 
+export function isReviewRequirementSatisfied(review: UiReviewState): boolean {
+  return review === "PASS" || review === "NOT_REQUIRED";
+}
+
+function isExplicitZeroCiRequirementPolicy(policy: CiRequirementPolicy | undefined): boolean {
+  return policy !== undefined && policy.requiredChecks.length === 0 && policy.requiredWorkflowNames.length === 0;
+}
+
 function assertExactHeadEvidence(snapshot: ChangeRequestReadSnapshot): void {
   const expected = snapshot.pullRequest.headSha;
   normalizeCommitStatusCoverage(snapshot.commitStatusCoverage);
@@ -200,7 +208,9 @@ function deriveWorkflowState(
   if (ci === "FAIL") return "CI_FAILED";
   if (snapshot.pullRequest.draft || ci === "RUNNING" || ci === "WAITING") return "WAITING";
   if (review === "CHANGES_REQUESTED") return "NEEDS_ANDRIS";
-  if (ci === "PASS" && review === "PASS" && isReadyAccordingToGitHub(snapshot.mergeState)) return "MERGE_READY";
+  if (ci === "PASS" && isReviewRequirementSatisfied(review) && isReadyAccordingToGitHub(snapshot.mergeState)) {
+    return "MERGE_READY";
+  }
   return "WAITING";
 }
 
@@ -214,12 +224,12 @@ function reasonFor(
   if (state === "CI_FAILED") return "Required CI evidence failed. The decision must wait for authoritative evidence to change.";
   if (review === "CHANGES_REQUESTED") return "The latest effective review state includes changes requested; human attention is required.";
   if (state === "MERGE_READY") {
-    return "Required CI/review evidence is satisfied and GitHub reports this exact PR head as MERGEABLE/CLEAN; Phase 2 remains read-only.";
+    return "Required CI/review policy is satisfied and GitHub reports this exact PR head as MERGEABLE/CLEAN; Phase 2 remains read-only.";
   }
   if (ci === "RUNNING") return "Required CI evidence is still running; Control must wait for a fresh authoritative reconciliation.";
   if (ci === "WAITING") return "Required CI evidence is missing, ambiguous, or not successful; Control must fail closed and wait.";
-  if (ci === "PASS" && review === "PASS") {
-    return `CI/review evidence is satisfied, but GitHub merge state is ${mergeState.mergeable}/${mergeState.mergeStateStatus}; Control must remain non-ready.`;
+  if (ci === "PASS" && isReviewRequirementSatisfied(review)) {
+    return `CI/review policy is satisfied, but GitHub merge state is ${mergeState.mergeable}/${mergeState.mergeStateStatus}; Control must remain non-ready.`;
   }
   return "Read-only evidence is incomplete; no mutation is allowed.";
 }
@@ -232,13 +242,15 @@ export function projectAuthoritativeSnapshotToDecision(
   assertExactHeadEvidence(snapshot);
 
   const project = requireManagedProjectPolicy(snapshot.repository);
-  const ci = aggregateCiState(
-    snapshot.checkRuns,
-    snapshot.commitStatuses,
-    snapshot.workflowRuns,
-    context.ciPolicy,
-    snapshot.commitStatusCoverage,
-  );
+  const ci = isExplicitZeroCiRequirementPolicy(context.ciPolicy)
+    ? "PASS"
+    : aggregateCiState(
+        snapshot.checkRuns,
+        snapshot.commitStatuses,
+        snapshot.workflowRuns,
+        context.ciPolicy,
+        snapshot.commitStatusCoverage,
+      );
   const review = aggregateReviewState(snapshot.reviews, context.reviewPolicy);
   const workflowState = deriveWorkflowState(snapshot, ci, review);
 
