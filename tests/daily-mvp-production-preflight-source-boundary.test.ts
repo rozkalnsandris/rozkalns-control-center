@@ -28,7 +28,7 @@ test("Daily MVP production preflight is manual and read-only", () => {
   assert.match(workflow, /OBSERVED_SOURCE=/);
   assert.match(workflow, /OBSERVED_TRIGGERED_BY=/);
   assert.match(workflow, /sanitize_diag\(\)/);
-  assert.match(workflow, /tr -cd '\[:alnum:\] _\.\/:@\+\-'/);
+  assert.ok(workflow.includes("tr -cd '[:alnum:] _./:@+-'"));
   assert.doesNotMatch(workflow, /author_email/);
 
   const observedDeploymentIndex = workflow.indexOf("OBSERVED_DEPLOYMENT=");
