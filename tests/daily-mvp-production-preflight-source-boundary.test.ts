@@ -19,8 +19,26 @@ test("Daily MVP production preflight is manual and read-only", () => {
   assert.match(workflow, /\.conclusion == "success"/);
   assert.match(workflow, /MAIN_SHA_DRIFT/);
 
-  assert.match(workflow, /EXPECTED_ACTIVE_VERSION:\s*83eb326a-3a0e-4548-b253-7a463bc934ac/);
-  assert.match(workflow, /EXPECTED_ACTIVE_DEPLOYMENT:\s*9392d84b-5458-4b33-9dda-9918a8d535d4/);
+  assert.match(workflow, /EXPECTED_ACTIVE_VERSION:\s*d713b262-6937-41a6-bb59-60ae898cc6fa/);
+  assert.match(workflow, /EXPECTED_ACTIVE_DEPLOYMENT:\s*ae782fea-08e7-4cdb-9770-71e61e61a76a/);
+  assert.match(workflow, /OBSERVED_DEPLOYMENT=/);
+  assert.match(workflow, /OBSERVED_VERSION=/);
+  assert.match(workflow, /OBSERVED_TRAFFIC_PERCENT=/);
+  assert.match(workflow, /OBSERVED_CREATED_ON=/);
+  assert.match(workflow, /OBSERVED_SOURCE=/);
+  assert.match(workflow, /OBSERVED_TRIGGERED_BY=/);
+  assert.match(workflow, /sanitize_diag\(\)/);
+  assert.ok(workflow.includes("tr -cd '[:alnum:] _./:@+-'"));
+  assert.doesNotMatch(workflow, /author_email/);
+
+  const observedDeploymentIndex = workflow.indexOf("OBSERVED_DEPLOYMENT=");
+  const deploymentComparisonIndex = workflow.indexOf(
+    '[ "$current_deployment" = "$EXPECTED_ACTIVE_DEPLOYMENT" ]',
+  );
+  assert.ok(observedDeploymentIndex >= 0);
+  assert.ok(deploymentComparisonIndex >= 0);
+  assert.ok(observedDeploymentIndex < deploymentComparisonIndex);
+
   assert.match(workflow, /ACTIVE_DEPLOYMENT_REVERTED_TO_FROZEN_PRE_DEPLOYMENT/);
   assert.match(workflow, /ACTIVE_DEPLOYMENT_DRIFT/);
   assert.match(workflow, /ACTIVE_VERSION_DRIFT/);
