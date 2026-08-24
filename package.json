@@ -4,10 +4,18 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": "24.19.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.19.0",
+      "onFail": "error"
+    }
   },
   "scripts": {
     "dev": "vite",
+    "verify:node": "node scripts/verify-node-version.mjs",
     "cf-typegen": "wrangler types",
     "typecheck": "wrangler types && tsc -b --pretty false",
     "lint": "eslint . --max-warnings=0",
