@@ -17,9 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Checkout exact source SHA with comparison history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup canonical Node
@@ -31,26 +33,67 @@ jobs:
       - name: Verify canonical Node version
         run: node scripts/verify-node-version.mjs
 
-      - name: Install locked dependencies
-        run: npm ci
+      - name: Validate CI scope classifier
+        run: node --test tools/ci-scope.test.mjs
+
+      - name: Classify changed paths
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_file_list="$(mktemp)"
+          trap 'rm -f "$changed_file_list"' EXIT
+
+          if [[ -z "${BASE_SHA:-}" || -z "${HEAD_SHA:-}" || "$BASE_SHA" =~ ^0+$ ]]; then
+            node tools/ci-scope.mjs >> "$GITHUB_OUTPUT"
+          elif ! git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" > "$changed_file_list"; then
+            node tools/ci-scope.mjs >> "$GITHUB_OUTPUT"
+          else
+            mapfile -t changed_paths < "$changed_file_list"
+            node tools/ci-scope.mjs "${changed_paths[@]}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record selected CI scope
+        env:
+          MODE: ${{ steps.scope.outputs.mode }}
+          FULL: ${{ steps.scope.outputs.full }}
+        run: |
+          {
+            echo "### FAST-LANE CI scope"
+            echo "- mode: $MODE"
+            echo "- full validation: $FULL"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify repository policy
         run: npm run verify:policy
 
+      - name: Install locked dependencies
+        if: steps.scope.outputs.full == 'true'
+        run: npm ci
+
       - name: Audit runtime dependencies
+        if: steps.scope.outputs.full == 'true'
         run: npm run audit:runtime
 
       - name: Typecheck and generate Worker types
+        if: steps.scope.outputs.full == 'true'
         run: npm run typecheck
 
       - name: Lint
+        if: steps.scope.outputs.full == 'true'
         run: npm run lint
 
       - name: Unit tests
+        if: steps.scope.outputs.full == 'true'
         run: npm test
 
       - name: Build Worker and SPA
+        if: steps.scope.outputs.full == 'true'
         run: npm run build
 
       - name: Wrangler dry run
+        if: steps.scope.outputs.full == 'true'
         run: npm run cf:dry-run
