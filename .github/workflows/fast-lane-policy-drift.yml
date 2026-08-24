@@ -1,0 +1,20 @@
+name: FAST-LANE policy drift
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  policy-drift:
+    uses: rozkalnsandris/ops-workflows/.github/workflows/fast-lane-policy-drift.yml@5622b4831ce2242f774974e26135ac9c469a3f99
+    with:
+      canonical_policy_sha: 5622b4831ce2242f774974e26135ac9c469a3f99
+      snapshot_path: .github/fast-lane-policy.json
