@@ -206,17 +206,24 @@ test("authorization is consumed before the guarded apply and failures require re
   assert.match(source, /REMOTE_D1_MIGRATION_GATE=PASS/);
 });
 
-test("package and authoritative CI expose a compatible Node contract while retired workflow has no runtime", async () => {
+test("package and authoritative CI consume the canonical Node contract while retired workflow has no runtime", async () => {
+  const canonicalNode = (await readFile(".nvmrc", "utf8")).trim();
   const pkg = JSON.parse(await readFile("package.json", "utf8")) as {
     engines?: { node?: string };
+    devEngines?: { runtime?: { name?: string; version?: string; onFail?: string } };
     scripts?: Record<string, string>;
   };
   const ci = await readFile(".github/workflows/ci.yml", "utf8");
   const production = await readFile(productionWorkflow, "utf8");
-  assert.equal(pkg.engines?.node, ">=22.12.0");
+  assert.match(canonicalNode, /^\d+\.\d+\.\d+$/);
+  assert.equal(pkg.engines?.node, canonicalNode);
+  assert.deepEqual(pkg.devEngines?.runtime, { name: "node", version: canonicalNode, onFail: "error" });
+  assert.equal(pkg.scripts?.["verify:node"], "node scripts/verify-node-version.mjs");
   assert.match(pkg.scripts?.test ?? "", /node --experimental-sqlite --test/);
   assert.equal(pkg.scripts?.["cf:d1-migration-gate"], "node scripts/cloudflare-d1-migration-gate.mjs");
-  assert.match(ci, /node-version:\s*22\.16\.0/);
+  assert.match(ci, /node-version-file:\s*['"]?\.nvmrc['"]?/);
+  assert.match(ci, /node scripts\/verify-node-version\.mjs/);
+  assert.doesNotMatch(ci, /node-version:\s*\d/);
   assert.doesNotMatch(production, /setup-node|node-version:/);
   assert.match(production, /if: \$\{\{ false \}\}/);
 });
