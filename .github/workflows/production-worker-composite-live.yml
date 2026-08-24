@@ -40,6 +40,7 @@ jobs:
       WORKER_NAME: rozkalns-control
       HOSTNAME: control.rozkalns.net
       GITHUB_TOKEN: ${{ github.token }}
+      EVIDENCE_DIR: ${{ runner.temp }}/control-worker-composite-live-${{ github.run_id }}
 
     steps:
       - name: Checkout exact approved source
@@ -82,8 +83,13 @@ jobs:
           candidate_version=""
           attached_deployment=""
           final_deployment=""
+          ci_run_id=""
 
-          stop() {
+          mkdir -p "$EVIDENCE_DIR"
+          receipt="$EVIDENCE_DIR/receipt.txt"
+          : > "$receipt"
+
+          emit_stop_receipt() {
             local reason="$1"
             {
               printf 'PRODUCTION_WORKER_COMPOSITE_LIVE=STOP\n'
@@ -91,6 +97,7 @@ jobs:
               printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
               printf 'EXPECTED_VERSION=%s\n' "$EXPECTED_VERSION"
               printf 'EXPECTED_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+              printf 'CI_RUN_ID=%s\n' "${ci_run_id:-NONE}"
               printf 'CANDIDATE_VERSION=%s\n' "${candidate_version:-NONE}"
               printf 'CANDIDATE_ATTACHMENT_DEPLOYMENT=%s\n' "${attached_deployment:-NONE}"
               printf 'FINAL_DEPLOYMENT=%s\n' "${final_deployment:-NONE}"
@@ -102,11 +109,17 @@ jobs:
                 printf 'AUTOMATIC_RETRY=NO\n'
                 printf 'AUTOMATIC_ROLLBACK=NO\n'
                 printf 'AUTOMATIC_CLEANUP=NO\n'
+                printf 'EVIDENCE_PRESERVED=YES\n'
               else
                 printf 'AUTHORIZATION_CONSUMED=NO\n'
               fi
               printf 'NEXT_ACTION=STOP_OWNER_REVIEW\n'
-            } >&2
+            } | tee "$receipt"
+          }
+
+          stop() {
+            local reason="$1"
+            emit_stop_receipt "$reason" >&2
             exit 1
           }
 
@@ -120,6 +133,7 @@ jobs:
           [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch ]] || stop WORKFLOW_EVENT_NOT_DISPATCH
           [[ "${GITHUB_REF_NAME:-}" == main ]] || stop WORKFLOW_REF_NOT_MAIN
           [[ "${GITHUB_SHA:-}" == "$APPROVED_SHA" ]] || stop WORKFLOW_SHA_NOT_APPROVED_SHA
+          [[ "${GITHUB_RUN_ATTEMPT:-}" == 1 ]] || stop WORKFLOW_RERUN_FORBIDDEN
           [[ "$(git rev-parse HEAD)" == "$APPROVED_SHA" ]] || stop CHECKOUT_SHA_NOT_APPROVED_SHA
           [[ -n "${GITHUB_TOKEN:-}" ]] || stop MISSING_GITHUB_TOKEN
           [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]] || stop MISSING_CLOUDFLARE_API_TOKEN
@@ -130,7 +144,6 @@ jobs:
           [[ "$OWNER_AUTHORIZATION" == "$expected_authorization" ]] || stop OWNER_AUTHORIZATION_MISMATCH
 
           tmp="$(mktemp -d)"
-          trap 'rm -rf "$tmp"' EXIT
 
           gh_get() {
             local path="$1" out="$2"
@@ -304,19 +317,31 @@ jobs:
             .status == "ok" and .service == $service and .workerVersion == $version
           ' "$tmp/health-after.json" >/dev/null || stop FINAL_HEALTH_VERSION_MISMATCH
 
-          printf 'PRODUCTION_WORKER_COMPOSITE_LIVE=PASS\n'
-          printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
-          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
-          printf 'PROD_BEFORE_VERSION=%s\n' "$EXPECTED_VERSION"
-          printf 'PROD_BEFORE_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
-          printf 'CANDIDATE_VERSION=%s\n' "$candidate_version"
-          printf 'CANDIDATE_ATTACHMENT_DEPLOYMENT=%s\n' "$attached_deployment"
-          printf 'PROD_AFTER_VERSION=%s\n' "$candidate_version"
-          printf 'PROD_AFTER_DEPLOYMENT=%s\n' "$final_deployment"
-          printf 'VERSION_UPLOAD_COUNT=%s\n' "$upload_count"
-          printf 'DEPLOYMENT_WRITE_COUNT=%s\n' "$deployment_write_count"
-          printf 'CANDIDATE_VERIFY=PASS\n'
-          printf 'POST_DEPLOY_RECONCILIATION=PASS\n'
-          printf 'FIRST_MUTATION_STARTED=YES\n'
-          printf 'AUTHORIZATION_CONSUMED=YES\n'
-          printf 'UNAUTHORIZED_MUTATIONS=0\n'
+          {
+            printf 'PRODUCTION_WORKER_COMPOSITE_LIVE=PASS\n'
+            printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+            printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+            printf 'PROD_BEFORE_VERSION=%s\n' "$EXPECTED_VERSION"
+            printf 'PROD_BEFORE_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+            printf 'CANDIDATE_VERSION=%s\n' "$candidate_version"
+            printf 'CANDIDATE_ATTACHMENT_DEPLOYMENT=%s\n' "$attached_deployment"
+            printf 'PROD_AFTER_VERSION=%s\n' "$candidate_version"
+            printf 'PROD_AFTER_DEPLOYMENT=%s\n' "$final_deployment"
+            printf 'VERSION_UPLOAD_COUNT=%s\n' "$upload_count"
+            printf 'DEPLOYMENT_WRITE_COUNT=%s\n' "$deployment_write_count"
+            printf 'CANDIDATE_VERIFY=PASS\n'
+            printf 'POST_DEPLOY_RECONCILIATION=PASS\n'
+            printf 'FIRST_MUTATION_STARTED=YES\n'
+            printf 'AUTHORIZATION_CONSUMED=YES\n'
+            printf 'UNAUTHORIZED_MUTATIONS=0\n'
+            printf 'EVIDENCE_PRESERVED=YES\n'
+          } | tee "$receipt"
+
+      - name: Preserve bounded Composite Live receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-worker-composite-live-${{ github.run_id }}
+          path: ${{ runner.temp }}/control-worker-composite-live-${{ github.run_id }}/receipt.txt
+          if-no-files-found: warn
+          retention-days: 14
