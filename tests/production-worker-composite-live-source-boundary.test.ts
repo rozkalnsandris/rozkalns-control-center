@@ -23,6 +23,8 @@ test("production Worker Composite Live workflow is manual, exact-bound and bound
 
   assert.match(workflow, /WORKFLOW_REF_NOT_MAIN/);
   assert.match(workflow, /WORKFLOW_SHA_NOT_APPROVED_SHA/);
+  assert.match(workflow, /WORKFLOW_RERUN_FORBIDDEN/);
+  assert.match(workflow, /GITHUB_RUN_ATTEMPT/);
   assert.match(workflow, /EXACT_MAIN_CI_NOT_SUCCESS/);
   assert.match(workflow, /PRODUCTION_BASELINE_DRIFT/);
   assert.match(workflow, /MAIN_SHA_DRIFT_BEFORE_WRITE/);
@@ -50,8 +52,17 @@ test("production Worker Composite Live workflow is manual, exact-bound and bound
   assert.match(workflow, /AUTOMATIC_RETRY=NO/);
   assert.match(workflow, /AUTOMATIC_ROLLBACK=NO/);
   assert.match(workflow, /AUTOMATIC_CLEANUP=NO/);
+  assert.match(workflow, /EVIDENCE_PRESERVED=YES/);
+  assert.match(workflow, /runner\.temp/);
+  assert.match(
+    workflow,
+    /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/,
+  );
+  assert.match(workflow, /if:\s*always\(\)/);
+  assert.match(workflow, /receipt\.txt/);
   assert.doesNotMatch(workflow, /for\s+attempt\s+in/);
   assert.doesNotMatch(workflow, /curl[^\n]*--retry/);
+  assert.doesNotMatch(workflow, /\brm\s+-rf\b/);
   assert.doesNotMatch(workflow, /wrangler\s+rollback/);
   assert.doesNotMatch(workflow, /wrangler\s+delete/);
   assert.doesNotMatch(workflow, /git\s+(?:reset|rebase|clean)/);
