@@ -4,6 +4,10 @@ import {
   createCloudflareGitHubReadRuntime,
   type CloudflareGitHubRuntimeBindings,
 } from "../github/cloudflare-worker-runtime.js";
+import {
+  persistContinuationCurrentReady,
+  type ContinuationCurrentReadyPersistenceResult,
+} from "./continuation-current-ready-persistence.js";
 import { planContinuationNextTaskTransition } from "./continuation-next-task-transition.js";
 import { reselectContinuationAfterMerge } from "./continuation-post-merge-reselection.js";
 import type { ContinuationPostMergeTransitionProposal } from "./continuation-post-merge-transition.js";
@@ -13,6 +17,7 @@ import {
 } from "./continuation-recovery-coordinator.js";
 import {
   D1ContinuationCampaignReader,
+  type ContinuationCampaignRecoveryEvidence,
   type ContinuationCampaignRecoveryIdentity,
 } from "./d1-continuation-campaign-reader.js";
 import {
@@ -52,6 +57,10 @@ export interface CloudflareContinuationRuntime {
   recoverAndCoordinate(
     identity: ContinuationCampaignRecoveryIdentity,
   ): Promise<ContinuationRecoveryCoordinationResult>;
+  persistCurrentReady(
+    recovery: ContinuationCampaignRecoveryEvidence,
+    plan: ReadyContinuationPlan,
+  ): Promise<ContinuationCurrentReadyPersistenceResult>;
   reselectAndReserveNextTask(
     transition: ContinuationPostMergeTransitionProposal,
   ): Promise<ContinuationReselectionReservationResult>;
@@ -145,6 +154,10 @@ export function resolveCloudflareContinuationRuntime(
           provider: context.provider,
           now: () => observedAt,
         });
+      },
+
+      async persistCurrentReady(recovery, plan) {
+        return persistContinuationCurrentReady(resolved.database, recovery, plan);
       },
 
       async reselectAndReserveNextTask(transition) {
