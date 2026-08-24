@@ -284,7 +284,8 @@ function buildSelectedTaskCompareAndSwap(
   const taskId = target.selectionEvidence.taskId;
   const expectedTask = expected.tasks.find((task) => task.taskId === taskId);
   const targetTask = target.tasks.find((task) => task.taskId === taskId);
-  if (!expectedTask || !targetTask || target.campaign.currentTask === null) {
+  const currentTask = target.campaign.currentTask;
+  if (!expectedTask || !targetTask || currentTask === null) {
     fail("INVALID_TRANSITION");
   }
 
@@ -317,8 +318,8 @@ function buildSelectedTaskCompareAndSwap(
       AND target_campaign.continue_enabled = ${bind(campaign.continueEnabled ? 1 : 0)}
       AND target_campaign.paused = ${bind(campaign.paused ? 1 : 0)}
       AND target_campaign.expected_main_sha = ${bind(campaign.expectedMainSha)}
-      AND target_campaign.current_task_id = ${bind(campaign.currentTask.taskId)}
-      AND target_campaign.current_task_state = ${bind(campaign.currentTask.state)}
+      AND target_campaign.current_task_id = ${bind(currentTask.taskId)}
+      AND target_campaign.current_task_state = ${bind(currentTask.state)}
       AND target_campaign.next_task_id IS ${bind(campaign.nextTaskId)}
       AND target_campaign.human_gate IS ${bind(campaign.humanGate)}
       AND target_campaign.observed_at = ${bind(campaign.observedAt)}
