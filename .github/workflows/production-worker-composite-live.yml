@@ -40,7 +40,6 @@ jobs:
       WORKER_NAME: rozkalns-control
       HOSTNAME: control.rozkalns.net
       GITHUB_TOKEN: ${{ github.token }}
-      EVIDENCE_DIR: ${{ runner.temp }}/control-worker-composite-live-${{ github.run_id }}
 
     steps:
       - name: Checkout exact approved source
@@ -73,6 +72,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
           CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
+          EVIDENCE_DIR: ${{ runner.temp }}/control-worker-composite-live-${{ github.run_id }}
         run: |
           set -euo pipefail
           umask 077

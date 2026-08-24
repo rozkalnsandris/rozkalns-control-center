@@ -53,7 +53,14 @@ test("production Worker Composite Live workflow is manual, exact-bound and bound
   assert.match(workflow, /AUTOMATIC_ROLLBACK=NO/);
   assert.match(workflow, /AUTOMATIC_CLEANUP=NO/);
   assert.match(workflow, /EVIDENCE_PRESERVED=YES/);
-  assert.match(workflow, /runner\.temp/);
+  assert.doesNotMatch(
+    workflow,
+    /^ {6}EVIDENCE_DIR:\s*\$\{\{\s*runner\.temp/m,
+  );
+  assert.match(
+    workflow,
+    /^ {10}EVIDENCE_DIR:\s*\$\{\{\s*runner\.temp\s*\}\}\/control-worker-composite-live-\$\{\{\s*github\.run_id\s*\}\}$/m,
+  );
   assert.match(
     workflow,
     /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/,
