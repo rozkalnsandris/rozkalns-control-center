@@ -37,6 +37,9 @@ test("production Worker Composite Live workflow is manual, exact-bound and bound
   assert.match(workflow, /\$\{candidate_version\}@0%/);
   assert.match(workflow, /Cloudflare-Workers-Version-Overrides/);
   assert.match(workflow, /\.workerVersion == \$version/);
+  assert.match(workflow, /EXACT_CANDIDATE_SMOKE_GET_FAILED/);
+  assert.match(workflow, /EXACT_CANDIDATE_SMOKE_HTTP_NOT_200/);
+  assert.match(workflow, /EXACT_CANDIDATE_SMOKE_IDENTITY_MISMATCH/);
   assert.match(workflow, /PREPROMOTION_DEPLOYMENT_DRIFT/);
   assert.match(workflow, /\$\{candidate_version\}@100%/);
   assert.match(workflow, /FINAL_HEALTH_VERSION_MISMATCH/);
@@ -47,6 +50,8 @@ test("production Worker Composite Live workflow is manual, exact-bound and bound
   assert.match(workflow, /AUTOMATIC_RETRY=NO/);
   assert.match(workflow, /AUTOMATIC_ROLLBACK=NO/);
   assert.match(workflow, /AUTOMATIC_CLEANUP=NO/);
+  assert.doesNotMatch(workflow, /for\s+attempt\s+in/);
+  assert.doesNotMatch(workflow, /curl[^\n]*--retry/);
   assert.doesNotMatch(workflow, /wrangler\s+rollback/);
   assert.doesNotMatch(workflow, /wrangler\s+delete/);
   assert.doesNotMatch(workflow, /git\s+(?:reset|rebase|clean)/);
