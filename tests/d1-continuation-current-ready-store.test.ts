@@ -308,7 +308,7 @@ test("exact current READY transition updates campaign and only the selected task
   const afterTasks = taskRows(database);
   assert.deepEqual(afterTasks[0], beforeTasks[0]);
   assert.deepEqual(afterTasks[2], beforeTasks[2]);
-  assert.deepEqual(afterTasks[1], {
+  assert.deepEqual({ ...afterTasks[1] }, {
     ...beforeTasks[1],
     task_state: "READY",
     updated_at: READY_AT,
