@@ -1,6 +1,6 @@
 # Phase 3 — Cloudflare Access JWT authentication boundary
 
-Issues: #163, #165, #167, #169, #171, #173
+Issues: #163, #165, #167, #169, #171, #173, #386
 
 ## Purpose
 
@@ -13,11 +13,12 @@ The Phase 3 authentication foundation is deliberately split into reviewed slices
 - #167/#168 composed those two pieces into one Worker-side request-authentication boundary;
 - #169/#170 added a dedicated read-only authentication canary route adapter;
 - #171/#172 wired that canary into the Worker behind an explicit fail-closed runtime resolver while deliberately leaving all live Access configuration absent;
-- #173 prepares the separately owner-gated production Access auth canary activation gate without performing the activation or deployment.
+- #173 prepares the separately owner-gated production Access auth canary activation gate without performing the activation or deployment;
+- #386 extends the already-cryptographic verifier with an explicit, bounded Cloudflare service-token application-JWT claim path required by machine canaries, while preserving the strict interactive identity path.
 
 None of these source-review slices adds GitHub write permission, changes Cloudflare Access policy, performs a production Access canary, or deploys production code.
 
-## External contract rechecked 2026-08-15
+## External contract rechecked 2026-08-24
 
 Current Cloudflare Access documentation describes the application token in the `Cf-Access-Jwt-Assertion` request header and requires origins/Workers that make authorization decisions to validate the JWT. Access application tokens are RS256 signed and are bound to the Access issuer/team domain plus the application audience. Cloudflare recommends validating the request header rather than relying on the browser cookie.
 
@@ -26,6 +27,13 @@ Cloudflare publishes account signing keys at:
 `https://<team-name>.cloudflareaccess.com/cdn-cgi/access/certs`
 
 The application therefore must validate the signed token against the expected team-domain issuer and exact application audience, and must resolve the JWT `kid` from the bounded rotating signing-key set rather than pinning one public key indefinitely.
+
+Cloudflare's current application-token documentation also distinguishes two application-JWT payload forms after successful Access authentication:
+
+- identity-provider authentication uses a non-empty `sub`, includes `nbf`, and may include an asserted `email`;
+- service-token authentication still uses `type="app"`, uses an empty `sub`, identifies the non-secret service-token Client ID in `common_name`, and the documented service-token payload does not require `nbf`.
+
+The verifier therefore treats these as two explicit, mutually exclusive claim forms after signature verification. The service-token form does not weaken signature, key, issuer, audience, expiration or issued-at validation. When `nbf` is present on a service-token JWT it is validated with the same safe-integer and not-before semantics as the interactive form.
 
 Cloudflare Wrangler also supports deploy-time `--var key:value` injection. #173 uses that only as a future APPLY mechanism so the discovered non-secret issuer/AUD/enable values do not need to be committed to `wrangler.jsonc` during source preparation. Secrets/tokens remain environment-only and are never passed as deploy arguments.
 
@@ -40,11 +48,13 @@ Cloudflare Wrangler also supports deploy-time `--var key:value` injection. #173 
 5. accepts only RSA signing-key evidence compatible with RS256 verification;
 6. verifies the signature over the exact encoded `header.payload` bytes;
 7. only after signature success parses and validates claims;
-8. requires application token `type=app`, exact configured issuer, exact configured audience membership, coherent integer `exp`/`iat`/`nbf`, and current validity;
-9. requires a non-empty bounded `sub`;
-10. returns only `{ subject, email }`, with email optional, and never returns or logs the raw JWT, signature or key material.
+8. requires application token `type=app`, exact configured issuer, exact configured audience membership, coherent integer `exp`/`iat`, and current validity for every accepted claim form;
+9. for the interactive identity form, requires a bounded non-empty `sub`, requires an integer `nbf`, permits only a bounded syntactically email-like optional `email`, and rejects `common_name` as an ambiguous mixed form;
+10. for the service-token form, requires `sub` to be exactly the documented empty string, requires a bounded non-empty `common_name`, rejects identity-only `email`/`identity_nonce` evidence, and treats `nbf` as optional but enforces it when present;
+11. derives a bounded audit principal as `service-token:<common_name>` for the service-token form, while preserving the exact interactive `sub` for the identity form;
+12. returns only `{ subject, email }` and never returns or logs the raw JWT, signature, key material or service-token secret.
 
-Expected issuer configuration is restricted to an HTTPS `*.cloudflareaccess.com` origin with no credentials/path/query/fragment. The application audience is an opaque bounded identifier supplied only as trusted configuration.
+Expected issuer configuration is restricted to an HTTPS `*.cloudflareaccess.com` origin with no credentials/path/query/fragment. The application audience is an opaque bounded identifier supplied only as trusted configuration. `common_name` is treated only as the documented non-secret service-token Client ID and is never accepted as a credential or used to select an issuer, audience, signing key, network destination or authorization target.
 
 ## JWKS resolver contract
 
@@ -67,13 +77,13 @@ The cache is isolate-memory optimization only. It is not durable state, does not
 
 ## Composed Worker request-authentication boundary
 
-`CloudflareAccessRequestAuthenticator` is the single entry point intended for later Worker human-action routes. It composes the merged resolver and verifier under one explicit configuration contract:
+`CloudflareAccessRequestAuthenticator` is the single entry point intended for later Worker action routes and machine canaries. It composes the merged resolver and verifier under one explicit configuration contract:
 
 1. one trusted `issuer` value is passed to both the JWKS resolver and JWT verifier;
 2. the exact Access application `audience` is supplied only as trusted config and is never inferred from request/token data;
 3. the resolver remains the only component allowed to fetch signing keys and still derives exactly one fixed team-domain certs endpoint;
 4. request authentication still delegates exclusively to `CloudflareAccessJwtVerifier.verifyRequest`, so only `Cf-Access-Jwt-Assertion` is authoritative and there is no `CF_Authorization` cookie fallback;
-5. the authenticated result is copied into the bounded `{ subject, email }` principal projection only;
+5. the authenticated result is copied into the bounded `{ subject, email }` principal projection only; interactive identities retain their bounded subject/email projection, while service-token identities receive only the bounded `service-token:<common_name>` subject and `email: null`;
 6. every request-time verifier/JWKS/network/rotation failure is collapsed at this outer boundary to the stable `ACCESS_AUTHENTICATION_FAILED` error;
 7. underlying JWT/JWKS error codes, raw tokens, signatures, key material and transport details are not propagated through the outer request-authentication error;
 8. fetch and clock dependencies remain injectable so deterministic tests can exercise real RSA signatures and synthetic JWKS rotation without live network access.
@@ -149,47 +159,52 @@ Post-deploy verification requires a new active Worker version/deployment, exact 
 
 The authentication composition tests use generated RSA keypairs and real RS256 signatures together with mocked team-domain JWKS responses. They prove:
 
-- valid current-key authentication;
+- valid current-key interactive identity authentication;
+- documented service-token application-JWT authentication with `sub=""`, bounded `common_name` and no mandatory `nbf`;
+- service-token `nbf` validation when the claim is present;
+- rejection of malformed or mixed interactive/service-token claim forms;
 - current + previous signing-key acceptance from one cached set;
 - refresh-on-`kid`-miss for a newly rotated key;
 - exact fixed certs URL derivation;
 - no cookie fallback;
 - forged signature rejection;
-- wrong issuer and audience rejection after signature verification;
+- wrong issuer and audience rejection after signature verification for both claim forms;
 - JWKS network and unknown-key failures collapsing to one outer auth error;
-- principal/error objects do not contain raw token/JWK/network detail.
+- principal/error objects do not contain raw token/JWK/network detail or service-token secret material.
 
 The canary-route tests additionally prove exact path/method/query handling, disabled fail-closed behavior, generic 403 authentication failure, non-identity success output and absence of inner-auth or principal leakage.
 
 The runtime tests prove exact-string enable semantics, disabled behavior, missing/malformed configuration rejection and READY construction through the reviewed `CloudflareAccessRequestAuthenticator`. #173 adds source-boundary regression coverage for the mutation-free PLAN contract, cryptographically bound issuer/AUD discovery, one strict APPLY deployment boundary, environment-only credentials, no Access/D1/Queue/GitHub mutation transport, and continued absence of live Access canary values from `wrangler.jsonc`.
 
-## Explicitly not activated by #173
+## Explicitly not activated by #386
 
-This source-only gate preparation does not add or perform:
+This source-only compatibility change does not add or perform:
 
-- production values for the Access canary enable flag, issuer or application AUD;
 - a production Worker deployment;
-- a successful live authentication canary;
 - an Access application or policy mutation;
-- a mutation HTTP route;
-- Merge / Needs changes / Later behavior;
-- GitHub write permission or write transport;
+- any Access service-token creation, rotation or secret exposure;
+- a GitHub review mutation or another #247 production canary attempt;
+- GitHub App permission or repository-selection expansion;
 - D1 production write/migration;
 - Queue production write/topology mutation;
+- Merge / Needs changes / Later UI activation;
 - RPi5/host/root mutation.
+
+Because #386 changes Worker authentication behavior, a future production rollout is required after merge. Merge authorization does not authorize that rollout.
 
 ## Next activation prerequisites
 
-After #173 is merged and exact-main CI is green, the next step is PLAN only. PLAN output must be reviewed and a fresh exact authorization must be supplied before APPLY can deploy anything.
+After #386 is merged and exact-main CI is green, the next step is a separately owner-gated production Worker rollout using the current deployment contract. Only after that rollout succeeds may the #247 path run a fresh post-deploy GET-only reconciliation.
 
-Before any actual GitHub side effect is activated, the system must still:
+Before any actual GitHub side effect is attempted again, the system must still:
 
-- prove the live read-only Access auth canary under that separately authorized production deployment;
-- reconcile or roll back explicitly if any post-deploy verification fails; never blind-retry a consumed authorization;
-- re-read authoritative GitHub state immediately before every future side effect;
-- bind the approved expected SHA and action target;
+- prove the newly deployed service-token JWT path under a fresh read-only reconciliation;
+- re-read authoritative GitHub target state and exact target CI immediately before the side effect;
+- bind a new non-replayable request ID and fresh expected SHA/action target;
+- prove the durable D1 request ID is absent before the mutation;
+- obtain a new explicit owner `REQUEST_CHANGES` authorization;
 - preserve idempotency and durable audit evidence;
-- keep merge authorization separate from deployment authorization;
-- add GitHub write permission only at the narrowest reviewed point where a concrete write transport requires it.
+- never retry the consumed prior #247 authorization/request ID;
+- keep merge authorization separate from deployment and side-effect authorization.
 
-**Production deploy: NO.**
+**Production deploy: YES after merge, under a separate owner gate.**

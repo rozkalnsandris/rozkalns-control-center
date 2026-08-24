@@ -4,6 +4,8 @@ const MAX_SEGMENT_BYTES = 4096;
 const MAX_KID_LENGTH = 200;
 const MAX_PRINCIPAL_LENGTH = 320;
 const MAX_AUDIENCE_LENGTH = 200;
+const SERVICE_TOKEN_PRINCIPAL_PREFIX = "service-token:";
+const MAX_SERVICE_TOKEN_COMMON_NAME_LENGTH = MAX_PRINCIPAL_LENGTH - SERVICE_TOKEN_PRINCIPAL_PREFIX.length;
 const KID_PATTERN = /^[A-Za-z0-9._:+/-]+$/;
 const AUDIENCE_PATTERN = /^[A-Za-z0-9._:+/-]+$/;
 
@@ -63,8 +65,8 @@ interface JwtClaims {
   readonly aud: readonly string[];
   readonly exp: number;
   readonly iat: number;
-  readonly nbf: number;
-  readonly sub: string;
+  readonly nbf: number | null;
+  readonly subject: string;
   readonly email: string | null;
 }
 
@@ -224,20 +226,39 @@ function parseClaims(encodedPayload: string, expectedIssuer: string, expectedAud
 
   const exp = requireSafeInteger(raw.exp);
   const iat = requireSafeInteger(raw.iat);
-  const nbf = requireSafeInteger(raw.nbf);
-  if (exp <= iat || exp <= nbf) fail("ACCESS_JWT_CLAIMS_INVALID");
+  if (exp <= iat) fail("ACCESS_JWT_CLAIMS_INVALID");
   if (exp <= nowSeconds) fail("ACCESS_JWT_EXPIRED");
-  if (nbf > nowSeconds) fail("ACCESS_JWT_NOT_YET_VALID");
   if (iat > nowSeconds) fail("ACCESS_JWT_ISSUED_IN_FUTURE");
 
-  const sub = boundedOpaqueString(raw.sub, MAX_PRINCIPAL_LENGTH);
-  if (!sub) fail("ACCESS_JWT_CLAIMS_INVALID");
-
+  let nbf: number | null;
+  let subject: string;
   let email: string | null = null;
-  if (raw.email !== undefined && raw.email !== null) {
-    const candidate = boundedOpaqueString(raw.email, MAX_PRINCIPAL_LENGTH);
-    if (!candidate || !candidate.includes("@")) fail("ACCESS_JWT_CLAIMS_INVALID");
-    email = candidate;
+
+  if (raw.sub === "") {
+    const commonName = boundedOpaqueString(raw.common_name, MAX_SERVICE_TOKEN_COMMON_NAME_LENGTH);
+    if (!commonName || raw.email !== undefined || raw.identity_nonce !== undefined) {
+      fail("ACCESS_JWT_CLAIMS_INVALID");
+    }
+
+    nbf = raw.nbf === undefined ? null : requireSafeInteger(raw.nbf);
+    subject = `${SERVICE_TOKEN_PRINCIPAL_PREFIX}${commonName}`;
+  } else {
+    const sub = boundedOpaqueString(raw.sub, MAX_PRINCIPAL_LENGTH);
+    if (!sub || raw.common_name !== undefined) fail("ACCESS_JWT_CLAIMS_INVALID");
+
+    nbf = requireSafeInteger(raw.nbf);
+    subject = sub;
+
+    if (raw.email !== undefined && raw.email !== null) {
+      const candidate = boundedOpaqueString(raw.email, MAX_PRINCIPAL_LENGTH);
+      if (!candidate || !candidate.includes("@")) fail("ACCESS_JWT_CLAIMS_INVALID");
+      email = candidate;
+    }
+  }
+
+  if (nbf !== null) {
+    if (exp <= nbf) fail("ACCESS_JWT_CLAIMS_INVALID");
+    if (nbf > nowSeconds) fail("ACCESS_JWT_NOT_YET_VALID");
   }
 
   return {
@@ -247,7 +268,7 @@ function parseClaims(encodedPayload: string, expectedIssuer: string, expectedAud
     exp,
     iat,
     nbf,
-    sub,
+    subject,
     email,
   };
 }
@@ -308,6 +329,6 @@ export class CloudflareAccessJwtVerifier {
     if (!Number.isFinite(nowMs)) fail("ACCESS_JWT_CLAIMS_INVALID");
     const claims = parseClaims(encodedPayload, this.#issuer, this.#audience, Math.floor(nowMs / 1000));
 
-    return { subject: claims.sub, email: claims.email };
+    return { subject: claims.subject, email: claims.email };
   }
 }
