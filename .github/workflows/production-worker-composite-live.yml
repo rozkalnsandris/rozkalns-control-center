@@ -110,10 +110,6 @@ jobs:
             exit 1
           }
 
-          sanitize_diag() {
-            printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:] _./:@+%=-' | cut -c1-180
-          }
-
           for cmd in curl jq git npm; do
             command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
           done
@@ -263,19 +259,11 @@ jobs:
           ' "$tmp/deployments-attached.json" >/dev/null || stop ATTACHED_DEPLOYMENT_IDENTITY_MISMATCH
 
           printf '%s\n' STAGE=EXACT_CANDIDATE_SMOKE
-          candidate_verified=NO
-          for attempt in 1 2 3; do
-            if access_health_get "$candidate_version" "$tmp/candidate-health-${attempt}.json" "$tmp/candidate-health-${attempt}.code" && \
-               [[ "$(cat "$tmp/candidate-health-${attempt}.code")" == 200 ]] && \
-               jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '
-                 .status == "ok" and .service == $service and .workerVersion == $version
-               ' "$tmp/candidate-health-${attempt}.json" >/dev/null; then
-              candidate_verified=YES
-              break
-            fi
-            if [[ "$attempt" -lt 3 ]]; then sleep 2; fi
-          done
-          [[ "$candidate_verified" == YES ]] || stop EXACT_CANDIDATE_SMOKE_FAILED
+          access_health_get "$candidate_version" "$tmp/candidate-health.json" "$tmp/candidate-health.code" || stop EXACT_CANDIDATE_SMOKE_GET_FAILED
+          [[ "$(cat "$tmp/candidate-health.code")" == 200 ]] || stop EXACT_CANDIDATE_SMOKE_HTTP_NOT_200
+          jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '
+            .status == "ok" and .service == $service and .workerVersion == $version
+          ' "$tmp/candidate-health.json" >/dev/null || stop EXACT_CANDIDATE_SMOKE_IDENTITY_MISMATCH
 
           printf '%s\n' STAGE=PREPROMOTION_DRIFT_GUARD
           cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-prepromote.json"
