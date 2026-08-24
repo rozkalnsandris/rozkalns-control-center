@@ -7,6 +7,7 @@ export interface ManagedProjectPolicy {
   enabled: boolean;
   githubReadEnabled: boolean;
   canRequestChanges: boolean;
+  canMerge: boolean;
   productionAdapter: ProductionAdapter;
 }
 
@@ -18,6 +19,7 @@ export const managedProjectPolicies = [
     enabled: true,
     githubReadEnabled: true,
     canRequestChanges: false,
+    canMerge: false,
     productionAdapter: "rpi5",
   },
   {
@@ -27,6 +29,7 @@ export const managedProjectPolicies = [
     enabled: true,
     githubReadEnabled: true,
     canRequestChanges: false,
+    canMerge: false,
     productionAdapter: "rpi5",
   },
   {
@@ -36,6 +39,7 @@ export const managedProjectPolicies = [
     enabled: true,
     githubReadEnabled: true,
     canRequestChanges: false,
+    canMerge: false,
     productionAdapter: "rpi5",
   },
   {
@@ -45,6 +49,7 @@ export const managedProjectPolicies = [
     enabled: true,
     githubReadEnabled: true,
     canRequestChanges: false,
+    canMerge: false,
     productionAdapter: "rpi5",
   },
   {
@@ -54,6 +59,7 @@ export const managedProjectPolicies = [
     enabled: true,
     githubReadEnabled: true,
     canRequestChanges: true,
+    canMerge: false,
     productionAdapter: "none",
   },
   {
@@ -63,6 +69,7 @@ export const managedProjectPolicies = [
     enabled: true,
     githubReadEnabled: true,
     canRequestChanges: false,
+    canMerge: false,
     productionAdapter: "none",
   },
 ] as const satisfies readonly ManagedProjectPolicy[];
@@ -93,6 +100,13 @@ export class RepositoryNeedsChangesNotAllowedError extends Error {
   }
 }
 
+export class RepositoryMergeNotAllowedError extends Error {
+  constructor(repository: string) {
+    super(`Repository is not enabled for Rozkalns Control Merge actions: ${repository}`);
+    this.name = "RepositoryMergeNotAllowedError";
+  }
+}
+
 export function isExplicitlyExcludedRepository(repository: string) {
   return excludedRepositories.has(normalizeRepository(repository));
 }
@@ -118,5 +132,17 @@ export function resolveNeedsChangesProjectPolicy(repository: string): ManagedPro
 export function requireNeedsChangesProjectPolicy(repository: string): ManagedProjectPolicy {
   const policy = resolveNeedsChangesProjectPolicy(repository);
   if (!policy) throw new RepositoryNeedsChangesNotAllowedError(repository);
+  return policy;
+}
+
+export function resolveMergeProjectPolicy(repository: string): ManagedProjectPolicy | null {
+  const policy = resolveManagedProjectPolicy(repository);
+  if (!policy || policy.canMerge !== true) return null;
+  return policy;
+}
+
+export function requireMergeProjectPolicy(repository: string): ManagedProjectPolicy {
+  const policy = resolveMergeProjectPolicy(repository);
+  if (!policy) throw new RepositoryMergeNotAllowedError(repository);
   return policy;
 }
