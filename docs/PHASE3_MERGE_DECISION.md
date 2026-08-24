@@ -2,20 +2,20 @@
 
 Status: source-only / dormant.
 
-Issue: #391. Prerequisite: #388 / PR #389.
+Issues: #391, #393. Prerequisite: #388 / PR #389. Decision contract: PR #392.
 
 ## Purpose
 
-This layer sits above the dormant exact-head GitHub Merge writer and below any future Worker route or UI action. It prepares the authoritative pre-write and audit/idempotency semantics required for a safe human-approved Merge without activating Merge in production.
+This layer sits above the dormant exact-head GitHub Merge writer and below any future Worker route or UI action. It prepares the authoritative pre-write, durable audit and idempotency semantics required for a safe human-approved Merge without activating Merge in production.
 
-The decision service is intentionally dependency-injected:
+The decision service remains dependency-injected:
 
 - authoritative GitHub read provider;
 - branch-policy evidence reader;
 - exact-head Merge writer;
-- abstract audit/idempotency store.
+- `MergeDecisionAuditStore`.
 
-There is no concrete D1 Merge adapter, migration, Worker route, UI action or production binding in this unit.
+Issue #393 adds a concrete **dormant D1 implementation** of that audit-store interface plus source-controlled migration `0008_merge_decision_audit.sql`. The adapter is not composed into Worker runtime, and the migration is not applied to remote D1 by this source unit.
 
 ## Request binding
 
@@ -45,26 +45,38 @@ After a successful audit claim, `executeMergeDecision` performs a fresh authorit
 
 Only then is the low-level writer called once with the exact approved head SHA and explicit merge method. The writer's own expected-head PUT guard remains the final GitHub concurrency check.
 
-## Audit and replay model
+## Durable D1 audit and replay model
 
-The injected `MergeDecisionAuditStore` separates claim from terminal completion.
+`D1MergeDecisionAuditStore` implements the claim/terminal contract using the dedicated `merge_decisions` table.
+
+The durable claim stores only bounded identity and audit evidence:
+
+- request id and SHA-256 fingerprint;
+- verified actor subject/email;
+- managed repository/project identity;
+- issue and PR numbers;
+- explicit merge method;
+- exact expected head/main SHA;
+- timestamps.
+
+It does **not** persist Access JWTs, GitHub tokens, private keys, secrets or arbitrary request payloads.
 
 Claim states:
 
-- `CLAIMED` — this request owns the one attempt;
-- `REPLAY` — a matching terminal record already exists;
+- `CLAIMED` — one atomic `INSERT ... ON CONFLICT DO NOTHING` owns the attempt;
+- `REPLAY` — a matching validated terminal record already exists;
 - `IN_PROGRESS` — fail closed; never race a second attempt;
-- `CONFLICT` — same request id with different fingerprint; fail closed.
+- `CONFLICT` — same request id with a different fingerprint; fail closed.
 
 Terminal outcomes are deliberately three-way:
 
-- `SUCCEEDED` — contains the complete Merge result, including returned merge SHA;
-- `FAILED` — a terminal known failure plus whether a write was attempted;
+- `SUCCEEDED` — exact Merge result including observed head/main and returned merge SHA; successful durable rows record `mutation_attempted=1`;
+- `FAILED` — bounded terminal known failure plus exact `mutationAttempted` evidence (`0` before a write, `1` after a writer attempt);
 - `UNKNOWN` — specifically `WRITE_OUTCOME_UNKNOWN`, always with `mutationAttempted=true`.
 
-A matching successful replay returns the stored result without rereading GitHub or issuing another Merge request. A replay of `FAILED` or `UNKNOWN` throws the stored failure with its original mutation-attempt evidence and never writes again.
+Completion updates only an exact `request_id + fingerprint + IN_PROGRESS` row. Successful completion additionally rebinds actor/repository/project/issue/PR/method/expected-SHA identity in the conditional update. Terminal rows cannot be overwritten.
 
-This distinction is required because an ambiguous network/response outcome after a Merge request must never be converted into a blind retry.
+A matching successful replay returns the stored result without rereading GitHub or issuing another Merge request. A replay of `FAILED` or `UNKNOWN` throws the stored failure with its original mutation-attempt evidence and never writes again. Malformed, ambiguous or identity-inconsistent durable rows fail closed.
 
 ## Writer failure mapping
 
@@ -78,32 +90,33 @@ A future runtime must reconcile GitHub and durable audit state before any new au
 
 ## Dormant boundary
 
-Issue #391 does **not** introduce:
+Issues #391/#393 still do **not** introduce or activate:
 
 - `canMerge` in project policy;
 - `/api/github/merge` or any Worker runtime composition;
-- D1 Merge schema/store/migration;
+- remote D1 migration application or production D1 writes;
 - Merge UI/button/event wiring;
 - GitHub App permission/repository-selection change;
 - Cloudflare configuration/binding change;
 - production deployment;
 - live GitHub Merge.
 
-The service is unreachable from deployed runtime until a separately reviewed source unit wires it after the required trust gates.
+The migration is a source artefact only. Applying `0008` to remote D1 is a separate owner-gated live action and is not authorized by merging its source PR.
 
 ## Remaining future gates
 
 Before live Merge can exist, separate gates still include:
 
-1. concrete durable audit/idempotency persistence design and migration, if D1 is selected;
+1. separately owner-authorized remote D1 application of source-reviewed migration `0008`;
 2. explicit owner authorization for the minimum GitHub App `Contents: write` permission and exact repository selection;
 3. authenticated Worker route/runtime wiring with project capability gating;
 4. UI capability activation only after backend canary evidence;
 5. separately authorized production rollout;
 6. one separately authorized disposable live Merge canary with fresh exact-head/main/CI/review evidence.
 
-## Deployment classification
+## Deployment / migration classification
 
-`Production deploy: NO`.
+- `Production deploy: NO` for the #393 source slice.
+- `Remote D1 migration apply: REQUIRED LATER, NOT AUTHORIZED BY MERGE`.
 
-This unit adds only a dormant shared decision contract, tests and documentation. It does not change Worker entrypoints, runtime composition, project capabilities, `wrangler.jsonc`, D1 schema or UI behavior.
+The source slice adds only dormant D1 persistence, migration source, tests and this documentation. It does not change Worker entrypoints, runtime composition, project capabilities, `wrangler.jsonc` or UI behavior.
