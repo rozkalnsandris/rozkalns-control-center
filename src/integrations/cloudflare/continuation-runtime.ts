@@ -2,6 +2,7 @@ import type { ContinuationPlanResult } from "../../shared/continuation-plan.js";
 import type { GitHubAppCredentialFetch } from "../github/app-installation-session.js";
 import {
   createCloudflareGitHubReadRuntime,
+  type CloudflareGitHubReadRuntime,
   type CloudflareGitHubRuntimeBindings,
 } from "../github/cloudflare-worker-runtime.js";
 import {
@@ -137,7 +138,7 @@ export function resolveCloudflareContinuationRuntime(
   const resolved = resolveEnabledBindings(bindings);
   if (!resolved) return { status: "INVALID" };
 
-  let githubRuntime;
+  let githubRuntime: CloudflareGitHubReadRuntime;
   try {
     githubRuntime = createCloudflareGitHubReadRuntime({
       bindings: resolved.github,
