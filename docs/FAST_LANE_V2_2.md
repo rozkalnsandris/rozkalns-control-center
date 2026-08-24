@@ -20,6 +20,8 @@ The Control Center target interaction is:
 
 Batch 2-5 tightly related same-risk items inside one phase/subsystem when they form one acceptance story. Merge remains explicit and never authorizes live work.
 
+Three failed technical attempts for one objective — initial attempt plus at most two scope-preserving corrections — require STOP before a fourth attempt.
+
 ## Human gate budget
 
 Normal source-to-production delivery has at most two owner gates:
@@ -42,41 +44,64 @@ Before asking the owner, collect every obtainable read-only fact. The single aut
 
 - repository and exact approved Git SHA;
 - exact production target/environment;
-- expected production baseline/version when available;
+- expected production baseline version and deployment;
 - exact allowed mutation categories;
 - hard operation counts/limits;
 - explicit exclusions.
 
-For the trusted Lenovo + Cloudflare Worker rollout pattern, one Composite Live authorization may explicitly allow both:
+For the GitHub-native Cloudflare Worker rollout, the bounded live mutation sequence is:
 
-- trusted Lenovo checkout: `git fetch` and `git merge --ff-only` only, if required to reach the approved SHA;
-- one bounded production rollout of the exact approved build/version.
+- one `wrangler versions upload` of the exact approved source;
+- one deployment write preserving the approved baseline at 100% normal traffic and attaching the exact candidate at 0%;
+- read-only candidate smoke verification routed explicitly to that candidate;
+- one deployment write promoting that exact verified candidate to 100%.
 
-That authorization does **not** include `reset`, `rebase`, `clean`, force operations, secrets, permission changes, D1/Queue mutation, DNS/Tunnel/Access changes, unrelated host mutation or any unlisted category.
+The upload plus two deployment writes are three separately counted live mutations but may share one Composite Live owner decision because the complete sequence is pre-enumerated and all target/SHA/baseline/count limits are bound before execution.
 
-If approved SHA/target/baseline changed, fail closed. Never adapt by deploying a newer `main`.
+That authorization does **not** include `reset`, `rebase`, `clean`, force operations, secrets or credential changes, permission changes, D1/Queue mutation, DNS/Tunnel/Access changes, unrelated host mutation, rollback, cleanup or any unlisted category.
 
-## One-shot Control rollout
+If approved SHA/target/baseline changes, fail closed. Never adapt by deploying a newer `main` or a different production baseline.
 
-After Composite Live authorization, use one fail-closed controller/script. The normal sequence is:
+## GitHub-native one-shot Control rollout
 
-1. exact `main` + exact-main CI evidence;
-2. production baseline GET/read;
-3. trusted checkout clean + ancestor validation;
-4. allowed `git fetch` + `git merge --ff-only` if required;
-5. revalidate exact approved SHA and baseline immediately before first live write;
-6. deterministic build using repository-pinned toolchain;
-7. exactly one Cloudflare Worker version/artifact upload/create when required;
-8. capture exact candidate/version ID;
-9. automated candidate/version GET verification;
-10. concurrency/drift guard — production baseline must still match expectation;
-11. exactly one bounded deployment of the verified candidate/version;
-12. GET-only production reconciliation;
-13. one final receipt.
+The reviewed production entrypoint is `.github/workflows/production-worker-composite-live.yml` and is manual `workflow_dispatch` only. It must run from `main`, bind to the exact approved SHA, use repository-pinned Node/Wrangler, and require the exact owner authorization string emitted from fresh preflight evidence.
 
-Build once and deploy the exact verified version. Do not rebuild between candidate verification and production rollout.
+The normal sequence is:
 
-A standalone user-run read-only preflight script is not the normal FAST-LANE path. Its checks belong at the beginning of the one-shot and fail closed before the first mutation.
+1. require workflow ref `main` and exact `GITHUB_SHA == approved_sha`;
+2. re-read current GitHub `main` and exact-main successful push CI;
+3. read the exact production version/deployment baseline and require single-version 100% traffic;
+4. verify baseline `/api/health` through the reviewed Access service credential;
+5. validate the exact source with the canonical Node runtime and full sanitized repository check;
+6. revalidate exact GitHub SHA and Cloudflare baseline immediately before the first live write;
+7. execute exactly one strict `wrangler versions upload`, with automatic provisioning/creation disabled;
+8. capture the exact uploaded candidate version ID from Wrangler structured output;
+9. create exactly one deployment keeping the approved baseline at 100% and candidate at 0% normal traffic;
+10. re-read that deployment and require the exact baseline/candidate pair and percentages;
+11. issue bounded GET-only smoke requests with `Cloudflare-Workers-Version-Overrides` targeting the candidate;
+12. require `/api/health.workerVersion` to equal the exact uploaded candidate ID — HTTP 200 alone is not candidate proof;
+13. re-read GitHub main and current deployment as a pre-promotion drift guard;
+14. create exactly one deployment promoting the exact verified candidate to 100%;
+15. GET-only reconciliation must prove a single-version 100% deployment and `/api/health.workerVersion` equal to the exact promoted candidate;
+16. emit one final receipt with mutation counts and before/candidate/after identities.
+
+Cloudflare version overrides only target versions in the current deployment. Therefore the 0%-traffic attachment is required for this Worker because `workers_dev=false` and `preview_urls=false`; it lets the exact candidate be smoke-tested without normal production traffic being routed to it.
+
+The version metadata binding `CF_VERSION_METADATA` is part of the runtime contract. `/api/health` returns its exact Worker version ID with `Cache-Control: no-store`, making a failed override unable to masquerade as candidate success by falling back to the baseline version.
+
+If any error, ambiguity, identity mismatch or drift occurs after the first mutation starts, preserve evidence and STOP. A candidate left attached at 0% after a failed smoke test is evidence, not permission to perform automatic cleanup.
+
+## GitHub production credential boundary
+
+The existing GitHub environment `production-readonly-reconcile` deliberately uses a Cloudflare `Workers Scripts Read` token and must remain read-only.
+
+The production deployment workflow instead names a distinct environment `production-worker-deploy`. Before the first live run, that environment must be separately owner-approved and provisioned with only the credentials required for this bounded path:
+
+- `CLOUDFLARE_API_TOKEN` — exact-account token with the minimum Worker write permission required for version upload/deployment;
+- `CONTROL_ACCESS_CLIENT_ID`;
+- `CONTROL_ACCESS_CLIENT_SECRET`.
+
+Creating that environment, adding/rotating those secrets, changing token permissions, or changing Access policy is a separate trust-boundary mutation. Merging the workflow source does not authorize or perform that setup.
 
 ## Local STRICT boundaries
 
