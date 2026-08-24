@@ -10,6 +10,16 @@ This repository is intentionally governed by a strict phase-based workflow becau
 4. Confirm the task is inside that phase or is a required prerequisite.
 5. Check current official vendor documentation when the task depends on GitHub, Cloudflare or ChatGPT product behavior.
 
+## Canonical Node toolchain
+
+The exact supported Node.js runtime for this repository is defined only by the root `.nvmrc` file.
+
+- Local development, CI and deployment preparation must use the exact `.nvmrc` version.
+- Run `npm run verify:node` before build or deployment preparation when the environment was not provisioned directly from `.nvmrc`.
+- GitHub Actions must use `actions/setup-node` with `node-version-file: '.nvmrc'`; do not duplicate a Node version literal in workflow files.
+- Deployment/controller scripts must read `.nvmrc` or invoke `scripts/verify-node-version.mjs`; do not implement independent major/minor Node checks.
+- Changing the canonical Node version is a deliberate toolchain change and must update `.nvmrc` and the matching package runtime contract together.
+
 ## Branch and PR workflow
 
 Use a task-specific branch from current `main`.
