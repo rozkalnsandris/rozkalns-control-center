@@ -5,6 +5,10 @@ import {
   type CloudflareGitHubRuntimeBindings,
 } from "../github/cloudflare-worker-runtime.js";
 import {
+  composeContinuationCurrentReady,
+  type ContinuationCurrentReadyCompositionResult,
+} from "./continuation-current-ready-composition.js";
+import {
   persistContinuationCurrentReady,
   type ContinuationCurrentReadyPersistenceResult,
 } from "./continuation-current-ready-persistence.js";
@@ -64,6 +68,9 @@ export interface CloudflareContinuationRuntime {
   reselectAndReserveNextTask(
     transition: ContinuationPostMergeTransitionProposal,
   ): Promise<ContinuationReselectionReservationResult>;
+  reselectReserveAndPersistCurrentReady(
+    transition: ContinuationPostMergeTransitionProposal,
+  ): Promise<ContinuationCurrentReadyCompositionResult>;
 }
 
 export type CloudflareContinuationRuntimeResolution =
@@ -144,6 +151,20 @@ export function resolveCloudflareContinuationRuntime(
   const reader = new D1ContinuationCampaignReader(resolved.database);
   const store = new D1ContinuationNextTaskStore(resolved.database);
 
+  async function reselectPlan(
+    transition: ContinuationPostMergeTransitionProposal,
+  ): Promise<ContinuationPlanResult> {
+    const observedAt = now();
+    const context = githubRuntime.createRepositoryReadContext(
+      transition.campaign.repository,
+      observedAt,
+    );
+    return reselectContinuationAfterMerge(transition, {
+      provider: context.provider,
+      now: () => observedAt,
+    });
+  }
+
   return {
     status: "READY",
     runtime: {
@@ -161,15 +182,7 @@ export function resolveCloudflareContinuationRuntime(
       },
 
       async reselectAndReserveNextTask(transition) {
-        const observedAt = now();
-        const context = githubRuntime.createRepositoryReadContext(
-          transition.campaign.repository,
-          observedAt,
-        );
-        const plan = await reselectContinuationAfterMerge(transition, {
-          provider: context.provider,
-          now: () => observedAt,
-        });
+        const plan = await reselectPlan(transition);
         if (plan.kind !== "READY") {
           return { kind: "NO_RESERVATION", plan };
         }
@@ -177,6 +190,16 @@ export function resolveCloudflareContinuationRuntime(
         const nextTaskTransition = planContinuationNextTaskTransition(transition, plan);
         const persistence = await store.persist(transition, nextTaskTransition);
         return { kind: "RESERVED", plan, persistence };
+      },
+
+      async reselectReserveAndPersistCurrentReady(transition) {
+        return composeContinuationCurrentReady(transition, {
+          reselect: reselectPlan,
+          reserve: (expected, nextTaskTransition) => store.persist(expected, nextTaskTransition),
+          read: (identity) => reader.read(identity),
+          persistCurrentReady: (recovery, plan) =>
+            persistContinuationCurrentReady(resolved.database, recovery, plan),
+        });
       },
     },
   };
