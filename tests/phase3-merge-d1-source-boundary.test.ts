@@ -51,7 +51,8 @@ test("Phase 3 Merge D1 audit persistence remains detached from Worker runtime, U
     assert.doesNotMatch(runtimeSource, /\/api\/github\/merge/i);
   }
 
-  assert.doesNotMatch(policySource, /canMerge/);
+  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 6);
+  assert.doesNotMatch(policySource, /canMerge:\s*true/);
 });
 
 test("Merge D1 source persistence contains no live apply command or credential material", async () => {

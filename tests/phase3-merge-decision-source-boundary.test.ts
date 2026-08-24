@@ -34,7 +34,8 @@ test("guarded Merge decision remains dormant and unreachable from Worker/UI/conf
     assert.doesNotMatch(runtimeSource, /\/api\/github\/merge/i);
   }
 
-  assert.doesNotMatch(policySource, /canMerge/);
+  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 6);
+  assert.doesNotMatch(policySource, /canMerge:\s*true/);
   assert.doesNotMatch(wranglerSource, /CONTROL_MERGE/i);
 });
 
