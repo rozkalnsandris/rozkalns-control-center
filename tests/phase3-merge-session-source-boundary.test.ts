@@ -38,7 +38,8 @@ test("Phase 3 Merge write primitive remains dormant with no runtime, UI or capab
     assert.doesNotMatch(runtimeSource, /\/api\/github\/merge/i);
   }
 
-  assert.doesNotMatch(policySource, /canMerge/);
+  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 6);
+  assert.doesNotMatch(policySource, /canMerge:\s*true/);
   assert.equal((policySource.match(/canRequestChanges:\s*true/g) ?? []).length, 1);
   assert.equal((policySource.match(/canRequestChanges:\s*false/g) ?? []).length, 5);
 });
