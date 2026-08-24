@@ -1,0 +1,347 @@
+name: Production Worker Composite Live
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact 40-character main SHA approved for production
+        required: true
+        type: string
+      expected_version:
+        description: Exact currently active Worker version observed before authorization
+        required: true
+        type: string
+      expected_deployment:
+        description: Exact currently active deployment observed before authorization
+        required: true
+        type: string
+      owner_authorization:
+        description: Exact bounded authorization string shown by the preflight receipt
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: production-worker-composite-live
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: exact candidate verify and promote
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: production-worker-deploy
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      HOSTNAME: control.rozkalns.net
+      GITHUB_TOKEN: ${{ github.token }}
+      EVIDENCE_DIR: ${{ runner.temp }}/control-worker-composite-live-${{ github.run_id }}
+
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.approved_sha }}
+          persist-credentials: false
+
+      - name: Setup canonical Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install and validate exact source before live authority is consumed
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-node-version.mjs
+          npm ci
+          npm run check
+
+      - name: Composite Live preflight and bounded rollout
+        shell: bash
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+          OWNER_AUTHORIZATION: ${{ inputs.owner_authorization }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+          CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          mutation_started=NO
+          upload_count=0
+          deployment_write_count=0
+          candidate_version=""
+          attached_deployment=""
+          final_deployment=""
+          ci_run_id=""
+
+          mkdir -p "$EVIDENCE_DIR"
+          receipt="$EVIDENCE_DIR/receipt.txt"
+          : > "$receipt"
+
+          emit_stop_receipt() {
+            local reason="$1"
+            {
+              printf 'PRODUCTION_WORKER_COMPOSITE_LIVE=STOP\n'
+              printf 'STOP=%s\n' "$reason"
+              printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+              printf 'EXPECTED_VERSION=%s\n' "$EXPECTED_VERSION"
+              printf 'EXPECTED_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+              printf 'CI_RUN_ID=%s\n' "${ci_run_id:-NONE}"
+              printf 'CANDIDATE_VERSION=%s\n' "${candidate_version:-NONE}"
+              printf 'CANDIDATE_ATTACHMENT_DEPLOYMENT=%s\n' "${attached_deployment:-NONE}"
+              printf 'FINAL_DEPLOYMENT=%s\n' "${final_deployment:-NONE}"
+              printf 'VERSION_UPLOAD_COUNT=%s\n' "$upload_count"
+              printf 'DEPLOYMENT_WRITE_COUNT=%s\n' "$deployment_write_count"
+              printf 'FIRST_MUTATION_STARTED=%s\n' "$mutation_started"
+              if [[ "$mutation_started" == YES ]]; then
+                printf 'AUTHORIZATION_CONSUMED=YES\n'
+                printf 'AUTOMATIC_RETRY=NO\n'
+                printf 'AUTOMATIC_ROLLBACK=NO\n'
+                printf 'AUTOMATIC_CLEANUP=NO\n'
+                printf 'EVIDENCE_PRESERVED=YES\n'
+              else
+                printf 'AUTHORIZATION_CONSUMED=NO\n'
+              fi
+              printf 'NEXT_ACTION=STOP_OWNER_REVIEW\n'
+            } | tee "$receipt"
+          }
+
+          stop() {
+            local reason="$1"
+            emit_stop_receipt "$reason" >&2
+            exit 1
+          }
+
+          for cmd in curl jq git npm; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]] || stop APPROVED_SHA_INVALID
+          [[ "$EXPECTED_VERSION" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_VERSION_INVALID
+          [[ "$EXPECTED_DEPLOYMENT" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_DEPLOYMENT_INVALID
+          [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch ]] || stop WORKFLOW_EVENT_NOT_DISPATCH
+          [[ "${GITHUB_REF_NAME:-}" == main ]] || stop WORKFLOW_REF_NOT_MAIN
+          [[ "${GITHUB_SHA:-}" == "$APPROVED_SHA" ]] || stop WORKFLOW_SHA_NOT_APPROVED_SHA
+          [[ "${GITHUB_RUN_ATTEMPT:-}" == 1 ]] || stop WORKFLOW_RERUN_FORBIDDEN
+          [[ "$(git rev-parse HEAD)" == "$APPROVED_SHA" ]] || stop CHECKOUT_SHA_NOT_APPROVED_SHA
+          [[ -n "${GITHUB_TOKEN:-}" ]] || stop MISSING_GITHUB_TOKEN
+          [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]] || stop MISSING_CLOUDFLARE_API_TOKEN
+          [[ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ]] || stop MISSING_CONTROL_ACCESS_CLIENT_ID
+          [[ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ]] || stop MISSING_CONTROL_ACCESS_CLIENT_SECRET
+
+          expected_authorization="AUTHORIZE_COMPOSITE_LIVE:${APPROVED_SHA}:${EXPECTED_DEPLOYMENT}:${EXPECTED_VERSION}:UPLOAD1:DEPLOY2"
+          [[ "$OWNER_AUTHORIZATION" == "$expected_authorization" ]] || stop OWNER_AUTHORIZATION_MISMATCH
+
+          tmp="$(mktemp -d)"
+
+          gh_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
+          }
+
+          cf_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_RESPONSE_INVALID
+          }
+
+          access_health_get() {
+            local override_version="${1:-}" out="$2" code_file="$3"
+            local -a headers=(
+              -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}"
+              -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}"
+              -H 'Cache-Control: no-cache'
+            )
+            if [[ -n "$override_version" ]]; then
+              headers+=( -H "Cloudflare-Workers-Version-Overrides: ${WORKER_NAME}=\"${override_version}\"" )
+            fi
+            local code
+            code="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              "${headers[@]}" -o "$out" -w '%{http_code}' "https://${HOSTNAME}/api/health")" || return 1
+            printf '%s' "$code" > "$code_file"
+          }
+
+          require_single_baseline() {
+            local file="$1"
+            jq -e --arg deployment "$EXPECTED_DEPLOYMENT" --arg version "$EXPECTED_VERSION" '
+              (.result.deployments | type == "array") and
+              (.result.deployments | length >= 1) and
+              .result.deployments[0].id == $deployment and
+              (.result.deployments[0].versions | type == "array") and
+              (.result.deployments[0].versions | length == 1) and
+              .result.deployments[0].versions[0].version_id == $version and
+              .result.deployments[0].versions[0].percentage == 100
+            ' "$file" >/dev/null || stop PRODUCTION_BASELINE_DRIFT
+          }
+
+          printf '%s\n' STAGE=GITHUB_EXACT_MAIN_CI
+          gh_get '/branches/main' "$tmp/main.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+
+          gh_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${APPROVED_SHA}&per_page=10" "$tmp/ci-runs.json"
+          ci_run_id="$(jq -r --arg sha "$APPROVED_SHA" '
+            [ .workflow_runs[]? | select(
+                .name == "CI" and
+                .path == ".github/workflows/ci.yml" and
+                .head_branch == "main" and
+                .head_sha == $sha and
+                .event == "push" and
+                .status == "completed" and
+                .conclusion == "success"
+              ) ] | sort_by(.run_number) | last | .id // empty
+          ' "$tmp/ci-runs.json")"
+          [[ -n "$ci_run_id" ]] || stop EXACT_MAIN_CI_NOT_SUCCESS
+
+          gh_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
+          jq -e --arg sha "$APPROVED_SHA" --argjson id "$ci_run_id" '
+            .id == $id and
+            .name == "CI" and
+            .path == ".github/workflows/ci.yml" and
+            .head_branch == "main" and
+            .head_sha == $sha and
+            .event == "push" and
+            .status == "completed" and
+            .conclusion == "success"
+          ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+
+          printf '%s\n' STAGE=PRODUCTION_BASELINE
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-before.json"
+          require_single_baseline "$tmp/deployments-before.json"
+
+          access_health_get "" "$tmp/health-before.json" "$tmp/health-before.code" || stop BASELINE_HEALTH_GET_FAILED
+          [[ "$(cat "$tmp/health-before.code")" == 200 ]] || stop BASELINE_HEALTH_HTTP_NOT_200
+          jq -e --arg service "$WORKER_NAME" '.status == "ok" and .service == $service' "$tmp/health-before.json" >/dev/null || stop BASELINE_HEALTH_INVALID
+
+          printf '%s\n' STAGE=FINAL_PREWRITE_REVALIDATION
+          gh_get '/branches/main' "$tmp/main-final.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-final.json" >/dev/null || stop MAIN_SHA_DRIFT_BEFORE_WRITE
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-final-prewrite.json"
+          require_single_baseline "$tmp/deployments-final-prewrite.json"
+
+          printf '%s\n' STAGE=VERSION_UPLOAD
+          mutation_started=YES
+          upload_count=1
+          export WRANGLER_OUTPUT_FILE_PATH="$tmp/wrangler-upload.jsonl"
+          npm exec -- wrangler versions upload \
+            --strict \
+            --message "Composite Live ${APPROVED_SHA}" \
+            --experimental-provision=false \
+            --experimental-auto-create=false || stop VERSION_UPLOAD_FAILED
+
+          candidate_version="$(jq -r 'select(.type == "version-upload") | .version_id // empty' "$WRANGLER_OUTPUT_FILE_PATH" | tail -n1)"
+          [[ "$candidate_version" =~ ^[0-9a-f-]{36}$ ]] || stop CANDIDATE_VERSION_ID_MISSING
+          [[ "$candidate_version" != "$EXPECTED_VERSION" ]] || stop CANDIDATE_EQUALS_BASELINE
+
+          printf '%s\n' STAGE=CANDIDATE_ATTACH_ZERO_TRAFFIC
+          deployment_write_count=1
+          export WRANGLER_OUTPUT_FILE_PATH="$tmp/wrangler-attach.jsonl"
+          npm exec -- wrangler versions deploy \
+            "${EXPECTED_VERSION}@100%" \
+            "${candidate_version}@0%" \
+            --yes \
+            --message "Composite Live candidate smoke ${APPROVED_SHA}" \
+            --experimental-provision=false \
+            --experimental-auto-create=false || stop CANDIDATE_ATTACH_FAILED
+
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-attached.json"
+          attached_deployment="$(jq -r '.result.deployments[0].id // empty' "$tmp/deployments-attached.json")"
+          [[ "$attached_deployment" =~ ^[0-9a-f-]{36}$ ]] || stop ATTACHED_DEPLOYMENT_ID_MISSING
+          jq -e --arg base "$EXPECTED_VERSION" --arg candidate "$candidate_version" '
+            (.result.deployments[0].versions | type == "array") and
+            (.result.deployments[0].versions | length == 2) and
+            (any(.result.deployments[0].versions[]; .version_id == $base and .percentage == 100)) and
+            (any(.result.deployments[0].versions[]; .version_id == $candidate and .percentage == 0))
+          ' "$tmp/deployments-attached.json" >/dev/null || stop ATTACHED_DEPLOYMENT_IDENTITY_MISMATCH
+
+          printf '%s\n' STAGE=EXACT_CANDIDATE_SMOKE
+          access_health_get "$candidate_version" "$tmp/candidate-health.json" "$tmp/candidate-health.code" || stop EXACT_CANDIDATE_SMOKE_GET_FAILED
+          [[ "$(cat "$tmp/candidate-health.code")" == 200 ]] || stop EXACT_CANDIDATE_SMOKE_HTTP_NOT_200
+          jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '
+            .status == "ok" and .service == $service and .workerVersion == $version
+          ' "$tmp/candidate-health.json" >/dev/null || stop EXACT_CANDIDATE_SMOKE_IDENTITY_MISMATCH
+
+          printf '%s\n' STAGE=PREPROMOTION_DRIFT_GUARD
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-prepromote.json"
+          jq -e --arg deployment "$attached_deployment" --arg base "$EXPECTED_VERSION" --arg candidate "$candidate_version" '
+            .result.deployments[0].id == $deployment and
+            (.result.deployments[0].versions | length == 2) and
+            (any(.result.deployments[0].versions[]; .version_id == $base and .percentage == 100)) and
+            (any(.result.deployments[0].versions[]; .version_id == $candidate and .percentage == 0))
+          ' "$tmp/deployments-prepromote.json" >/dev/null || stop PREPROMOTION_DEPLOYMENT_DRIFT
+          gh_get '/branches/main' "$tmp/main-prepromote.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-prepromote.json" >/dev/null || stop MAIN_SHA_DRIFT_PREPROMOTION
+
+          printf '%s\n' STAGE=PROMOTE_EXACT_VERIFIED_CANDIDATE
+          deployment_write_count=2
+          export WRANGLER_OUTPUT_FILE_PATH="$tmp/wrangler-promote.jsonl"
+          npm exec -- wrangler versions deploy \
+            "${candidate_version}@100%" \
+            --yes \
+            --message "Composite Live promote ${APPROVED_SHA}" \
+            --experimental-provision=false \
+            --experimental-auto-create=false || stop CANDIDATE_PROMOTION_FAILED
+
+          printf '%s\n' STAGE=POST_DEPLOY_READONLY_RECONCILIATION
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-after.json"
+          final_deployment="$(jq -r '.result.deployments[0].id // empty' "$tmp/deployments-after.json")"
+          [[ "$final_deployment" =~ ^[0-9a-f-]{36}$ ]] || stop FINAL_DEPLOYMENT_ID_MISSING
+          [[ "$final_deployment" != "$EXPECTED_DEPLOYMENT" ]] || stop FINAL_DEPLOYMENT_DID_NOT_CHANGE
+          jq -e --arg candidate "$candidate_version" '
+            (.result.deployments[0].versions | type == "array") and
+            (.result.deployments[0].versions | length == 1) and
+            .result.deployments[0].versions[0].version_id == $candidate and
+            .result.deployments[0].versions[0].percentage == 100
+          ' "$tmp/deployments-after.json" >/dev/null || stop FINAL_DEPLOYMENT_IDENTITY_MISMATCH
+
+          access_health_get "" "$tmp/health-after.json" "$tmp/health-after.code" || stop FINAL_HEALTH_GET_FAILED
+          [[ "$(cat "$tmp/health-after.code")" == 200 ]] || stop FINAL_HEALTH_HTTP_NOT_200
+          jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '
+            .status == "ok" and .service == $service and .workerVersion == $version
+          ' "$tmp/health-after.json" >/dev/null || stop FINAL_HEALTH_VERSION_MISMATCH
+
+          {
+            printf 'PRODUCTION_WORKER_COMPOSITE_LIVE=PASS\n'
+            printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+            printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+            printf 'PROD_BEFORE_VERSION=%s\n' "$EXPECTED_VERSION"
+            printf 'PROD_BEFORE_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+            printf 'CANDIDATE_VERSION=%s\n' "$candidate_version"
+            printf 'CANDIDATE_ATTACHMENT_DEPLOYMENT=%s\n' "$attached_deployment"
+            printf 'PROD_AFTER_VERSION=%s\n' "$candidate_version"
+            printf 'PROD_AFTER_DEPLOYMENT=%s\n' "$final_deployment"
+            printf 'VERSION_UPLOAD_COUNT=%s\n' "$upload_count"
+            printf 'DEPLOYMENT_WRITE_COUNT=%s\n' "$deployment_write_count"
+            printf 'CANDIDATE_VERIFY=PASS\n'
+            printf 'POST_DEPLOY_RECONCILIATION=PASS\n'
+            printf 'FIRST_MUTATION_STARTED=YES\n'
+            printf 'AUTHORIZATION_CONSUMED=YES\n'
+            printf 'UNAUTHORIZED_MUTATIONS=0\n'
+            printf 'EVIDENCE_PRESERVED=YES\n'
+          } | tee "$receipt"
+
+      - name: Preserve bounded Composite Live receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-worker-composite-live-${{ github.run_id }}
+          path: ${{ runner.temp }}/control-worker-composite-live-${{ github.run_id }}/receipt.txt
+          if-no-files-found: warn
+          retention-days: 14

@@ -59,7 +59,9 @@ const worker: ExportedHandler<Env> = {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return Response.json(buildHealthPayload());
+      return Response.json(buildHealthPayload(env.CF_VERSION_METADATA.id), {
+        headers: NO_STORE_HEADERS,
+      });
     }
 
     if (url.pathname === "/api/github/dashboard") {
