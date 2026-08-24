@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "policy": "FAST-LANE v2.2 Composite",
+  "canonical_repository": "rozkalnsandris/ops-workflows",
+  "principle": "HUMAN_APPROVES_RISK_OR_DECISION_AUTOMATION_EXECUTES_TECHNICAL_STEPS",
+  "invariants": {
+    "normal_max_owner_gates": 2,
+    "read_only_checkpoint_creates_owner_gate": false,
+    "max_scope_preserving_corrective_commits": 2,
+    "technical_attempts_max": 3,
+    "stop_before_fourth_attempt": true,
+    "candidate_identity_must_match_exact_uploaded_artifact": true,
+    "zero_normal_traffic_candidate_attachment_allowed_when_platform_requires": true,
+    "pre_enumerated_multi_step_live_sequence_may_share_one_composite_gate": true,
+    "authorization_consumed_at_first_mutation": true,
+    "automatic_retry": false,
+    "automatic_rollback": false,
+    "automatic_cleanup": false,
+    "alternate_mutation_path": false,
+    "merge_explicit_owner_decision": true,
+    "merge_authorizes_live_mutation": false
+  }
+}
