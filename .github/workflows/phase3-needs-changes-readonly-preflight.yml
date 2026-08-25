@@ -127,6 +127,15 @@ jobs:
               "$url" > "$out" || stop PUBLIC_GITHUB_GET_FAILED
           }
 
+          authenticated_app_get() {
+            local url="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$url" > "$out" || stop AUTHENTICATED_GITHUB_APP_GET_FAILED
+          }
+
           cf_get() {
             local path="$1" out="$2"
             curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
@@ -186,8 +195,8 @@ jobs:
           verify_control_source
           verify_target
 
-          printf '%s\n' STAGE=GITHUB_APP_PUBLIC_DECLARATION
-          public_get 'https://api.github.com/apps/rozkalns-control' "$work/app.json"
+          printf '%s\n' STAGE=GITHUB_APP_AUTHENTICATED_DECLARATION
+          authenticated_app_get 'https://api.github.com/apps/rozkalns-control' "$work/app.json"
           jq -e \
             --argjson app_id "$EXPECTED_APP_ID" \
             --arg client_id "$EXPECTED_APP_CLIENT_ID" '
@@ -199,7 +208,7 @@ jobs:
               .permissions.checks == "read" and
               .permissions.actions == "read" and
               .permissions.administration == "read"
-            ' "$work/app.json" >/dev/null || stop GITHUB_APP_PUBLIC_DECLARATION_DRIFT
+            ' "$work/app.json" >/dev/null || stop GITHUB_APP_AUTHENTICATED_DECLARATION_DRIFT
 
           printf '%s\n' STAGE=CLOUDFLARE_READ_ONLY_BASELINE
           token_status="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
