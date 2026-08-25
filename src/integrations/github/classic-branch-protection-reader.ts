@@ -30,7 +30,7 @@ export class GitHubClassicBranchProtectionReaderError extends Error {
   }
 }
 
-export type GitHubClassicProtectionState = "PRESENT" | "ABSENT";
+export type GitHubClassicProtectionState = "PRESENT" | "ABSENT" | "ABSENT_RULESET_PROTECTED";
 
 export interface GitHubClassicBranchProtectionObservation extends BranchPolicyObservation {
   readonly classicProtectionState: GitHubClassicProtectionState;
@@ -121,6 +121,7 @@ function emptyClassicObservation(
   repository: string,
   branch: string,
   observedAt: string,
+  classicProtectionState: GitHubClassicProtectionState = "ABSENT",
 ): GitHubClassicBranchProtectionObservation {
   return {
     source: "GITHUB_CLASSIC_BRANCH_PROTECTION",
@@ -137,7 +138,7 @@ function emptyClassicObservation(
       requireReviewThreadResolution: false,
       hasRequiredFilePatternReviewers: false,
     },
-    classicProtectionState: "ABSENT",
+    classicProtectionState,
   };
 }
 
@@ -150,15 +151,18 @@ function mapUnprotectedBranchMetadata(
   const root = requireObject(payload);
   if (root.name !== branch) return malformed();
   if (typeof root.protected !== "boolean") return malformed();
-  if (root.protected !== false) return readFailed();
+  if (!Object.prototype.hasOwnProperty.call(root, "protection")) return malformed();
 
-  if (Object.prototype.hasOwnProperty.call(root, "protection")) {
-    const protection = requireObject(root.protection);
-    if (typeof protection.enabled !== "boolean") return malformed();
-    if (protection.enabled !== false) return readFailed();
-  }
+  const protection = requireObject(root.protection);
+  if (typeof protection.enabled !== "boolean") return malformed();
+  if (protection.enabled !== false) return readFailed();
 
-  return emptyClassicObservation(repository, branch, observedAt);
+  return emptyClassicObservation(
+    repository,
+    branch,
+    observedAt,
+    root.protected ? "ABSENT_RULESET_PROTECTED" : "ABSENT",
+  );
 }
 
 function classicNotFound(error: unknown): boolean {
