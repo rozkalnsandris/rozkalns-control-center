@@ -51,10 +51,8 @@ jobs:
       WORKER_NAME: rozkalns-control
       HOSTNAME: control.rozkalns.net
       DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
-      EXPECTED_APP_ID: "4567356"
       EXPECTED_APP_CLIENT_ID: Iv23likDoFtVeWBJfdFS
       EXPECTED_INSTALLATION_ID: "153121564"
-      EXPECTED_TARGET_REPOSITORY_ID: "1328835922"
       EXPECTED_WORKER_VERSION: ${{ inputs.expected_worker_version }}
       EXPECTED_DEPLOYMENT_ID: ${{ inputs.expected_deployment_id }}
       TARGET_MAIN_SHA: ${{ inputs.target_main_sha }}
@@ -127,15 +125,6 @@ jobs:
               "$url" > "$out" || stop PUBLIC_GITHUB_GET_FAILED
           }
 
-          authenticated_app_get() {
-            local url="$1" out="$2"
-            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "$url" > "$out" || stop AUTHENTICATED_GITHUB_APP_GET_FAILED
-          }
-
           cf_get() {
             local path="$1" out="$2"
             curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
@@ -195,21 +184,6 @@ jobs:
           verify_control_source
           verify_target
 
-          printf '%s\n' STAGE=GITHUB_APP_AUTHENTICATED_DECLARATION
-          authenticated_app_get 'https://api.github.com/apps/rozkalns-control' "$work/app.json"
-          jq -e \
-            --argjson app_id "$EXPECTED_APP_ID" \
-            --arg client_id "$EXPECTED_APP_CLIENT_ID" '
-              .id == $app_id and .client_id == $client_id and
-              .permissions.metadata == "read" and
-              .permissions.contents == "read" and
-              .permissions.issues == "read" and
-              .permissions.pull_requests == "write" and
-              .permissions.checks == "read" and
-              .permissions.actions == "read" and
-              .permissions.administration == "read"
-            ' "$work/app.json" >/dev/null || stop GITHUB_APP_AUTHENTICATED_DECLARATION_DRIFT
-
           printf '%s\n' STAGE=CLOUDFLARE_READ_ONLY_BASELINE
           token_status="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
@@ -228,11 +202,27 @@ jobs:
             .result.deployments[0].versions[0].percentage == 100
           ' "$work/deployments.json" >/dev/null || stop PRODUCTION_BASELINE_DRIFT
 
+          printf '%s\n' STAGE=PRODUCTION_GITHUB_APP_BINDING_IDENTITY
+          cf_get "/workers/scripts/${WORKER_NAME}/versions/${EXPECTED_WORKER_VERSION}" "$work/version.json"
+          jq -e \
+            --arg version "$EXPECTED_WORKER_VERSION" \
+            --arg client_id "$EXPECTED_APP_CLIENT_ID" \
+            --arg installation_id "$EXPECTED_INSTALLATION_ID" '
+              .result.id == $version and
+              ((.result.resources.bindings // []) as $bindings |
+                ($bindings | type == "array") and
+                any($bindings[]; .name == "GITHUB_APP_PRIVATE_KEY_PEM" and (.type == "secret_text" or .type == "secret_key")) and
+                any($bindings[]; .name == "GITHUB_APP_CLIENT_ID" and .type == "plain_text" and .text == $client_id) and
+                any($bindings[]; .name == "GITHUB_APP_INSTALLATION_ID" and .type == "plain_text" and .text == $installation_id)
+              )
+            ' "$work/version.json" >/dev/null || stop PRODUCTION_GITHUB_APP_BINDING_IDENTITY_DRIFT
+
           printf '%s\n' STAGE=ACCESS_GET_ONLY
           access_get '/api/health' "$work/health.json"
           jq -e --arg service "$WORKER_NAME" --arg version "$EXPECTED_WORKER_VERSION" '.status == "ok" and .service == $service and .workerVersion == $version' "$work/health.json" >/dev/null || stop HEALTH_IDENTITY_DRIFT
           access_get '/api/github/dashboard' "$work/dashboard.json"
 
+          printf '%s\n' STAGE=PRODUCTION_GITHUB_APP_RUNTIME_PROOF
           preflight_path="/api/github/needs-changes/preflight?repository=rozkalnsandris%2Fops-workflows&issue=${TARGET_ISSUE}&pull=${TARGET_PULL}"
           access_get "$preflight_path" "$work/preflight.json"
           jq -e \
