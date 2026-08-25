@@ -157,3 +157,19 @@ Read `docs/FAST_LANE_V2_2.md` as the active local v2.2 startup and operating con
 
 The phase contract in issue #1 and all stricter trust-boundary rules remain authoritative.
 <!-- END FAST-LANE-V2.2-MANAGED -->
+
+<!-- BEGIN GITHUB-ONLY-LIVE-ALL-V1-MANAGED -->
+## 14. GITHUB-ONLY / LIVE-ALL v1
+
+Canonical shared contract: `rozkalnsandris/ops-workflows/docs/GITHUB_ONLY_LIVE_ALL.md` with machine invariants in `policy/github-only-live-all-v1.json`.
+
+- `GITHUB-ONLY` (including `git hub only`) means: refresh canonical GitHub state, perform only GitHub/source-level work, and prepare any required rollout up to but not including the first production/live mutation.
+- Deferred rollout state is persisted as public-safe `[DEPLOY-QUEUE]` issues in `rozkalnsandris/ops-workflows`; chat or memory is never the queue.
+- Merge remains a separate explicit owner decision. Neither `GITHUB-ONLY` nor `LIVE-ALL` authorizes merge.
+- A GitHub write whose deterministic side effect is an otherwise forbidden production/live mutation counts as live work and must not run under `GITHUB-ONLY`.
+- A queue item becomes `READY` only after the final exact deployable SHA exists, the exact target/entrypoint/preflight/verification and allowed mutations are recorded, and no separate prerequisite owner gate remains.
+- `LIVE-ALL` snapshots only the open `READY` queue items present at command start, freshly revalidates every exact SHA/target/baseline, and may execute only ordinary predeclared deployment mutations allowed by this repository.
+- `LIVE-ALL` does not authorize production DB writes/migrations, secrets/credentials, GitHub/Cloudflare permission or trust-boundary expansion, DNS/Tunnel/Access changes, destructive cleanup or undeclared extra-risk work.
+- After any selected live mutation starts, error/ambiguity requires public-safe evidence preservation and STOP of the remaining batch; no automatic retry/rollback/cleanup/alternate mutation path unless explicitly pre-authorized.
+- Existing issue #1, FAST-LANE v2.2, production-worker and RPi5 trust-boundary rules remain stricter where applicable.
+<!-- END GITHUB-ONLY-LIVE-ALL-V1-MANAGED -->
