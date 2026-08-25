@@ -288,6 +288,9 @@ export function createCloudflareGitHubReadRuntime(
           if (classic.classicProtectionState === "ABSENT" && active.activeRuleCount !== 0) {
             throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
           }
+          if (classic.classicProtectionState === "ABSENT_RULESET_PROTECTED" && active.activeRuleCount === 0) {
+            throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
+          }
           return combineBranchPolicyObservations(
             [active, classic],
             base.repository,
