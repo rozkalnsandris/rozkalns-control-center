@@ -37,6 +37,16 @@ test("Phase 247 preflight is manual, parameterized and read-only", () => {
   assert.match(workflow, /\.decision\.workflowState == "MERGE_READY"/);
   assert.match(workflow, /FINAL_PRODUCTION_BASELINE_DRIFT/);
 
+  assert.match(workflow, /authenticated_app_get\(\)/);
+  assert.match(workflow, /STAGE=GITHUB_APP_AUTHENTICATED_DECLARATION/);
+  assert.match(workflow, /AUTHENTICATED_GITHUB_APP_GET_FAILED/);
+  assert.match(workflow, /GITHUB_APP_AUTHENTICATED_DECLARATION_DRIFT/);
+  assert.match(
+    workflow,
+    /authenticated_app_get\(\)[\s\S]*?Authorization: Bearer \$\{GITHUB_TOKEN\}[\s\S]*?AUTHENTICATED_GITHUB_APP_GET_FAILED/,
+  );
+  assert.doesNotMatch(workflow, /GITHUB_APP_PUBLIC_DECLARATION/);
+
   assert.match(
     workflow,
     /SELECT request_id FROM needs_changes_decisions WHERE request_id = \? LIMIT 1/,
