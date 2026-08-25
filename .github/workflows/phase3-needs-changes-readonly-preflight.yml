@@ -1,0 +1,282 @@
+name: Phase 3 Needs-changes read-only preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_worker_version:
+        description: Exact active production Worker version UUID
+        required: true
+        type: string
+      expected_deployment_id:
+        description: Exact active production deployment UUID
+        required: true
+        type: string
+      target_main_sha:
+        description: Exact current ops-workflows main SHA
+        required: true
+        type: string
+      target_head_sha:
+        description: Exact disposable PR #3 head SHA
+        required: true
+        type: string
+      target_ci_run_id:
+        description: Exact successful target-head Actions run ID
+        required: true
+        type: string
+      request_id:
+        description: New Phase 247 request identity to prove absent in D1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase3-needs-changes-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: GET/SELECT-only Phase 247 preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: production-readonly-reconcile
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      TARGET_REPO: rozkalnsandris/ops-workflows
+      TARGET_ISSUE: "4"
+      TARGET_PULL: "3"
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      HOSTNAME: control.rozkalns.net
+      DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
+      EXPECTED_APP_ID: "4567356"
+      EXPECTED_APP_CLIENT_ID: Iv23likDoFtVeWBJfdFS
+      EXPECTED_INSTALLATION_ID: "153121564"
+      EXPECTED_TARGET_REPOSITORY_ID: "1328835922"
+      EXPECTED_WORKER_VERSION: ${{ inputs.expected_worker_version }}
+      EXPECTED_DEPLOYMENT_ID: ${{ inputs.expected_deployment_id }}
+      TARGET_MAIN_SHA: ${{ inputs.target_main_sha }}
+      TARGET_HEAD_SHA: ${{ inputs.target_head_sha }}
+      TARGET_CI_RUN_ID: ${{ inputs.target_ci_run_id }}
+      REQUEST_ID: ${{ inputs.request_id }}
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+      CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
+
+    steps:
+      - name: Prove current production and canary state without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop() {
+            {
+              printf 'PHASE247_READONLY_PREFLIGHT=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'GITHUB_MUTATION=NO\n'
+              printf 'CLOUDFLARE_MUTATION=NO\n'
+              printf 'D1_MUTATION=NO\n'
+              printf 'NEEDS_CHANGES_POST=NOT_CALLED\n'
+              printf 'REQUEST_CHANGES_AUTHORIZATION=NOT_GRANTED\n'
+            } >&2
+            exit 1
+          }
+
+          for cmd in curl jq grep cut tr wc; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
+          [ -n "${GITHUB_SHA:-}" ] || stop WORKFLOW_SHA_MISSING
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_API_TOKEN
+          [ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ] || stop MISSING_CONTROL_ACCESS_CLIENT_ID
+          [ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ] || stop MISSING_CONTROL_ACCESS_CLIENT_SECRET
+
+          uuid_re='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          sha_re='^[0-9a-f]{40}$'
+          [[ "$EXPECTED_WORKER_VERSION" =~ $uuid_re ]] || stop EXPECTED_WORKER_VERSION_INVALID
+          [[ "$EXPECTED_DEPLOYMENT_ID" =~ $uuid_re ]] || stop EXPECTED_DEPLOYMENT_ID_INVALID
+          [[ "$TARGET_MAIN_SHA" =~ $sha_re ]] || stop TARGET_MAIN_SHA_INVALID
+          [[ "$TARGET_HEAD_SHA" =~ $sha_re ]] || stop TARGET_HEAD_SHA_INVALID
+          [[ "$TARGET_CI_RUN_ID" =~ ^[0-9]+$ ]] || stop TARGET_CI_RUN_ID_INVALID
+          [[ "$REQUEST_ID" =~ ^[A-Za-z0-9._-]{16,128}$ ]] || stop REQUEST_ID_INVALID
+
+          work="${RUNNER_TEMP}/phase247-readonly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$work"
+
+          control_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop CONTROL_GITHUB_GET_FAILED
+          }
+
+          public_get() {
+            local url="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$url" > "$out" || stop PUBLIC_GITHUB_GET_FAILED
+          }
+
+          cf_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_RESPONSE_INVALID
+          }
+
+          access_get() {
+            local path="$1" out="$2" status
+            status="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}" \
+              -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}" \
+              -H 'Accept: application/json' \
+              -o "$out" -w '%{http_code}' "https://${HOSTNAME}${path}")" || stop ACCESS_GET_FAILED
+            [ "$status" = "200" ] || stop "ACCESS_HTTP_${status}"
+            jq -e 'type == "object"' "$out" >/dev/null || stop ACCESS_RESPONSE_NOT_JSON_OBJECT
+          }
+
+          verify_control_source() {
+            control_get '/branches/main' "$work/control-main.json"
+            jq -e --arg sha "$GITHUB_SHA" '.commit.sha == $sha' "$work/control-main.json" >/dev/null || stop CONTROL_MAIN_SHA_DRIFT
+
+            control_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${GITHUB_SHA}&per_page=10" "$work/control-ci-runs.json"
+            control_ci_run_id="$(jq -r --arg sha "$GITHUB_SHA" '[.workflow_runs[]? | select(.name == "CI" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .status == "completed" and .conclusion == "success")] | sort_by(.run_number) | last | .id // empty' "$work/control-ci-runs.json")"
+            [ -n "$control_ci_run_id" ] || stop CONTROL_EXACT_MAIN_CI_NOT_SUCCESS
+            control_get "/actions/runs/${control_ci_run_id}" "$work/control-ci.json"
+            jq -e --arg sha "$GITHUB_SHA" --argjson id "$control_ci_run_id" '.id == $id and .name == "CI" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .status == "completed" and .conclusion == "success"' "$work/control-ci.json" >/dev/null || stop CONTROL_EXACT_MAIN_CI_DRIFT
+          }
+
+          verify_target() {
+            public_get "https://api.github.com/repos/${TARGET_REPO}/branches/main" "$work/target-main.json"
+            jq -e --arg sha "$TARGET_MAIN_SHA" '.commit.sha == $sha' "$work/target-main.json" >/dev/null || stop TARGET_MAIN_SHA_DRIFT
+
+            public_get "https://api.github.com/repos/${TARGET_REPO}/issues/${TARGET_ISSUE}" "$work/target-issue.json"
+            jq -e '.state == "open" and (.pull_request == null)' "$work/target-issue.json" >/dev/null || stop TARGET_ISSUE_NOT_GENUINE_OPEN_ISSUE
+
+            public_get "https://api.github.com/repos/${TARGET_REPO}/pulls/${TARGET_PULL}" "$work/target-pr.json"
+            jq -e --arg base "$TARGET_MAIN_SHA" --arg head "$TARGET_HEAD_SHA" '.state == "open" and .merged == false and .draft == false and .mergeable != false and .base.ref == "main" and .base.sha == $base and .head.sha == $head' "$work/target-pr.json" >/dev/null || stop TARGET_PR_TUPLE_DRIFT
+
+            public_get "https://api.github.com/repos/${TARGET_REPO}/pulls/${TARGET_PULL}/files?per_page=100" "$work/target-files.json"
+            jq -e 'length == 1 and .[0].filename == "CONTROL_PANEL_REVIEW_CANARY.md" and .[0].status == "added"' "$work/target-files.json" >/dev/null || stop TARGET_CANARY_DIFF_DRIFT
+
+            public_get "https://api.github.com/repos/${TARGET_REPO}/actions/runs/${TARGET_CI_RUN_ID}" "$work/target-ci.json"
+            jq -e --arg head "$TARGET_HEAD_SHA" --argjson id "$TARGET_CI_RUN_ID" '.id == $id and .head_sha == $head and .status == "completed" and .conclusion == "success"' "$work/target-ci.json" >/dev/null || stop TARGET_EXACT_HEAD_CI_NOT_SUCCESS
+
+            public_get "https://api.github.com/repos/${TARGET_REPO}/pulls/${TARGET_PULL}/reviews?per_page=100" "$work/target-reviews.json"
+            jq -e 'length == 0' "$work/target-reviews.json" >/dev/null || stop TARGET_REVIEWS_NOT_EMPTY
+            public_get "https://api.github.com/repos/${TARGET_REPO}/pulls/${TARGET_PULL}/comments?per_page=100" "$work/target-review-comments.json"
+            jq -e 'length == 0' "$work/target-review-comments.json" >/dev/null || stop TARGET_REVIEW_COMMENTS_NOT_EMPTY
+            public_get "https://api.github.com/repos/${TARGET_REPO}/issues/${TARGET_PULL}/comments?per_page=100" "$work/target-conversation-comments.json"
+            jq -e 'length == 0' "$work/target-conversation-comments.json" >/dev/null || stop TARGET_CONVERSATION_COMMENTS_NOT_EMPTY
+          }
+
+          printf '%s\n' STAGE=CONTROL_SOURCE_AND_TARGET
+          verify_control_source
+          verify_target
+
+          printf '%s\n' STAGE=GITHUB_APP_PUBLIC_DECLARATION
+          public_get 'https://api.github.com/apps/rozkalns-control' "$work/app.json"
+          jq -e \
+            --argjson app_id "$EXPECTED_APP_ID" \
+            --arg client_id "$EXPECTED_APP_CLIENT_ID" '
+              .id == $app_id and .client_id == $client_id and
+              .permissions.metadata == "read" and
+              .permissions.contents == "read" and
+              .permissions.issues == "read" and
+              .permissions.pull_requests == "write" and
+              .permissions.checks == "read" and
+              .permissions.actions == "read" and
+              .permissions.administration == "read"
+            ' "$work/app.json" >/dev/null || stop GITHUB_APP_PUBLIC_DECLARATION_DRIFT
+
+          printf '%s\n' STAGE=CLOUDFLARE_READ_ONLY_BASELINE
+          token_status="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Accept: application/json' \
+            -o "$work/token.json" -w '%{http_code}' 'https://api.cloudflare.com/client/v4/user/tokens/verify')" || stop CLOUDFLARE_TOKEN_VERIFY_FAILED
+          [ "$token_status" = "200" ] || stop CLOUDFLARE_TOKEN_VERIFY_HTTP_NOT_200
+          jq -e '.success == true and .result.status == "active"' "$work/token.json" >/dev/null || stop CLOUDFLARE_TOKEN_NOT_ACTIVE
+
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$work/deployments.json"
+          jq -e --arg deployment "$EXPECTED_DEPLOYMENT_ID" --arg version "$EXPECTED_WORKER_VERSION" '
+            (.result.deployments | type == "array") and (.result.deployments | length >= 1) and
+            .result.deployments[0].id == $deployment and
+            (.result.deployments[0].versions | type == "array") and
+            (.result.deployments[0].versions | length == 1) and
+            .result.deployments[0].versions[0].version_id == $version and
+            .result.deployments[0].versions[0].percentage == 100
+          ' "$work/deployments.json" >/dev/null || stop PRODUCTION_BASELINE_DRIFT
+
+          printf '%s\n' STAGE=ACCESS_GET_ONLY
+          access_get '/api/health' "$work/health.json"
+          jq -e --arg service "$WORKER_NAME" --arg version "$EXPECTED_WORKER_VERSION" '.status == "ok" and .service == $service and .workerVersion == $version' "$work/health.json" >/dev/null || stop HEALTH_IDENTITY_DRIFT
+          access_get '/api/github/dashboard' "$work/dashboard.json"
+
+          preflight_path="/api/github/needs-changes/preflight?repository=rozkalnsandris%2Fops-workflows&issue=${TARGET_ISSUE}&pull=${TARGET_PULL}"
+          access_get "$preflight_path" "$work/preflight.json"
+          jq -e \
+            --arg repo "$TARGET_REPO" \
+            --argjson issue "$TARGET_ISSUE" \
+            --argjson pull "$TARGET_PULL" \
+            --arg head "$TARGET_HEAD_SHA" \
+            --arg main "$TARGET_MAIN_SHA" '
+              .kind == "PROJECTED" and
+              .repository == $repo and .issueNumber == $issue and .pullNumber == $pull and
+              .policy.coverage == "COMPLETE" and
+              (.policy.blockedReasons | type == "array" and length == 0) and
+              .decision.currentHeadSha == $head and
+              .decision.mainSha == $main and
+              .decision.ci == "PASS" and
+              .decision.review == "NOT_REQUIRED" and
+              .decision.workflowState == "MERGE_READY"
+            ' "$work/preflight.json" >/dev/null || stop NEEDS_CHANGES_PREFLIGHT_NOT_READY
+
+          printf '%s\n' STAGE=D1_SELECT_ONLY_REQUEST_ID_ABSENCE
+          d1_payload="$(jq -cn --arg request_id "$REQUEST_ID" '{sql:"SELECT request_id FROM needs_changes_decisions WHERE request_id = ? LIMIT 1",params:[$request_id]}')"
+          d1_status="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+            --request POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data "$d1_payload" \
+            -o "$work/d1.json" -w '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${DB_ID}/query")" || stop D1_SELECT_TRANSPORT_FAILED
+          [ "$d1_status" = "200" ] || stop D1_SELECT_HTTP_NOT_200
+          jq -e '.success == true and (.result | type == "array") and all(.result[]?; .success == true) and ([.result[]?.results[]?] | length == 0)' "$work/d1.json" >/dev/null || stop REQUEST_ID_ALREADY_PRESENT_OR_D1_READ_INVALID
+
+          printf '%s\n' STAGE=FINAL_ANTI_DRIFT
+          verify_control_source
+          verify_target
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$work/final-deployments.json"
+          jq -e --arg deployment "$EXPECTED_DEPLOYMENT_ID" --arg version "$EXPECTED_WORKER_VERSION" '
+            .result.deployments[0].id == $deployment and
+            (.result.deployments[0].versions | length == 1) and
+            .result.deployments[0].versions[0].version_id == $version and
+            .result.deployments[0].versions[0].percentage == 100
+          ' "$work/final-deployments.json" >/dev/null || stop FINAL_PRODUCTION_BASELINE_DRIFT
+
+          printf 'PHASE247_READONLY_PREFLIGHT=PASS\n'
+          printf 'CONTROL_SHA=%s\n' "$GITHUB_SHA"
+          printf 'EXPECTED_WORKER_VERSION=%s\n' "$EXPECTED_WORKER_VERSION"
+          printf 'EXPECTED_DEPLOYMENT_ID=%s\n' "$EXPECTED_DEPLOYMENT_ID"
+          printf 'TARGET_MAIN_SHA=%s\n' "$TARGET_MAIN_SHA"
+          printf 'TARGET_HEAD_SHA=%s\n' "$TARGET_HEAD_SHA"
+          printf 'TARGET_CI_RUN_ID=%s\n' "$TARGET_CI_RUN_ID"
+          printf 'REQUEST_ID=%s\n' "$REQUEST_ID"
+          printf 'D1_REQUEST_ID_ROWS=0\n'
+          printf 'GITHUB_MUTATION=NO\n'
+          printf 'CLOUDFLARE_MUTATION=NO\n'
+          printf 'D1_MUTATION=NO\n'
+          printf 'NEEDS_CHANGES_POST=NOT_CALLED\n'
+          printf 'REQUEST_CHANGES_AUTHORIZATION=NOT_GRANTED\n'
