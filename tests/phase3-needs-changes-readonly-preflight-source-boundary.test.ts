@@ -37,15 +37,24 @@ test("Phase 247 preflight is manual, parameterized and read-only", () => {
   assert.match(workflow, /\.decision\.workflowState == "MERGE_READY"/);
   assert.match(workflow, /FINAL_PRODUCTION_BASELINE_DRIFT/);
 
-  assert.match(workflow, /authenticated_app_get\(\)/);
-  assert.match(workflow, /STAGE=GITHUB_APP_AUTHENTICATED_DECLARATION/);
-  assert.match(workflow, /AUTHENTICATED_GITHUB_APP_GET_FAILED/);
-  assert.match(workflow, /GITHUB_APP_AUTHENTICATED_DECLARATION_DRIFT/);
-  assert.match(
-    workflow,
-    /authenticated_app_get\(\)[\s\S]*?Authorization: Bearer \$\{GITHUB_TOKEN\}[\s\S]*?AUTHENTICATED_GITHUB_APP_GET_FAILED/,
-  );
-  assert.doesNotMatch(workflow, /GITHUB_APP_PUBLIC_DECLARATION/);
+  // GitHub Actions' repository GITHUB_TOKEN must not be used as an App identity token.
+  // Production App identity is proven from GET-only Worker version metadata, then the
+  // production Needs-changes preflight exercises the actual App installation runtime.
+  assert.match(workflow, /EXPECTED_APP_CLIENT_ID: Iv23likDoFtVeWBJfdFS/);
+  assert.match(workflow, /EXPECTED_INSTALLATION_ID: "153121564"/);
+  assert.match(workflow, /STAGE=PRODUCTION_GITHUB_APP_BINDING_IDENTITY/);
+  assert.match(workflow, /\/workers\/scripts\/\$\{WORKER_NAME\}\/versions\/\$\{EXPECTED_WORKER_VERSION\}/);
+  assert.match(workflow, /GITHUB_APP_PRIVATE_KEY_PEM/);
+  assert.match(workflow, /GITHUB_APP_CLIENT_ID/);
+  assert.match(workflow, /GITHUB_APP_INSTALLATION_ID/);
+  assert.match(workflow, /PRODUCTION_GITHUB_APP_BINDING_IDENTITY_DRIFT/);
+  assert.match(workflow, /STAGE=PRODUCTION_GITHUB_APP_RUNTIME_PROOF/);
+  assert.match(workflow, /\/api\/github\/needs-changes\/preflight\?/);
+  assert.doesNotMatch(workflow, /authenticated_app_get\(\)/);
+  assert.doesNotMatch(workflow, /api\.github\.com\/apps\/rozkalns-control/);
+  assert.doesNotMatch(workflow, /EXPECTED_APP_ID/);
+  assert.doesNotMatch(workflow, /GITHUB_APP_PRIVATE_KEY_PEM:\s*\$\{\{\s*secrets\./);
+  assert.doesNotMatch(workflow, /GITHUB_APP_(?:JWT|TOKEN):\s*\$\{\{/);
 
   assert.match(
     workflow,
