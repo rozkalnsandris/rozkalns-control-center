@@ -43,7 +43,10 @@ test("classic 404 recognizes ruleset-only protected branch without inventing cla
   const absenceScope = scope({ metadata: "read", contents: "read" });
   const calls: GitHubReadRequest[] = [];
   const restTransport: GitHubInstallationReadTransport = {
-    async get<T>(readScope, request): Promise<GitHubReadResult<T>> {
+    async get<T>(
+      readScope: GitHubInstallationReadScope,
+      request: GitHubReadRequest,
+    ): Promise<GitHubReadResult<T>> {
       calls.push(request);
       if (request.path.endsWith("/protection")) {
         throw new GitHubRestReadError("NOT_FOUND", { status: 404 });
