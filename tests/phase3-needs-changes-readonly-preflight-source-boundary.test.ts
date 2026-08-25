@@ -17,7 +17,7 @@ test("Phase 247 preflight is manual, parameterized and read-only", () => {
   assert.match(workflow, /target_ci_run_id:/);
   assert.match(workflow, /request_id:/);
 
-  assert.match(workflow, /permissions:\n  contents: read\n  actions: read/);
+  assert.match(workflow, /permissions:\n {2}contents: read\n {2}actions: read/);
   assert.match(workflow, /environment:\s*production-readonly-reconcile/);
   assert.match(workflow, /cancel-in-progress:\s*false/);
   assert.doesNotMatch(workflow, /^\s*push:/m);
