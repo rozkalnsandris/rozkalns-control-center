@@ -122,13 +122,10 @@ function observedAtValue(value: string): string {
 
 export function createCloudflareGitHubAppJwtSigner(privateKeyPemInput: string): GitHubAppJwtSigner {
   const privateKeyPem = privateKeyBinding(privateKeyPemInput);
-
   return {
-    async signRs256(signingInput: Uint8Array): Promise<Uint8Array> {
+    async sign(signingInput: string): Promise<string> {
       try {
-        const signature = signRsaSha256("sha256", signingInput, privateKeyPem);
-        if (signature.byteLength === 0) throw new Error("empty signature");
-        return new Uint8Array(signature);
+        return signRsaSha256("RSA-SHA256", Buffer.from(signingInput), privateKeyPem).toString("base64url");
       } catch {
         throw new CloudflareGitHubRuntimeError("SIGNING_FAILED");
       }
@@ -136,46 +133,24 @@ export function createCloudflareGitHubAppJwtSigner(privateKeyPemInput: string): 
   };
 }
 
-export function createCloudflareGitHubCredentialFetch(
-  fetchImplementation: GitHubAppCredentialFetch = fetch,
-): GitHubAppCredentialFetch {
-  return (request) => {
-    request.headers.set("User-Agent", GITHUB_API_USER_AGENT);
-    return fetchImplementation(request);
-  };
+function createBaseScope(installationId: number, repository: string): GitHubInstallationReadScope {
+  const rolloutScope = buildPhase2GitHubReadScopeForStage(installationId, "actions");
+  return parseGitHubInstallationReadScope({
+    installationId,
+    repositories: [repository],
+    permissions: rolloutScope.permissions,
+  });
 }
 
-function selectedRepository(scope: GitHubInstallationReadScope, repositoryInput: string): string {
-  if (typeof repositoryInput !== "string" || repositoryInput.trim() === "") {
+function repositoryFromScope(scope: GitHubInstallationReadScope, repositoryInput: string): string {
+  const repository = repositoryInput.trim();
+  if (repository === "" || /[\r\n]/.test(repository)) {
     throw new CloudflareGitHubRuntimeError("INVALID_REPOSITORY");
   }
-  const normalized = repositoryInput.trim().toLowerCase();
-  const repository = scope.repositories.find((candidate) => candidate.toLowerCase() === normalized);
-  if (!repository) throw new CloudflareGitHubRuntimeError("INVALID_REPOSITORY");
+  if (!scope.repositories.includes(repository)) {
+    throw new CloudflareGitHubRuntimeError("INVALID_REPOSITORY");
+  }
   return repository;
-}
-
-function sessionCacheKey(scope: GitHubInstallationReadScope, observedAt: string): string {
-  const permissions = Object.entries(scope.permissions).sort(([left], [right]) => left.localeCompare(right));
-  return JSON.stringify([scope.installationId, [...scope.repositories].sort(), permissions, observedAt]);
-}
-
-export function memoizeGitHubInstallationSessionProvider<T>(
-  acquire: (scope: GitHubInstallationReadScope, observedAt: string) => Promise<T>,
-): (scope: GitHubInstallationReadScope, observedAt: string) => Promise<T> {
-  const sessions = new Map<string, Promise<T>>();
-  return (scope, observedAt) => {
-    const key = sessionCacheKey(scope, observedAt);
-    const existing = sessions.get(key);
-    if (existing) return existing;
-
-    const pending = acquire(scope, observedAt).catch((error: unknown) => {
-      sessions.delete(key);
-      throw error;
-    });
-    sessions.set(key, pending);
-    return pending;
-  };
 }
 
 export function createCloudflareGitHubReadRuntime(
@@ -183,39 +158,24 @@ export function createCloudflareGitHubReadRuntime(
 ): CloudflareGitHubReadRuntime {
   const clientId = nonEmptyBinding(options.bindings.GITHUB_APP_CLIENT_ID);
   const installationId = installationIdBinding(options.bindings.GITHUB_APP_INSTALLATION_ID);
-  const signer = createCloudflareGitHubAppJwtSigner(options.bindings.GITHUB_APP_PRIVATE_KEY_PEM);
-  const fetchRequest = createCloudflareGitHubCredentialFetch(options.fetchRequest);
+  const privateKeyPem = privateKeyBinding(options.bindings.GITHUB_APP_PRIVATE_KEY_PEM);
+  const fetchRequest = options.fetchRequest ?? fetch;
+  const signer = createCloudflareGitHubAppJwtSigner(privateKeyPem);
 
-  const dependencies = {
-    identity: { clientId },
-    signer,
-    fetchRequest,
-  };
-  const restSessionProvider = memoizeGitHubInstallationSessionProvider(
-    createGitHubAppInstallationSessionProvider(dependencies),
-  );
-  const graphqlSessionProvider = memoizeGitHubInstallationSessionProvider(
-    createGitHubAppInstallationGraphqlSessionProvider(dependencies),
-  );
+  const restSessionProvider = createGitHubAppInstallationSessionProvider({ clientId, signer, fetchRequest });
+  const graphqlSessionProvider = createGitHubAppInstallationGraphqlSessionProvider({ clientId, signer, fetchRequest });
   const restTransport = createGitHubCredentialDiagnosticRestTransport(restSessionProvider);
   const graphqlMergeStateTransport = createGitHubCredentialDiagnosticGraphqlTransport(graphqlSessionProvider);
 
-  const approvedRolloutScope = buildPhase2GitHubReadScopeForStage(installationId, "actions");
-
-  function baseContext(repositoryInput: string, observedAtInput: string): {
-    repository: string;
-    observedAt: string;
-    scope: GitHubInstallationReadScope;
-    provider: GitHubAuthoritativeReadProvider;
-    activeBranchRulesReader: GitHubActiveBranchRulesReader;
-  } {
-    const repository = selectedRepository(approvedRolloutScope, repositoryInput);
+  function createRepositoryReadContext(
+    repositoryInput: string,
+    observedAtInput: string,
+  ): CloudflareGitHubRepositoryReadContext {
     const observedAt = observedAtValue(observedAtInput);
-    const scope = parseGitHubInstallationReadScope({
-      installationId,
-      repositories: [repository],
-      permissions: approvedRolloutScope.permissions,
-    });
+    const repository = nonEmptyBinding(repositoryInput);
+    const scope = createBaseScope(installationId, repository);
+    repositoryFromScope(scope, repository);
+
     const provider = createGitHubAuthoritativeReadProvider({
       scope,
       observedAt,
@@ -227,85 +187,93 @@ export function createCloudflareGitHubReadRuntime(
       observedAt,
       restTransport,
     });
-    return { repository, observedAt, scope, provider, activeBranchRulesReader };
+    const branchPolicyReader: BranchPolicyEvidenceReader = {
+      async readBranchPolicyEvidence(repositoryInputInner, branch, observedAtInner) {
+        if (repositoryInputInner !== repository || observedAtInner !== observedAt) {
+          throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
+        }
+        return activeBranchRulesReader.readPartialBranchPolicyEvidence(repository, branch);
+      },
+    };
+
+    return { scope, provider, activeBranchRulesReader, branchPolicyReader };
   }
 
-  function assertContext(repositoryInput: string, repository: string, observedAtInput: string, observedAt: string): void {
-    if (repositoryInput.toLowerCase() !== repository.toLowerCase() || observedAtInput !== observedAt) {
-      throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
-    }
+  function createRepositoryNeedsChangesReadContext(
+    repositoryInput: string,
+    observedAtInput: string,
+  ): CloudflareGitHubNeedsChangesReadContext {
+    const observedAt = observedAtValue(observedAtInput);
+    const repository = nonEmptyBinding(repositoryInput);
+    const scope = createBaseScope(installationId, repository);
+    repositoryFromScope(scope, repository);
+
+    const provider = createGitHubAuthoritativeReadProvider({
+      scope,
+      observedAt,
+      restTransport,
+      graphqlMergeStateTransport,
+    });
+    const activeBranchRulesReader = createGitHubActiveBranchRulesReader({
+      scope,
+      observedAt,
+      restTransport,
+    });
+    const classicScope = parseGitHubInstallationReadScope({
+      installationId,
+      repositories: [repository],
+      permissions: { metadata: "read", administration: "read" },
+    });
+    const branchMetadataScope = parseGitHubInstallationReadScope({
+      installationId,
+      repositories: [repository],
+      permissions: { metadata: "read", contents: "read" },
+    });
+    const classicBranchProtectionReader = createGitHubClassicBranchProtectionReader({
+      scope: classicScope,
+      absenceScope: branchMetadataScope,
+      observedAt,
+      restTransport,
+    });
+    const branchPolicyReader: BranchPolicyEvidenceReader = {
+      async readBranchPolicyEvidence(repositoryInputInner, branch, observedAtInner) {
+        if (repositoryInputInner !== repository || observedAtInner !== observedAt) {
+          throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
+        }
+        const [active, classic] = await Promise.all([
+          activeBranchRulesReader.readActiveBranchRules(repository, branch),
+          classicBranchProtectionReader.readClassicBranchProtection(repository, branch),
+        ]);
+        if (classic.classicProtectionState === "ABSENT" && active.activeRuleCount !== 0) {
+          throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
+        }
+        if (classic.classicProtectionState === "ABSENT_RULESET_PROTECTED" && active.activeRuleCount === 0) {
+          throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
+        }
+        return combineBranchPolicyObservations(
+          [active, classic],
+          repository,
+          branch,
+          observedAt,
+        );
+      },
+    };
+
+    return {
+      scope,
+      classicScope,
+      branchMetadataScope,
+      provider,
+      activeBranchRulesReader,
+      classicBranchProtectionReader,
+      branchPolicyReader,
+    };
   }
 
   return {
     clientId,
     installationId,
-
-    createRepositoryReadContext(repositoryInput: string, observedAtInput: string): CloudflareGitHubRepositoryReadContext {
-      const base = baseContext(repositoryInput, observedAtInput);
-      const branchPolicyReader: BranchPolicyEvidenceReader = {
-        async readBranchPolicyEvidence(repositoryInputInner, branch, observedAtInner) {
-          assertContext(repositoryInputInner, base.repository, observedAtInner, base.observedAt);
-          return base.activeBranchRulesReader.readPartialBranchPolicyEvidence(base.repository, branch);
-        },
-      };
-
-      return {
-        scope: base.scope,
-        provider: base.provider,
-        activeBranchRulesReader: base.activeBranchRulesReader,
-        branchPolicyReader,
-      };
-    },
-
-    createRepositoryNeedsChangesReadContext(
-      repositoryInput: string,
-      observedAtInput: string,
-    ): CloudflareGitHubNeedsChangesReadContext {
-      const base = baseContext(repositoryInput, observedAtInput);
-      const classicScope = parseGitHubInstallationReadScope({
-        installationId,
-        repositories: [base.repository],
-        permissions: { metadata: "read", administration: "read" },
-      });
-      const branchMetadataScope = parseGitHubInstallationReadScope({
-        installationId,
-        repositories: [base.repository],
-        permissions: { metadata: "read", contents: "read" },
-      });
-      const classicBranchProtectionReader = createGitHubClassicBranchProtectionReader({
-        scope: classicScope,
-        absenceScope: branchMetadataScope,
-        observedAt: base.observedAt,
-        restTransport,
-      });
-      const branchPolicyReader: BranchPolicyEvidenceReader = {
-        async readBranchPolicyEvidence(repositoryInputInner, branch, observedAtInner) {
-          assertContext(repositoryInputInner, base.repository, observedAtInner, base.observedAt);
-          const [active, classic] = await Promise.all([
-            base.activeBranchRulesReader.readActiveBranchRules(base.repository, branch),
-            classicBranchProtectionReader.readClassicBranchProtection(base.repository, branch),
-          ]);
-          if (classic.classicProtectionState === "ABSENT" && active.activeRuleCount !== 0) {
-            throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
-          }
-          return combineBranchPolicyObservations(
-            [active, classic],
-            base.repository,
-            branch,
-            base.observedAt,
-          );
-        },
-      };
-
-      return {
-        scope: base.scope,
-        classicScope,
-        branchMetadataScope,
-        provider: base.provider,
-        activeBranchRulesReader: base.activeBranchRulesReader,
-        classicBranchProtectionReader,
-        branchPolicyReader,
-      };
-    },
+    createRepositoryReadContext,
+    createRepositoryNeedsChangesReadContext,
   };
 }
