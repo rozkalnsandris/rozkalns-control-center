@@ -183,7 +183,7 @@ export async function reconcileAuthoritativePullRequestDecision(
   );
   validatePolicyIdentity(policyEvidence, repository, snapshot.defaultBranch, observedAt);
 
-  const derived = deriveProjectionPolicies(policyEvidence);
+  const derived = deriveProjectionPolicies(policyEvidence, snapshot.mergeState.reviewThreadResolution);
   const blockedReasons = [...derived.blockedReasons];
   if (!derived.ciPolicy || !derived.reviewPolicy) {
     if (!blockedReasons.includes("PROJECTION_POLICY_UNAVAILABLE")) {

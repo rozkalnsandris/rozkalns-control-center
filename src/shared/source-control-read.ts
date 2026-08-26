@@ -28,6 +28,12 @@ export type PullRequestMergeStateStatus =
   | "UNKNOWN"
   | "UNSTABLE";
 
+export interface ReviewThreadResolutionEvidenceRead {
+  coverage: "COMPLETE";
+  totalCount: number;
+  unresolvedCount: number;
+}
+
 export interface RepositoryRef {
   repository: string;
   defaultBranch: string;
@@ -52,6 +58,7 @@ export interface PullRequestMergeStateRead {
   mergeable: PullRequestMergeability;
   mergeStateStatus: PullRequestMergeStateStatus;
   draft: boolean;
+  reviewThreadResolution?: ReviewThreadResolutionEvidenceRead;
 }
 
 export interface PullRequestReviewRead {
