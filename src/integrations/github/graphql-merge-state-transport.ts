@@ -1,6 +1,9 @@
 import { requireManagedProjectPolicy } from "../../shared/project-policy.js";
 import { mapGitHubGraphqlPullRequestMergeState } from "../../shared/github-graphql-mappers.js";
-import type { PullRequestMergeStateRead } from "../../shared/source-control-read.js";
+import type {
+  PullRequestMergeStateRead,
+  ReviewThreadResolutionEvidenceRead,
+} from "../../shared/source-control-read.js";
 import {
   assertGitHubCredentialLeaseUsable,
   parseGitHubInstallationReadScope,
@@ -13,6 +16,7 @@ export const GITHUB_GRAPHQL_ENDPOINT = "https://api.github.com/graphql" as const
 export const GITHUB_GRAPHQL_CONTENT_TYPE = "application/json" as const;
 export const GITHUB_GRAPHQL_ACCEPT = "application/json" as const;
 export const GITHUB_GRAPHQL_MERGE_STATE_OPERATION = "ControlPullRequestMergeState" as const;
+export const GITHUB_GRAPHQL_REVIEW_THREAD_MAX_NODES = 100;
 export const GITHUB_GRAPHQL_MERGE_STATE_QUERY = `query ControlPullRequestMergeState($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -21,6 +25,16 @@ export const GITHUB_GRAPHQL_MERGE_STATE_QUERY = `query ControlPullRequestMergeSt
       mergeable
       mergeStateStatus
       isDraft
+      reviewThreads(first: 100) {
+        totalCount
+        nodes {
+          id
+          isResolved
+        }
+        pageInfo {
+          hasNextPage
+        }
+      }
     }
   }
 }` as const;
@@ -82,6 +96,7 @@ export type GitHubGraphqlMergeStateFailureCode =
   | "GRAPHQL_ERROR"
   | "RESOURCE_NOT_FOUND"
   | "MALFORMED_RESPONSE"
+  | "PAGINATION_BUDGET_EXHAUSTED"
   | "UNEXPECTED_STATUS";
 
 const failureMessages: Readonly<Record<GitHubGraphqlMergeStateFailureCode, string>> = {
@@ -95,6 +110,7 @@ const failureMessages: Readonly<Record<GitHubGraphqlMergeStateFailureCode, strin
   GRAPHQL_ERROR: "GitHub GraphQL merge-state query returned an error",
   RESOURCE_NOT_FOUND: "GitHub GraphQL merge-state resource was not found",
   MALFORMED_RESPONSE: "GitHub GraphQL merge-state response is malformed",
+  PAGINATION_BUDGET_EXHAUSTED: "GitHub GraphQL review-thread evidence exceeds the bounded read budget",
   UNEXPECTED_STATUS: "GitHub GraphQL merge-state read returned an unexpected HTTP status",
 };
 
@@ -277,6 +293,20 @@ function requireRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function requireNonNegativeInteger(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
+  }
+  return value as number;
+}
+
+function requireNonEmptyString(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "" || value !== value.trim() || /[\r\n]/.test(value)) {
+    throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
+  }
+  return value;
+}
+
 async function parseJson(response: Response): Promise<Record<string, unknown>> {
   const rawContentType = response.headers.get("content-type");
   if (rawContentType === null) {
@@ -303,6 +333,44 @@ function hasGraphqlErrors(envelope: Record<string, unknown>): boolean {
   return true;
 }
 
+function mapReviewThreadResolution(
+  pullRequest: Record<string, unknown>,
+): ReviewThreadResolutionEvidenceRead | undefined {
+  if (!("reviewThreads" in pullRequest)) return undefined;
+  const connection = requireRecord(pullRequest.reviewThreads);
+  const totalCount = requireNonNegativeInteger(connection.totalCount);
+  if (!Array.isArray(connection.nodes)) throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
+  if (connection.nodes.length > GITHUB_GRAPHQL_REVIEW_THREAD_MAX_NODES) {
+    throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
+  }
+
+  const pageInfo = requireRecord(connection.pageInfo);
+  if (typeof pageInfo.hasNextPage !== "boolean") {
+    throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
+  }
+  if (pageInfo.hasNextPage) {
+    throw new GitHubGraphqlMergeStateError("PAGINATION_BUDGET_EXHAUSTED");
+  }
+  if (connection.nodes.length !== totalCount) {
+    throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
+  }
+
+  const seen = new Set<string>();
+  let unresolvedCount = 0;
+  for (const nodeValue of connection.nodes) {
+    const node = requireRecord(nodeValue);
+    const id = requireNonEmptyString(node.id);
+    if (seen.has(id)) throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
+    seen.add(id);
+    if (typeof node.isResolved !== "boolean") {
+      throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
+    }
+    if (!node.isResolved) unresolvedCount += 1;
+  }
+
+  return { coverage: "COMPLETE", totalCount, unresolvedCount };
+}
+
 function mapMergeStateEnvelope(
   envelope: Record<string, unknown>,
   expectedPullNumber: number,
@@ -322,7 +390,9 @@ function mapMergeStateEnvelope(
   if (mapped.pullNumber !== expectedPullNumber) {
     throw new GitHubGraphqlMergeStateError("MALFORMED_RESPONSE");
   }
-  return mapped;
+
+  const reviewThreadResolution = mapReviewThreadResolution(pullRequest);
+  return reviewThreadResolution === undefined ? mapped : { ...mapped, reviewThreadResolution };
 }
 
 export function createGitHubGraphqlMergeStateTransport(

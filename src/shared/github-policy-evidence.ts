@@ -1,4 +1,5 @@
 import type { CiRequirementPolicy, ReviewRequirementPolicy } from "./github-projection.js";
+import type { ReviewThreadResolutionEvidenceRead } from "./source-control-read.js";
 
 export type BranchPolicySource = "GITHUB_ACTIVE_RULES" | "GITHUB_CLASSIC_BRANCH_PROTECTION";
 export type BranchPolicyCoverage = "UNKNOWN" | "PARTIAL" | "COMPLETE";
@@ -274,7 +275,24 @@ export function combineBranchPolicyObservations(
   };
 }
 
-export function deriveProjectionPolicies(evidence: BranchPolicyEvidence): ProjectionPolicyDerivation {
+function validReviewThreadResolutionEvidence(
+  evidence: ReviewThreadResolutionEvidenceRead | undefined,
+): evidence is ReviewThreadResolutionEvidenceRead {
+  return (
+    evidence !== undefined &&
+    evidence.coverage === "COMPLETE" &&
+    Number.isSafeInteger(evidence.totalCount) &&
+    evidence.totalCount >= 0 &&
+    Number.isSafeInteger(evidence.unresolvedCount) &&
+    evidence.unresolvedCount >= 0 &&
+    evidence.unresolvedCount <= evidence.totalCount
+  );
+}
+
+export function deriveProjectionPolicies(
+  evidence: BranchPolicyEvidence,
+  reviewThreadResolution?: ReviewThreadResolutionEvidenceRead,
+): ProjectionPolicyDerivation {
   const blockedReasons: string[] = [];
   if (evidence.coverage !== "COMPLETE") blockedReasons.push("BRANCH_POLICY_COVERAGE_INCOMPLETE");
   if (evidence.hasUnresolvedRequiredCheckSourceIdentity) {
@@ -285,7 +303,15 @@ export function deriveProjectionPolicies(evidence: BranchPolicyEvidence): Projec
   if (reviewFeatures.dismissStaleReviewsOnPush) blockedReasons.push("DISMISS_STALE_REVIEWS_NOT_MODELED");
   if (reviewFeatures.requireCodeOwnerReview) blockedReasons.push("CODE_OWNER_REVIEW_NOT_MODELED");
   if (reviewFeatures.requireLastPushApproval) blockedReasons.push("LAST_PUSH_APPROVAL_NOT_MODELED");
-  if (reviewFeatures.requireReviewThreadResolution) blockedReasons.push("REVIEW_THREAD_RESOLUTION_NOT_MODELED");
+  if (reviewFeatures.requireReviewThreadResolution) {
+    if (reviewThreadResolution === undefined) {
+      blockedReasons.push("REVIEW_THREAD_RESOLUTION_NOT_MODELED");
+    } else if (!validReviewThreadResolutionEvidence(reviewThreadResolution)) {
+      blockedReasons.push("REVIEW_THREAD_RESOLUTION_EVIDENCE_INVALID");
+    } else if (reviewThreadResolution.unresolvedCount > 0) {
+      blockedReasons.push("REVIEW_THREAD_RESOLUTION_UNSATISFIED");
+    }
+  }
   if (reviewFeatures.hasRequiredFilePatternReviewers) blockedReasons.push("FILE_PATTERN_REVIEWERS_NOT_MODELED");
 
   if (blockedReasons.length > 0) return { blockedReasons };
