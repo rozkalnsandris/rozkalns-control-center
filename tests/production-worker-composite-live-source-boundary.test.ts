@@ -48,6 +48,20 @@ test("production Worker Composite Live workflow is manual, exact-bound and bound
   assert.match(workflow, /VERSION_UPLOAD_COUNT=/);
   assert.match(workflow, /DEPLOYMENT_WRITE_COUNT=/);
 
+  const attachmentVerified = workflow.indexOf("ATTACHED_DEPLOYMENT_IDENTITY_MISMATCH");
+  const propagationWaitStage = workflow.indexOf("STAGE=CANDIDATE_OVERRIDE_PROPAGATION_WAIT");
+  const propagationWait = workflow.indexOf("sleep 5");
+  const candidateSmokeStage = workflow.indexOf("STAGE=EXACT_CANDIDATE_SMOKE");
+  assert.ok(attachmentVerified >= 0);
+  assert.ok(propagationWaitStage > attachmentVerified);
+  assert.ok(propagationWait > propagationWaitStage);
+  assert.ok(candidateSmokeStage > propagationWait);
+  assert.equal((workflow.match(/\bsleep 5\b/g) ?? []).length, 1);
+  assert.equal(
+    (workflow.match(/access_health_get "\$candidate_version"/g) ?? []).length,
+    1,
+  );
+
   assert.match(workflow, /AUTHORIZATION_CONSUMED=YES/);
   assert.match(workflow, /AUTOMATIC_RETRY=NO/);
   assert.match(workflow, /AUTOMATIC_ROLLBACK=NO/);

@@ -271,6 +271,9 @@ jobs:
             (any(.result.deployments[0].versions[]; .version_id == $candidate and .percentage == 0))
           ' "$tmp/deployments-attached.json" >/dev/null || stop ATTACHED_DEPLOYMENT_IDENTITY_MISMATCH
 
+          printf '%s\n' STAGE=CANDIDATE_OVERRIDE_PROPAGATION_WAIT
+          sleep 5
+
           printf '%s\n' STAGE=EXACT_CANDIDATE_SMOKE
           access_health_get "$candidate_version" "$tmp/candidate-health.json" "$tmp/candidate-health.code" || stop EXACT_CANDIDATE_SMOKE_GET_FAILED
           [[ "$(cat "$tmp/candidate-health.code")" == 200 ]] || stop EXACT_CANDIDATE_SMOKE_HTTP_NOT_200
