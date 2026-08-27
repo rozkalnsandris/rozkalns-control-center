@@ -6,6 +6,7 @@ import {
   handleGitHubNeedsChangesRequest,
   type NeedsChangesWorkerRuntime,
 } from "../src/worker/github-needs-changes-route.js";
+import { CloudflareAccessAuthenticationError } from "../src/worker/access-request-authenticator.js";
 import {
   NeedsChangesDecisionError,
   type NeedsChangesDecisionRequest,
@@ -102,15 +103,15 @@ async function json(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
-test("detached Needs changes route rejects non-POST, query and wrong media type before authentication", async () => {
+test("detached Needs changes route rejects unsupported method, query and wrong media type before authentication", async () => {
   const { runtime, state } = createRuntime();
 
-  const getResponse = await handleGitHubNeedsChangesRequest(
-    request(payload(), { method: "GET" }),
+  const methodResponse = await handleGitHubNeedsChangesRequest(
+    request(payload(), { method: "PUT" }),
     runtime,
   );
-  assert.equal(getResponse.status, 405);
-  assert.equal(getResponse.headers.get("allow"), "POST");
+  assert.equal(methodResponse.status, 405);
+  assert.equal(methodResponse.headers.get("allow"), "GET, POST");
 
   const queryResponse = await handleGitHubNeedsChangesRequest(
     request(payload(), { path: `${GITHUB_NEEDS_CHANGES_ROUTE_PATH}?extra=1` }),
@@ -127,9 +128,59 @@ test("detached Needs changes route rejects non-POST, query and wrong media type 
   assert.equal(state.executeCalls, 0);
 });
 
-test("Access authentication failure is bounded and prevents action execution", async () => {
+test("GET auth diagnostic uses the same authenticator without executing a decision or exposing identity", async () => {
+  const { runtime, state } = createRuntime();
+  const response = await handleGitHubNeedsChangesRequest(
+    request(payload(), { method: "GET" }),
+    runtime,
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await json(response), { status: "AUTHENTICATED" });
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(state.authCalls, 1);
+  assert.equal(state.executeCalls, 0);
+});
+
+test("GET auth diagnostic exposes only a bounded typed failure reason and never executes a decision", async () => {
+  const { runtime, state } = createRuntime({
+    authError: new CloudflareAccessAuthenticationError("ACCESS_JWT_AUDIENCE_INVALID"),
+  });
+  const response = await handleGitHubNeedsChangesRequest(
+    request(payload(), { method: "GET" }),
+    runtime,
+  );
+
+  assert.equal(response.status, 403);
+  assert.deepEqual(await json(response), {
+    error: "ACCESS_AUTHENTICATION_FAILED",
+    diagnostic: "ACCESS_JWT_AUDIENCE_INVALID",
+  });
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(state.authCalls, 1);
+  assert.equal(state.executeCalls, 0);
+});
+
+test("GET auth diagnostic hides unknown authentication errors", async () => {
   const secret = "secret-jwt-material-must-not-escape";
   const { runtime, state } = createRuntime({ authError: new Error(secret) });
+  const response = await handleGitHubNeedsChangesRequest(
+    request(payload(), { method: "GET" }),
+    runtime,
+  );
+
+  assert.equal(response.status, 403);
+  const body = await json(response);
+  assert.deepEqual(body, { error: "ACCESS_AUTHENTICATION_FAILED" });
+  assert.equal(JSON.stringify(body).includes(secret), false);
+  assert.equal(state.authCalls, 1);
+  assert.equal(state.executeCalls, 0);
+});
+
+test("POST Access authentication failure remains generic and prevents action execution", async () => {
+  const { runtime, state } = createRuntime({
+    authError: new CloudflareAccessAuthenticationError("ACCESS_JWT_AUDIENCE_INVALID"),
+  });
   const response = await handleGitHubNeedsChangesRequest(request(), runtime);
 
   assert.equal(response.status, 403);
@@ -138,7 +189,7 @@ test("Access authentication failure is bounded and prevents action execution", a
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(state.authCalls, 1);
   assert.equal(state.executeCalls, 0);
-  assert.equal(JSON.stringify(body).includes(secret), false);
+  assert.equal(Object.hasOwn(body, "diagnostic"), false);
 });
 
 test("current capability-false managed project is denied before decision executor", async () => {
