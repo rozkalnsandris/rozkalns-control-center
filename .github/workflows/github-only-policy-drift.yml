@@ -13,6 +13,6 @@ permissions:
 jobs:
   github-only-policy-drift:
     name: GITHUB-ONLY policy drift
-    uses: rozkalnsandris/ops-workflows/.github/workflows/github-only-policy-drift.yml@00e899260c168ef9c2ebe4c7ee41195f4fdcda32
+    uses: rozkalnsandris/ops-workflows/.github/workflows/github-only-policy-drift.yml@a334b2c4fa67d3de2e04650651c92096dfe3a7ca
     with:
-      canonical_policy_sha: 00e899260c168ef9c2ebe4c7ee41195f4fdcda32
+      canonical_policy_sha: a334b2c4fa67d3de2e04650651c92096dfe3a7ca

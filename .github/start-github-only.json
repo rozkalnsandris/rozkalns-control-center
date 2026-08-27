@@ -7,7 +7,7 @@
     "contract": "GITHUB-ONLY / LIVE-ALL v1",
     "startup_contract": "START GITHUB-ONLY v1",
     "minimum_machine_schema": 2,
-    "adoption_version": "2026-08-25.2"
+    "adoption_version": "2026-08-26.1"
   },
   "authority": {
     "repository_rules": ["AGENTS.md"],
