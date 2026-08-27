@@ -11,6 +11,7 @@ import {
   type ManagedProjectPolicy,
 } from "../shared/project-policy.js";
 import { GITHUB_REVIEW_BODY_MAX_BYTES } from "../integrations/github/pull-request-review-write.js";
+import { CloudflareAccessAuthenticationError } from "./access-request-authenticator.js";
 
 export const GITHUB_NEEDS_CHANGES_ROUTE_PATH = "/api/github/needs-changes" as const;
 export const GITHUB_NEEDS_CHANGES_HTTP_BODY_MAX_BYTES = 8192;
@@ -75,10 +76,11 @@ function routeError(code: string, status: number, retryable?: false): Response {
 function assertRouteShape(request: Request): Response | null {
   const url = new URL(request.url);
   if (url.pathname !== GITHUB_NEEDS_CHANGES_ROUTE_PATH) return routeError("NOT_FOUND", 404);
-  if (request.method !== "POST") {
-    return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405, { Allow: "POST" });
+  if (request.method !== "GET" && request.method !== "POST") {
+    return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405, { Allow: "GET, POST" });
   }
   if (url.search !== "") return routeError("INVALID_REQUEST", 400);
+  if (request.method === "GET") return null;
 
   const contentType = request.headers.get("content-type");
   const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
@@ -163,7 +165,7 @@ async function parsePayload(request: Request): Promise<NeedsChangesRequestPayloa
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(text) as unknown;
   } catch {
     throw new NeedsChangesRouteInputError();
   }
@@ -220,6 +222,24 @@ function decisionFailure(error: NeedsChangesDecisionError): Response {
   }
 }
 
+async function handleAuthDiagnostic(
+  request: Request,
+  runtime: NeedsChangesWorkerRuntime,
+): Promise<Response> {
+  try {
+    await runtime.authenticator.authenticateRequest(request);
+    return jsonResponse({ status: "AUTHENTICATED" });
+  } catch (error) {
+    if (error instanceof CloudflareAccessAuthenticationError) {
+      return jsonResponse(
+        { error: "ACCESS_AUTHENTICATION_FAILED", diagnostic: error.reason },
+        403,
+      );
+    }
+    return routeError("ACCESS_AUTHENTICATION_FAILED", 403);
+  }
+}
+
 export async function handleGitHubNeedsChangesRequest(
   request: Request,
   runtime: NeedsChangesWorkerRuntime | null,
@@ -228,6 +248,7 @@ export async function handleGitHubNeedsChangesRequest(
   const routeFailure = assertRouteShape(request);
   if (routeFailure) return routeFailure;
   if (runtime === null) return routeError("RUNTIME_UNAVAILABLE", 503);
+  if (request.method === "GET") return handleAuthDiagnostic(request, runtime);
 
   let actor: NeedsChangesActor;
   try {
