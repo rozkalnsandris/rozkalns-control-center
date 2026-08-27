@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
+import console from "node:console";
+import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 
+const { fetch } = globalThis;
 const APP_ORIGIN = "http://127.0.0.1:4173";
 const DRIVER_ORIGIN = "http://127.0.0.1:9515";
 const WEBDRIVER_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
 
 function sleep(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  return delay(milliseconds);
 }
 
 function targetId(decisionId) {
