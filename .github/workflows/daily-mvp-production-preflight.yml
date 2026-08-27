@@ -125,14 +125,31 @@ jobs:
 
           printf '%s\n' STAGE=CLOUDFLARE_ACTIVE_DEPLOYMENT
           cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments.json"
+          jq -e '
+            (.result.deployments | type == "array") and
+            (.result.deployments | length >= 1) and
+            (.result.deployments[0].versions | type == "array") and
+            (.result.deployments[0].versions | length >= 1) and
+            all(
+              .result.deployments[0].versions[];
+              (.version_id | type == "string") and
+              (.version_id | test("^[0-9a-f-]{36}$")) and
+              (.percentage | type == "number")
+            )
+          ' "$tmp/deployments.json" >/dev/null || stop ACTIVE_DEPLOYMENT_VERSION_SET_INVALID
+
           current_deployment="$(jq -r '.result.deployments[0].id // empty' "$tmp/deployments.json")"
           current_version="$(jq -r '.result.deployments[0].versions[0].version_id // empty' "$tmp/deployments.json")"
           current_percentage="$(jq -r '.result.deployments[0].versions[0].percentage // empty' "$tmp/deployments.json")"
+          current_version_count="$(jq -r '.result.deployments[0].versions | length' "$tmp/deployments.json")"
+          current_versions_json="$(jq -c '[.result.deployments[0].versions[] | {version_id, percentage}] | sort_by(.version_id)' "$tmp/deployments.json")"
           current_created_on="$(jq -r '.result.deployments[0].created_on // empty' "$tmp/deployments.json")"
           current_source="$(jq -r '.result.deployments[0].source // empty' "$tmp/deployments.json")"
           current_triggered_by="$(jq -r '.result.deployments[0].annotations["workers/triggered_by"] // empty' "$tmp/deployments.json")"
 
           printf 'OBSERVED_DEPLOYMENT=%s\n' "$(sanitize_diag "$current_deployment")"
+          printf 'OBSERVED_VERSION_COUNT=%s\n' "$current_version_count"
+          printf 'OBSERVED_VERSIONS_JSON=%s\n' "$current_versions_json"
           printf 'OBSERVED_VERSION=%s\n' "$(sanitize_diag "$current_version")"
           printf 'OBSERVED_TRAFFIC_PERCENT=%s\n' "$(sanitize_diag "$current_percentage")"
           printf 'OBSERVED_CREATED_ON=%s\n' "$(sanitize_diag "$current_created_on")"
