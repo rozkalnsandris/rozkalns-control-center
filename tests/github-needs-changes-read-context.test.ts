@@ -24,7 +24,7 @@ function runtime() {
   return { readRuntime, fetchCount: () => fetchCount };
 }
 
-test("Needs changes isolates Administration classic reads and Metadata-plus-Contents branch-metadata fallback from dashboard scope", () => {
+test("Needs changes isolates statuses and Administration reads from ordinary dashboard scope", () => {
   const fixture = runtime();
   const dashboard = fixture.readRuntime.createRepositoryReadContext(
     "rozkalnsandris/ops-workflows",
@@ -36,7 +36,9 @@ test("Needs changes isolates Administration classic reads and Metadata-plus-Cont
   );
 
   assert.equal("administration" in dashboard.scope.permissions, false);
+  assert.equal("statuses" in dashboard.scope.permissions, false);
   assert.equal("administration" in needsChanges.scope.permissions, false);
+  assert.equal(needsChanges.scope.permissions.statuses, "read");
   assert.deepEqual(needsChanges.classicScope.repositories, ["rozkalnsandris/ops-workflows"]);
   assert.deepEqual(needsChanges.classicScope.permissions, {
     metadata: "read",

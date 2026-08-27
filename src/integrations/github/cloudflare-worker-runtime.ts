@@ -201,20 +201,29 @@ export function createCloudflareGitHubReadRuntime(
   const graphqlMergeStateTransport = createGitHubCredentialDiagnosticGraphqlTransport(graphqlSessionProvider);
 
   const approvedRolloutScope = buildPhase2GitHubReadScopeForStage(installationId, "actions");
+  const needsChangesRolloutScope = buildPhase2GitHubReadScopeForStage(
+    installationId,
+    "commit-statuses",
+    { legacyCommitStatusRequired: true },
+  );
 
-  function baseContext(repositoryInput: string, observedAtInput: string): {
+  function baseContext(
+    repositoryInput: string,
+    observedAtInput: string,
+    rolloutScope: GitHubInstallationReadScope = approvedRolloutScope,
+  ): {
     repository: string;
     observedAt: string;
     scope: GitHubInstallationReadScope;
     provider: GitHubAuthoritativeReadProvider;
     activeBranchRulesReader: GitHubActiveBranchRulesReader;
   } {
-    const repository = selectedRepository(approvedRolloutScope, repositoryInput);
+    const repository = selectedRepository(rolloutScope, repositoryInput);
     const observedAt = observedAtValue(observedAtInput);
     const scope = parseGitHubInstallationReadScope({
       installationId,
       repositories: [repository],
-      permissions: approvedRolloutScope.permissions,
+      permissions: rolloutScope.permissions,
     });
     const provider = createGitHubAuthoritativeReadProvider({
       scope,
@@ -261,7 +270,7 @@ export function createCloudflareGitHubReadRuntime(
       repositoryInput: string,
       observedAtInput: string,
     ): CloudflareGitHubNeedsChangesReadContext {
-      const base = baseContext(repositoryInput, observedAtInput);
+      const base = baseContext(repositoryInput, observedAtInput, needsChangesRolloutScope);
       const classicScope = parseGitHubInstallationReadScope({
         installationId,
         repositories: [base.repository],

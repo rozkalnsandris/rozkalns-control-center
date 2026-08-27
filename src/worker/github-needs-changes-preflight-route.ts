@@ -155,7 +155,7 @@ export async function executeLiveGitHubNeedsChangesPreflight(
     issueNumber: input.issueNumber,
     pullNumber: input.pullNumber,
     observedAt: input.observedAt,
-    commitStatusCoverage: "NOT_REQUESTED",
+    commitStatusCoverage: "OBSERVED",
     deployImpact: "UNKNOWN",
   });
 }
