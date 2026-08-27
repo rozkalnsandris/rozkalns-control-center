@@ -171,7 +171,17 @@ export default function App() {
     };
   }, [refreshSequence]);
 
-  const dashboard = liveDashboard ?? controlFixtures;
+  const dashboardSource = liveDashboard ?? controlFixtures;
+  const dashboard =
+    liveState === "LIVE"
+      ? dashboardSource
+      : {
+          ...dashboardSource,
+          decisions: dashboardSource.decisions.map((decision) => ({
+            ...decision,
+            allowedActions: decision.allowedActions.filter((action) => action === "OPEN_PR"),
+          })),
+        };
   const live = liveDashboard !== null;
   const refreshInFlight = liveState === "LOADING" || liveState === "REFRESHING";
   const summary = summarizeDashboard(dashboard);
