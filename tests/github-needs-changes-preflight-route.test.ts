@@ -34,7 +34,7 @@ const projectedResult = {
   issueNumber: 4,
   pullNumber: 3,
   observedAt: OBSERVED_AT,
-  commitStatusCoverage: "NOT_REQUESTED",
+  commitStatusCoverage: "OBSERVED",
   policy: {
     coverage: "COMPLETE",
     sources: ["GITHUB_ACTIVE_RULES", "GITHUB_CLASSIC_BRANCH_PROTECTION"],
@@ -151,7 +151,7 @@ test("preflight rejects POST and unrelated paths before executor", async () => {
   assert.equal(calls, 0);
 });
 
-test("live preflight executor uses elevated Needs changes read context and never ordinary context", async () => {
+test("live preflight executor uses elevated Needs changes read context and observed commit statuses", async () => {
   let elevatedContextCalls = 0;
   let reconcileCalls = 0;
   const provider = {} as never;
@@ -193,7 +193,7 @@ test("live preflight executor uses elevated Needs changes read context and never
         assert.equal(input.issueNumber, 4);
         assert.equal(input.pullNumber, 3);
         assert.equal(input.observedAt, OBSERVED_AT);
-        assert.equal(input.commitStatusCoverage, "NOT_REQUESTED");
+        assert.equal(input.commitStatusCoverage, "OBSERVED");
         assert.equal(input.deployImpact, "UNKNOWN");
         assert.equal(input.provider, provider);
         assert.equal(input.branchPolicyReader, branchPolicyReader);
@@ -348,6 +348,7 @@ test("source boundary keeps preflight independent from writer, D1 decision audit
 
   assert.match(route, /createRepositoryNeedsChangesReadContext/);
   assert.match(route, /reconcileAuthoritativePullRequestDecision/);
+  assert.match(route, /commitStatusCoverage: "OBSERVED"/);
   assert.doesNotMatch(route, /D1NeedsChangesDecisionAuditStore/);
   assert.doesNotMatch(route, /createGitHubPullRequestReviewWriter/);
   assert.doesNotMatch(route, /executeNeedsChangesDecision/);

@@ -74,7 +74,7 @@ test("Cloudflare runtime validates non-secret identity bindings and creates an e
   assert.equal(fetchCount, 0);
 });
 
-test("Needs-changes runtime keeps normal reads unchanged and narrows classic and absence tokens to metadata baselines", () => {
+test("Needs-changes runtime adds statuses only to the decision-read scope and keeps classic/absence tokens narrow", () => {
   const fixture = rsaFixture();
   let fetchCount = 0;
   const runtime = createCloudflareGitHubReadRuntime({
@@ -98,6 +98,7 @@ test("Needs-changes runtime keeps normal reads unchanged and narrows classic and
     pull_requests: "read",
     checks: "read",
     actions: "read",
+    statuses: "read",
   });
   assert.equal("administration" in context.scope.permissions, false);
 
