@@ -90,6 +90,10 @@ jobs:
         if: steps.scope.outputs.full == 'true'
         run: npm test
 
+      - name: Browser UI safety regression
+        if: steps.scope.outputs.full == 'true'
+        run: npm run test:browser
+
       - name: Build Worker and SPA
         if: steps.scope.outputs.full == 'true'
         run: npm run build
