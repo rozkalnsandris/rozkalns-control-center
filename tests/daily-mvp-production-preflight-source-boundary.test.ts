@@ -22,22 +22,30 @@ test("Daily MVP production preflight is manual and read-only", () => {
   assert.match(workflow, /EXPECTED_ACTIVE_VERSION:\s*d713b262-6937-41a6-bb59-60ae898cc6fa/);
   assert.match(workflow, /EXPECTED_ACTIVE_DEPLOYMENT:\s*ae782fea-08e7-4cdb-9770-71e61e61a76a/);
   assert.match(workflow, /OBSERVED_DEPLOYMENT=/);
+  assert.match(workflow, /OBSERVED_VERSION_COUNT=/);
+  assert.match(workflow, /OBSERVED_VERSIONS_JSON=/);
   assert.match(workflow, /OBSERVED_VERSION=/);
   assert.match(workflow, /OBSERVED_TRAFFIC_PERCENT=/);
   assert.match(workflow, /OBSERVED_CREATED_ON=/);
   assert.match(workflow, /OBSERVED_SOURCE=/);
   assert.match(workflow, /OBSERVED_TRIGGERED_BY=/);
+  assert.match(workflow, /ACTIVE_DEPLOYMENT_VERSION_SET_INVALID/);
+  assert.match(workflow, /sort_by\(\.version_id\)/);
   assert.match(workflow, /sanitize_diag\(\)/);
   assert.ok(workflow.includes("tr -cd '[:alnum:] _./:@+-'"));
   assert.doesNotMatch(workflow, /author_email/);
 
   const observedDeploymentIndex = workflow.indexOf("OBSERVED_DEPLOYMENT=");
+  const observedVersionCountIndex = workflow.indexOf("OBSERVED_VERSION_COUNT=");
+  const observedVersionsJsonIndex = workflow.indexOf("OBSERVED_VERSIONS_JSON=");
   const deploymentComparisonIndex = workflow.indexOf(
     '[ "$current_deployment" = "$EXPECTED_ACTIVE_DEPLOYMENT" ]',
   );
   assert.ok(observedDeploymentIndex >= 0);
+  assert.ok(observedVersionCountIndex > observedDeploymentIndex);
+  assert.ok(observedVersionsJsonIndex > observedVersionCountIndex);
   assert.ok(deploymentComparisonIndex >= 0);
-  assert.ok(observedDeploymentIndex < deploymentComparisonIndex);
+  assert.ok(observedVersionsJsonIndex < deploymentComparisonIndex);
 
   assert.match(workflow, /ACTIVE_DEPLOYMENT_REVERTED_TO_FROZEN_PRE_DEPLOYMENT/);
   assert.match(workflow, /ACTIVE_DEPLOYMENT_DRIFT/);
@@ -52,6 +60,7 @@ test("Daily MVP production preflight is manual and read-only", () => {
   assert.match(workflow, /DEPLOY_AUTHORIZATION=NOT_GRANTED/);
 
   assert.doesNotMatch(workflow, /wrangler\s+deploy/);
+  assert.doesNotMatch(workflow, /wrangler\s+versions\s+(?:upload|deploy)/);
   assert.doesNotMatch(workflow, /(?:^|\s)-X\s+(?:POST|PUT|PATCH|DELETE)\b/m);
   assert.doesNotMatch(workflow, /(?:^|\s)--request\s+(?:POST|PUT|PATCH|DELETE)\b/m);
   assert.doesNotMatch(workflow, /CONTROL_ACCESS_CLIENT_(?:ID|SECRET)/);
