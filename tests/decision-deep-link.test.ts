@@ -37,7 +37,7 @@ test("decision deep-link parsing rejects unrelated or malformed fragments", () =
   assert.equal(decisionTargetIdFromHash("#decision-xyz"), null);
 });
 
-test("DecisionCard wires native fragment targets and async live-mount recovery without adding a write action", () => {
+test("DecisionCard wires native fragment targets and async live-mount recovery without direct network transport", () => {
   assert.match(decisionCardSource, /decisionTargetId\(item\.id\)/);
   assert.match(decisionCardSource, /decisionDeepLinkHash\(item\.id\)/);
   assert.match(decisionCardSource, /id=\{targetId\}/);
@@ -45,7 +45,8 @@ test("DecisionCard wires native fragment targets and async live-mount recovery w
   assert.match(decisionCardSource, /requestAnimationFrame/);
   assert.match(decisionCardSource, /scrollIntoView\(\{ block: "center" \}\)/);
   assert.match(decisionCardSource, /focus\(\{ preventScroll: true \}\)/);
-  assert.match(decisionCardSource, /action === "OPEN_PR" && item\.prUrl/);
+  assert.match(decisionCardSource, /action\s*===\s*"OPEN_PR"/);
+  assert.match(decisionCardSource, /onAction\(action,\s*item,\s*project\)/);
   assert.doesNotMatch(decisionCardSource, /navigator\.clipboard/);
   assert.doesNotMatch(decisionCardSource, /fetch\(/);
 

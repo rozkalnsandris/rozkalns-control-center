@@ -6,13 +6,14 @@ async function source(path: string) {
   return readFile(path, "utf8");
 }
 
-test("live dashboard remains bounded to read-only GitHub observation and reviewed live-read production target", async () => {
-  const [dashboard, route, worker, runtime, wrangler] = await Promise.all([
+test("live dashboard remains bounded observation and projects mutation actions only through explicit project capability", async () => {
+  const [dashboard, route, worker, runtime, wrangler, policy] = await Promise.all([
     source("src/shared/live-dashboard.ts"),
     source("src/worker/github-dashboard-route.ts"),
     source("src/worker/index.ts"),
     source("src/integrations/github/cloudflare-worker-runtime.ts"),
     source("wrangler.jsonc"),
+    source("src/shared/project-policy.ts"),
   ]);
 
   assert.match(worker, /\/api\/github\/dashboard/);
@@ -22,24 +23,41 @@ test("live dashboard remains bounded to read-only GitHub observation and reviewe
   assert.equal(route.includes("api.github.com"), false);
   assert.equal(dashboard.includes("listCommitStatuses"), false);
   assert.equal(dashboard.includes('return "MERGE_READY"'), false);
-  assert.match(dashboard, /allowedActions:\s*\["OPEN_PR"\]/);
+  assert.match(dashboard, /allowedActionsForLiveDecision/);
+  assert.match(dashboard, /policy\.canMerge/);
+  assert.match(dashboard, /policy\.canRequestChanges/);
+  assert.match(dashboard, /policy\.canLater/);
+  assert.match(dashboard, /decision\.issueNumber !== null/);
+  assert.match(dashboard, /decision\.workflowState === "MERGE_READY"/);
+  assert.match(dashboard, /actions\.push\("LATER"\)/);
+  assert.match(dashboard, /actions\.push\("OPEN_PR"\)/);
+  assert.equal((policy.match(/canMerge: false/g) ?? []).length, 6);
+  assert.equal((policy.match(/canLater: true/g) ?? []).length, 1);
   assert.match(runtime, /memoizeGitHubInstallationSessionProvider/);
   assert.doesNotMatch(runtime, /"administration"|"statuses"/);
   assert.match(wrangler, /"CONTROL_LIVE_READ_ENABLED": "true"/);
 });
 
-test("live dashboard UI uses one same-origin snapshot request and keeps mutation actions mock-only", async () => {
-  const [app, card] = await Promise.all([
+test("live dashboard UI uses one same-origin snapshot request and delegates confirmed writes to the typed same-origin client", async () => {
+  const [app, card, client] = await Promise.all([
     source("src/react-app/App.tsx"),
     source("src/react-app/components/DecisionCard.tsx"),
+    source("src/react-app/decision-action-client.ts"),
   ]);
 
   assert.equal(app.match(/fetch\("\/api\/github\/dashboard"/g)?.length, 1);
   assert.match(app, /AbortController/);
-  assert.match(app, /LIVE READ-ONLY/);
+  assert.match(app, /LIVE CONTROL/);
   assert.match(app, /Live data unavailable · fixture data shown/);
+  assert.match(app, /ActionConfirmationDialog/);
+  assert.match(app, /postDecisionAction/);
   assert.doesNotMatch(app, /api\.github\.com/);
-  assert.match(card, /action === "OPEN_PR" && item\.prUrl/);
-  assert.match(card, /<a className=\{actionClass\(action\)\} href=\{item\.prUrl\}/);
-  assert.match(card, /onMockAction\(action, item\)/);
+  assert.match(card, /action\s*===\s*"OPEN_PR"/);
+  assert.match(card, /onAction\(action,\s*item,\s*project\)/);
+  assert.doesNotMatch(card, /fetch\(/);
+  assert.match(client, /"\/api\/github\/merge"/);
+  assert.match(client, /"\/api\/github\/needs-changes"/);
+  assert.match(client, /"\/api\/github\/later"/);
+  assert.match(client, /method:\s*"POST"/);
+  assert.doesNotMatch(client, /api\.github\.com/);
 });

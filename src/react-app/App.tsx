@@ -1,390 +1,49 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { controlFixtures } from "../shared/control-fixtures";
-import {
-  decisionsForState,
-  projectById,
-  summarizeDashboard,
-  type ControlDashboardData,
-  type DecisionReadModel,
-  type MockAction,
-  type ProjectReadModel,
-} from "../shared/control-model";
+import { decisionsForState, projectById, summarizeDashboard, type ControlDashboardData, type DecisionReadModel, type ProjectReadModel } from "../shared/control-model";
 import type { HealthPayload } from "../shared/health";
+import { ActionConfirmationDialog } from "./components/ActionConfirmationDialog";
 import { DecisionCard } from "./components/DecisionCard";
 import { StatusPill } from "./components/StatusPill";
+import { decisionActionErrorMessage, postDecisionAction, type DecisionActionTarget, type MutatingDecisionAction } from "./decision-action-client";
 import { operatorAttentionForSummary } from "./operator-attention";
 
 type LiveDashboardState = "LOADING" | "LIVE" | "REFRESHING" | "DISABLED" | "ERROR";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function isControlDashboardData(value: unknown): value is ControlDashboardData {
-  if (!isRecord(value) || typeof value.generatedAt !== "string") return false;
-  if (!Array.isArray(value.projects) || !Array.isArray(value.decisions)) return false;
-
-  const projectsValid = value.projects.every((project) => {
-    if (!isRecord(project)) return false;
-    return (
-      typeof project.id === "string" &&
-      typeof project.displayName === "string" &&
-      typeof project.repository === "string" &&
-      typeof project.enabled === "boolean" &&
-      (project.productionAdapter === "none" || project.productionAdapter === "rpi5") &&
-      (project.status === "HEALTHY" || project.status === "ATTENTION" || project.status === "WAITING") &&
-      Number.isSafeInteger(project.openPullRequests) &&
-      Number.isSafeInteger(project.openIssues)
-    );
-  });
+  if (!isRecord(value) || typeof value.generatedAt !== "string" || !Array.isArray(value.projects) || !Array.isArray(value.decisions)) return false;
+  const projectsValid = value.projects.every((project) => isRecord(project) && typeof project.id === "string" && typeof project.displayName === "string" && typeof project.repository === "string" && typeof project.enabled === "boolean" && (project.productionAdapter === "none" || project.productionAdapter === "rpi5") && (project.status === "HEALTHY" || project.status === "ATTENTION" || project.status === "WAITING") && Number.isSafeInteger(project.openPullRequests) && Number.isSafeInteger(project.openIssues));
   if (!projectsValid) return false;
-
-  const validWorkflowStates = new Set(["NEEDS_ANDRIS", "WORKING", "WAITING", "CI_FAILED", "MERGE_READY", "DONE"]);
-  const validCiStates = new Set(["PASS", "FAIL", "RUNNING", "WAITING"]);
-  const validReviewStates = new Set(["PASS", "CHANGES_REQUESTED", "PENDING", "NOT_REQUIRED"]);
-  const validDeployImpacts = new Set([
-    "NO_DEPLOY",
-    "AUTO_DEPLOY_SAFE",
-    "MANUAL_ROLLOUT_REQUIRED",
-    "DB_HOST_APPLY_REQUIRED",
-    "UNKNOWN",
-  ]);
-  const validActions = new Set(["MERGE", "NEEDS_CHANGES", "LATER", "OPEN_PR"]);
-
-  return value.decisions.every((decision) => {
-    if (!isRecord(decision)) return false;
-    const issueNumberValid = decision.issueNumber === null || Number.isSafeInteger(decision.issueNumber);
-    const issueTitleValid = decision.issueTitle === null || typeof decision.issueTitle === "string";
-    const prNumberValid = decision.prNumber === null || Number.isSafeInteger(decision.prNumber);
-    const prTitleValid = decision.prTitle === null || typeof decision.prTitle === "string";
-    const prUrlValid = decision.prUrl === undefined || decision.prUrl === null || typeof decision.prUrl === "string";
-    const expectedHeadValid = decision.expectedHeadSha === null || typeof decision.expectedHeadSha === "string";
-    const currentHeadValid = decision.currentHeadSha === null || typeof decision.currentHeadSha === "string";
-
-    return (
-      typeof decision.id === "string" &&
-      typeof decision.projectId === "string" &&
-      validWorkflowStates.has(String(decision.workflowState)) &&
-      issueNumberValid &&
-      issueTitleValid &&
-      prNumberValid &&
-      prTitleValid &&
-      prUrlValid &&
-      validCiStates.has(String(decision.ci)) &&
-      validReviewStates.has(String(decision.review)) &&
-      validDeployImpacts.has(String(decision.deployImpact)) &&
-      Number.isSafeInteger(decision.changedFiles) &&
-      expectedHeadValid &&
-      currentHeadValid &&
-      typeof decision.mainSha === "string" &&
-      typeof decision.reason === "string" &&
-      typeof decision.lastReconciledAt === "string" &&
-      Array.isArray(decision.allowedActions) &&
-      decision.allowedActions.every((action) => validActions.has(String(action)))
-    );
-  });
+  const validWorkflowStates=new Set(["NEEDS_ANDRIS","WORKING","WAITING","CI_FAILED","MERGE_READY","DONE"]); const validCiStates=new Set(["PASS","FAIL","RUNNING","WAITING"]); const validReviewStates=new Set(["PASS","CHANGES_REQUESTED","PENDING","NOT_REQUIRED"]); const validDeployImpacts=new Set(["NO_DEPLOY","AUTO_DEPLOY_SAFE","MANUAL_ROLLOUT_REQUIRED","DB_HOST_APPLY_REQUIRED","UNKNOWN"]); const validActions=new Set(["MERGE","NEEDS_CHANGES","LATER","OPEN_PR"]);
+  return value.decisions.every((decision) => { if(!isRecord(decision))return false; return typeof decision.id==="string"&&typeof decision.projectId==="string"&&validWorkflowStates.has(String(decision.workflowState))&&(decision.issueNumber===null||Number.isSafeInteger(decision.issueNumber))&&(decision.issueTitle===null||typeof decision.issueTitle==="string")&&(decision.prNumber===null||Number.isSafeInteger(decision.prNumber))&&(decision.prTitle===null||typeof decision.prTitle==="string")&&(decision.prUrl===undefined||decision.prUrl===null||typeof decision.prUrl==="string")&&validCiStates.has(String(decision.ci))&&validReviewStates.has(String(decision.review))&&validDeployImpacts.has(String(decision.deployImpact))&&Number.isSafeInteger(decision.changedFiles)&&(decision.expectedHeadSha===null||typeof decision.expectedHeadSha==="string")&&(decision.currentHeadSha===null||typeof decision.currentHeadSha==="string")&&typeof decision.mainSha==="string"&&typeof decision.reason==="string"&&typeof decision.lastReconciledAt==="string"&&Array.isArray(decision.allowedActions)&&decision.allowedActions.every((action)=>validActions.has(String(action))); });
 }
+function projectTone(status: ProjectReadModel["status"]) { if(status==="HEALTHY")return "good" as const; if(status==="ATTENTION")return "warning" as const; return "info" as const; }
+function snapshotTimestamp(timestamp:string){return new Intl.DateTimeFormat("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:false,timeZone:"UTC"}).format(new Date(timestamp));}
+function actionStartedNotice(action:MutatingDecisionAction){if(action==="MERGE")return "Sending confirmed squash-merge request";if(action==="NEEDS_CHANGES")return "Sending confirmed needs-changes request";return "Sending confirmed Later request";}
+function actionCompletedNotice(action:MutatingDecisionAction){if(action==="MERGE")return "Merge request completed · refreshing canonical GitHub state";if(action==="NEEDS_CHANGES")return "Needs-changes request completed · refreshing canonical GitHub state";return "Later request completed · refreshing canonical GitHub state";}
 
-function projectTone(status: ProjectReadModel["status"]) {
-  if (status === "HEALTHY") return "good" as const;
-  if (status === "ATTENTION") return "warning" as const;
-  return "info" as const;
-}
-
-function snapshotTimestamp(timestamp: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "UTC",
-  }).format(new Date(timestamp));
-}
-
-const mockActionLabels: Record<MockAction, string> = {
-  MERGE: "Merge",
-  NEEDS_CHANGES: "Needs changes",
-  LATER: "Later",
-  OPEN_PR: "Open PR",
-};
-
-export default function App() {
-  const [health, setHealth] = useState<HealthPayload | null>(null);
-  const [unavailable, setUnavailable] = useState(false);
-  const [liveDashboard, setLiveDashboard] = useState<ControlDashboardData | null>(null);
-  const [liveState, setLiveState] = useState<LiveDashboardState>("LOADING");
-  const [refreshSequence, setRefreshSequence] = useState(0);
-  const [notice, setNotice] = useState("No GitHub action can execute");
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    void fetch("/api/health", { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Health request failed: ${response.status}`);
-        return response.json() as Promise<HealthPayload>;
-      })
-      .then((payload) => setHealth(payload))
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setUnavailable(true);
-      });
-
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let ignore = false;
-
-    void fetch("/api/github/dashboard", {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    })
-      .then(async (response) => {
-        const payload: unknown = await response.json();
-        if (response.status === 503 && isRecord(payload) && payload.error === "LIVE_READ_DISABLED") {
-          if (!ignore) {
-            setLiveDashboard(null);
-            setLiveState("DISABLED");
-          }
-          return;
-        }
-        if (!response.ok || !isControlDashboardData(payload)) {
-          throw new Error("Live dashboard response failed validation");
-        }
-        if (!ignore) {
-          setLiveDashboard(payload);
-          setLiveState("LIVE");
-        }
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        if (!ignore) setLiveState("ERROR");
-      });
-
-    return () => {
-      ignore = true;
-      controller.abort();
-    };
-  }, [refreshSequence]);
-
-  const dashboardSource = liveDashboard ?? controlFixtures;
-  const dashboard =
-    liveState === "LIVE"
-      ? dashboardSource
-      : {
-          ...dashboardSource,
-          decisions: dashboardSource.decisions.map((decision) => ({
-            ...decision,
-            allowedActions: decision.allowedActions.filter((action) => action === "OPEN_PR"),
-          })),
-        };
-  const live = liveDashboard !== null;
-  const refreshInFlight = liveState === "LOADING" || liveState === "REFRESHING";
-  const summary = summarizeDashboard(dashboard);
-  const attention = operatorAttentionForSummary(summary);
-  const needsAndris = decisionsForState(dashboard, "NEEDS_ANDRIS");
-  const workingOrWaiting = decisionsForState(dashboard, "WORKING", "WAITING");
-  const ciFailed = decisionsForState(dashboard, "CI_FAILED");
-  const mergeReady = decisionsForState(dashboard, "MERGE_READY");
-
-  function handleMockAction(action: MockAction, item: DecisionReadModel) {
-    setNotice(`${mockActionLabels[action]} selected for fixture ${item.id} · demo only`);
-  }
-
-  function refreshLiveDashboard() {
-    if (refreshInFlight) return;
-    setLiveState(liveDashboard ? "REFRESHING" : "LOADING");
-    setRefreshSequence((value) => value + 1);
-  }
-
-  const workerLabel = health?.status === "ok" ? "Worker ready" : unavailable ? "Worker unavailable" : "Worker checking";
-  const snapshotLabel = liveDashboard ? `Snapshot ${snapshotTimestamp(liveDashboard.generatedAt)} UTC` : null;
-  const modeLabel = live ? (liveState === "ERROR" ? "LIVE · STALE" : "LIVE READ-ONLY") : "FIXTURE MODE";
-  const modeStatus =
-    liveState === "REFRESHING" && snapshotLabel
-      ? `Refreshing live GitHub data · ${snapshotLabel}`
-      : liveState === "ERROR" && snapshotLabel
-        ? `Refresh failed · keeping ${snapshotLabel}`
-        : live && snapshotLabel
-          ? snapshotLabel
-          : liveState === "ERROR"
-            ? "Live data unavailable · fixture data shown"
-            : liveState === "LOADING"
-              ? "Checking live GitHub data"
-              : "Fixture mode";
-
-  return (
-    <div className="app-shell">
-      <a className="skip-link" href="#main-content">Skip to main content</a>
-
-      <header className="topbar">
-        <div className="brand-mark" aria-hidden="true">RC</div>
-        <div className="brand-copy">
-          <p>Rozkalns Control</p>
-          <span>Decision control</span>
-        </div>
-        <StatusPill label={modeLabel} tone={liveState === "ERROR" && live ? "warning" : "info"} />
-      </header>
-
-      <main id="main-content" className="dashboard">
-        <section className="hero" aria-labelledby="page-title">
-          <div>
-            <p className="eyebrow">{live ? "Daily MVP · Live read-only" : "Daily MVP · Safe fallback"}</p>
-            <h1 id="page-title">Current repository control state</h1>
-            <p className="summary">
-              {live
-                ? "Needs Andris is reserved for genuine owner-action gates. Everything else below is live GitHub read-only state; this screen cannot change GitHub, Cloudflare or RPi5."
-                : "Needs Andris is reserved for genuine owner-action gates. Fixture fallback only; this screen cannot change GitHub, Cloudflare or RPi5."}
-            </p>
-          </div>
-        </section>
-
-        <div className="control-status-strip" role="status" aria-live="polite">
-          <span className="control-status-strip__health">
-            <span className="system-dot" aria-hidden="true" />
-            {workerLabel}
-          </span>
-          <span className="control-status-strip__separator" aria-hidden="true">·</span>
-          <span>{modeStatus}</span>
-          <span className="control-status-strip__separator" aria-hidden="true">·</span>
-          <span className="control-status-strip__notice">{notice}</span>
-          <button
-            className="control-status-strip__refresh"
-            type="button"
-            onClick={refreshLiveDashboard}
-            disabled={refreshInFlight}
-            aria-label="Refresh live GitHub state"
-            aria-busy={liveState === "REFRESHING"}
-          >
-            {liveState === "REFRESHING" ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
-
-        <section className="summary-strip" aria-label="Control summary">
-          <div className="summary-metric summary-metric--attention">
-            <span>{summary.needsAndris}</span>
-            <p>Needs Andris</p>
-          </div>
-          <div className="summary-metric">
-            <span>{summary.workingOrWaiting}</span>
-            <p>Working / waiting</p>
-          </div>
-          <div className="summary-metric summary-metric--danger">
-            <span>{summary.ciFailed}</span>
-            <p>CI failed</p>
-          </div>
-          <div className="summary-metric">
-            <span>{summary.enabledProjects}</span>
-            <p>Projects</p>
-          </div>
-        </section>
-
-        <section className={`operator-attention operator-attention--${attention.tone}`} aria-label="Operator attention">
-          <div>
-            <p className="operator-attention__kicker">What needs attention now</p>
-            <h2>{attention.headline}</h2>
-            <p>{attention.detail}</p>
-          </div>
-          {attention.target && attention.actionLabel ? (
-            <a className="operator-attention__action" href={attention.target}>
-              {attention.actionLabel}
-            </a>
-          ) : null}
-        </section>
-
-        <section id="needs-andris" className="dashboard-section dashboard-section--primary" aria-labelledby="needs-title">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Human gate</p>
-              <h2 id="needs-title">Needs Andris</h2>
-            </div>
-            <span className="section-count">{needsAndris.length}</span>
-          </div>
-          {needsAndris.length > 0 ? (
-            <div className="decision-list">
-              {needsAndris.map((item) => (
-                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-              ))}
-            </div>
-          ) : (
-            <p className="section-empty-state">No owner action is required right now.</p>
-          )}
-        </section>
-
-        {workingOrWaiting.length > 0 ? (
-          <section className="dashboard-section" aria-labelledby="active-title">
-            <div className="section-heading">
-              <div><p className="eyebrow">No action needed</p><h2 id="active-title">Working / Waiting</h2></div>
-              <span className="section-count">{workingOrWaiting.length}</span>
-            </div>
-            <div className="decision-list decision-list--compact">
-              {workingOrWaiting.map((item) => (
-                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {ciFailed.length > 0 ? (
-          <section id="ci-failed" className="dashboard-section" aria-labelledby="failed-title">
-            <div className="section-heading">
-              <div><p className="eyebrow">Blocked</p><h2 id="failed-title">CI Failed</h2></div>
-              <span className="section-count section-count--danger">{ciFailed.length}</span>
-            </div>
-            <div className="decision-list decision-list--compact">
-              {ciFailed.map((item) => (
-                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {mergeReady.length > 0 ? (
-          <section className="dashboard-section" aria-labelledby="ready-title">
-            <div className="section-heading">
-              <div><p className="eyebrow">Visible, not selected</p><h2 id="ready-title">Merge Ready</h2></div>
-              <span className="section-count">{mergeReady.length}</span>
-            </div>
-            <div className="decision-list decision-list--compact">
-              {mergeReady.map((item) => (
-                <DecisionCard key={item.id} item={item} project={projectById(dashboard, item.projectId)} onMockAction={handleMockAction} />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <section className="dashboard-section" aria-labelledby="projects-title">
-          <div className="section-heading">
-            <div><p className="eyebrow">Configured scope</p><h2 id="projects-title">Projects</h2></div>
-            <span className="section-count">{summary.enabledProjects}</span>
-          </div>
-
-          <div className="project-grid">
-            {dashboard.projects.map((project) => (
-              <article className="project-card" key={project.id}>
-                <div className="project-card__header">
-                  <div><h3>{project.displayName}</h3><p>{project.repository}</p></div>
-                  <StatusPill label={project.status} tone={projectTone(project.status)} />
-                </div>
-                <dl className="project-card__stats">
-                  <div><dt>PRs</dt><dd>{project.openPullRequests}</dd></div>
-                  <div><dt>Issues</dt><dd>{project.openIssues}</dd></div>
-                  <div><dt>Production</dt><dd>{project.productionAdapter === "rpi5" ? "RPi5" : "None"}</dd></div>
-                </dl>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <footer className="prototype-footer">
-          <p>{live ? "Live snapshot" : "Fixture snapshot"}: {dashboard.generatedAt.replace("T", " ").replace("Z", " UTC")}</p>
-          <p>{live ? "Daily MVP · GitHub read-only · No deployment controls" : "Daily MVP fallback · No live GitHub mutation · No deployment controls"}</p>
-        </footer>
-      </main>
-    </div>
-  );
+export default function App(){
+ const[health,setHealth]=useState<HealthPayload|null>(null);const[unavailable,setUnavailable]=useState(false);const[liveDashboard,setLiveDashboard]=useState<ControlDashboardData|null>(null);const[liveState,setLiveState]=useState<LiveDashboardState>("LOADING");const[refreshSequence,setRefreshSequence]=useState(0);const[notice,setNotice]=useState("Decision actions require fresh live state and explicit confirmation");const[pendingAction,setPendingAction]=useState<DecisionActionTarget|null>(null);const[actionInFlight,setActionInFlight]=useState(false);const actionLockRef=useRef(false);
+ useEffect(()=>{const controller=new AbortController();void fetch("/api/health",{signal:controller.signal}).then((response)=>{if(!response.ok)throw new Error(`Health request failed: ${response.status}`);return response.json() as Promise<HealthPayload>;}).then((payload)=>setHealth(payload)).catch((error:unknown)=>{if(error instanceof DOMException&&error.name==="AbortError")return;setUnavailable(true);});return()=>controller.abort();},[]);
+ useEffect(()=>{const controller=new AbortController();let ignore=false;void fetch("/api/github/dashboard",{signal:controller.signal,cache:"no-store",headers:{Accept:"application/json"}}).then(async(response)=>{const payload:unknown=await response.json();if(response.status===503&&isRecord(payload)&&payload.error==="LIVE_READ_DISABLED"){if(!ignore){setLiveDashboard(null);setLiveState("DISABLED");}return;}if(!response.ok||!isControlDashboardData(payload))throw new Error("Live dashboard response failed validation");if(!ignore){setLiveDashboard(payload);setLiveState("LIVE");}}).catch((error:unknown)=>{if(error instanceof DOMException&&error.name==="AbortError")return;if(!ignore)setLiveState("ERROR");});return()=>{ignore=true;controller.abort();};},[refreshSequence]);
+ useEffect(()=>{if(liveState!=="LIVE"&&!actionLockRef.current)setPendingAction(null);},[liveState]);
+ const dashboardSource=liveDashboard??controlFixtures;const dashboard=liveState==="LIVE"?dashboardSource:{...dashboardSource,decisions:dashboardSource.decisions.map((decision)=>({...decision,allowedActions:decision.allowedActions.filter((action)=>action==="OPEN_PR")}))};const live=liveDashboard!==null;const refreshInFlight=liveState==="LOADING"||liveState==="REFRESHING";const summary=summarizeDashboard(dashboard);const attention=operatorAttentionForSummary(summary);const needsAndris=decisionsForState(dashboard,"NEEDS_ANDRIS");const workingOrWaiting=decisionsForState(dashboard,"WORKING","WAITING");const ciFailed=decisionsForState(dashboard,"CI_FAILED");const mergeReady=decisionsForState(dashboard,"MERGE_READY");
+ function refreshLiveDashboard(force=false){if(!force&&(refreshInFlight||actionInFlight))return;setPendingAction(null);setLiveState(liveDashboard?"REFRESHING":"LOADING");setRefreshSequence((value)=>value+1);}
+ function openDecisionAction(action:MutatingDecisionAction,item:DecisionReadModel,project:ProjectReadModel){if(liveState!=="LIVE"||actionLockRef.current||actionInFlight)return;if(!item.allowedActions.includes(action))return;setPendingAction({action,item,project});setNotice(`${action==="MERGE"?"Squash merge":action==="NEEDS_CHANGES"?"Needs changes":"Later"} requires confirmation`);}
+ function cancelDecisionAction(){if(actionLockRef.current||actionInFlight)return;setPendingAction(null);setNotice("Action cancelled · no request sent");}
+ async function confirmDecisionAction(reviewBody:string){const target=pendingAction;if(!target||liveState!=="LIVE"||actionLockRef.current||actionInFlight)return;actionLockRef.current=true;setActionInFlight(true);setNotice(actionStartedNotice(target.action));try{await postDecisionAction(target,{reviewBody});setNotice(actionCompletedNotice(target.action));}catch(error:unknown){setNotice(`${decisionActionErrorMessage(error)} · refreshing canonical GitHub state`);}finally{actionLockRef.current=false;setActionInFlight(false);setPendingAction(null);refreshLiveDashboard(true);}}
+ const workerLabel=health?.status==="ok"?"Worker ready":unavailable?"Worker unavailable":"Worker checking";const snapshotLabel=liveDashboard?`Snapshot ${snapshotTimestamp(liveDashboard.generatedAt)} UTC`:null;const modeLabel=live?(liveState==="ERROR"?"LIVE · STALE":"LIVE CONTROL"):"FIXTURE MODE";const modeStatus=liveState==="REFRESHING"&&snapshotLabel?`Refreshing live GitHub data · ${snapshotLabel}`:liveState==="ERROR"&&snapshotLabel?`Refresh failed · keeping ${snapshotLabel}`:live&&snapshotLabel?snapshotLabel:liveState==="ERROR"?"Live data unavailable · fixture data shown":liveState==="LOADING"?"Checking live GitHub data":"Fixture mode";
+ const renderDecision=(item:DecisionReadModel)=><DecisionCard key={item.id} item={item} project={projectById(dashboard,item.projectId)} onAction={openDecisionAction} mutationsLocked={actionInFlight}/>;
+ return <div className="app-shell"><a className="skip-link" href="#main-content">Skip to main content</a><header className="topbar"><div className="brand-mark" aria-hidden="true">RC</div><div className="brand-copy"><p>Rozkalns Control</p><span>Decision control</span></div><StatusPill label={modeLabel} tone={liveState==="ERROR"&&live?"warning":"info"}/></header><main id="main-content" className="dashboard">
+ <section className="hero" aria-labelledby="page-title"><div><p className="eyebrow">{live?"Daily MVP · Authenticated decision control":"Daily MVP · Safe fallback"}</p><h1 id="page-title">Current repository control state</h1><p className="summary">{live?"Mutating buttons appear only on fresh live decision state, require explicit confirmation, and are revalidated server-side before any write. Merge never authorizes deployment.":"Needs Andris is reserved for genuine owner-action gates. Fixture fallback has no live mutation authority."}</p></div></section>
+ <div className="control-status-strip" role="status" aria-live="polite"><span className="control-status-strip__health"><span className="system-dot" aria-hidden="true"/>{workerLabel}</span><span className="control-status-strip__separator" aria-hidden="true">·</span><span>{modeStatus}</span><span className="control-status-strip__separator" aria-hidden="true">·</span><span className="control-status-strip__notice">{notice}</span><button className="control-status-strip__refresh" type="button" onClick={()=>refreshLiveDashboard()} disabled={refreshInFlight||actionInFlight} aria-label="Refresh live GitHub state" aria-busy={liveState==="REFRESHING"}>{liveState==="REFRESHING"?"Refreshing…":"Refresh"}</button></div>
+ <section className="summary-strip" aria-label="Control summary"><div className="summary-metric summary-metric--attention"><span>{summary.needsAndris}</span><p>Needs Andris</p></div><div className="summary-metric"><span>{summary.workingOrWaiting}</span><p>Working / waiting</p></div><div className="summary-metric summary-metric--danger"><span>{summary.ciFailed}</span><p>CI failed</p></div><div className="summary-metric"><span>{summary.enabledProjects}</span><p>Projects</p></div></section>
+ <section className={`operator-attention operator-attention--${attention.tone}`} aria-label="Operator attention"><div><p className="operator-attention__kicker">What needs attention now</p><h2>{attention.headline}</h2><p>{attention.detail}</p></div>{attention.target&&attention.actionLabel?<a className="operator-attention__action" href={attention.target}>{attention.actionLabel}</a>:null}</section>
+ <section id="needs-andris" className="dashboard-section dashboard-section--primary" aria-labelledby="needs-title"><div className="section-heading"><div><p className="eyebrow">Human gate</p><h2 id="needs-title">Needs Andris</h2></div><span className="section-count">{needsAndris.length}</span></div>{needsAndris.length>0?<div className="decision-list">{needsAndris.map(renderDecision)}</div>:<p className="section-empty-state">No owner action is required right now.</p>}</section>
+ {workingOrWaiting.length>0?<section className="dashboard-section" aria-labelledby="active-title"><div className="section-heading"><div><p className="eyebrow">No action needed</p><h2 id="active-title">Working / Waiting</h2></div><span className="section-count">{workingOrWaiting.length}</span></div><div className="decision-list decision-list--compact">{workingOrWaiting.map(renderDecision)}</div></section>:null}
+ {ciFailed.length>0?<section id="ci-failed" className="dashboard-section" aria-labelledby="failed-title"><div className="section-heading"><div><p className="eyebrow">Blocked</p><h2 id="failed-title">CI Failed</h2></div><span className="section-count section-count--danger">{ciFailed.length}</span></div><div className="decision-list decision-list--compact">{ciFailed.map(renderDecision)}</div></section>:null}
+ {mergeReady.length>0?<section className="dashboard-section" aria-labelledby="ready-title"><div className="section-heading"><div><p className="eyebrow">Visible, not selected</p><h2 id="ready-title">Merge Ready</h2></div><span className="section-count">{mergeReady.length}</span></div><div className="decision-list decision-list--compact">{mergeReady.map(renderDecision)}</div></section>:null}
+ <section className="dashboard-section" aria-labelledby="projects-title"><div className="section-heading"><div><p className="eyebrow">Configured scope</p><h2 id="projects-title">Projects</h2></div><span className="section-count">{summary.enabledProjects}</span></div><div className="project-grid">{dashboard.projects.map((project)=><article className="project-card" key={project.id}><div className="project-card__header"><div><h3>{project.displayName}</h3><p>{project.repository}</p></div><StatusPill label={project.status} tone={projectTone(project.status)}/></div><dl className="project-card__stats"><div><dt>PRs</dt><dd>{project.openPullRequests}</dd></div><div><dt>Issues</dt><dd>{project.openIssues}</dd></div><div><dt>Production</dt><dd>{project.productionAdapter==="rpi5"?"RPi5":"None"}</dd></div></dl></article>)}</div></section>
+ <footer className="prototype-footer"><p>{live?"Live snapshot":"Fixture snapshot"}: {dashboard.generatedAt.replace("T"," ").replace("Z"," UTC")}</p><p>{live?"Daily MVP · Confirmed decision actions · Deployment controls remain separate":"Daily MVP fallback · No live GitHub mutation · No deployment controls"}</p></footer></main><ActionConfirmationDialog target={pendingAction} pending={actionInFlight} onCancel={cancelDecisionAction} onConfirm={(reviewBody)=>void confirmDecisionAction(reviewBody)}/></div>;
 }

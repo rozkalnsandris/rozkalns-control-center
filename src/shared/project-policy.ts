@@ -13,162 +13,28 @@ export interface ManagedProjectPolicy {
 }
 
 export const managedProjectPolicies = [
-  {
-    id: "hermes-tech",
-    displayName: "Hermes Tech",
-    repository: "rozkalnsandris/hermes-tech",
-    enabled: true,
-    githubReadEnabled: true,
-    canRequestChanges: false,
-    canMerge: false,
-    canLater: false,
-    productionAdapter: "rpi5",
-  },
-  {
-    id: "hermes-deals",
-    displayName: "Hermes Deals",
-    repository: "rozkalnsandris/hermes-deals",
-    enabled: true,
-    githubReadEnabled: true,
-    canRequestChanges: false,
-    canMerge: false,
-    canLater: false,
-    productionAdapter: "rpi5",
-  },
-  {
-    id: "rozkalns-cv",
-    displayName: "Rozkalns CV",
-    repository: "rozkalnsandris/rozkalns-cv",
-    enabled: true,
-    githubReadEnabled: true,
-    canRequestChanges: false,
-    canMerge: false,
-    canLater: false,
-    productionAdapter: "rpi5",
-  },
-  {
-    id: "rpi5-main",
-    displayName: "RPi5 Main",
-    repository: "rozkalnsandris/RPi5_main",
-    enabled: true,
-    githubReadEnabled: true,
-    canRequestChanges: false,
-    canMerge: false,
-    canLater: false,
-    productionAdapter: "rpi5",
-  },
-  {
-    id: "ops-workflows",
-    displayName: "Ops Workflows",
-    repository: "rozkalnsandris/ops-workflows",
-    enabled: true,
-    githubReadEnabled: true,
-    canRequestChanges: true,
-    canMerge: false,
-    canLater: false,
-    productionAdapter: "none",
-  },
-  {
-    id: "profile",
-    displayName: "GitHub Profile",
-    repository: "rozkalnsandris/rozkalnsandris",
-    enabled: true,
-    githubReadEnabled: true,
-    canRequestChanges: false,
-    canMerge: false,
-    canLater: false,
-    productionAdapter: "none",
-  },
+  { id: "hermes-tech", displayName: "Hermes Tech", repository: "rozkalnsandris/hermes-tech", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
+  { id: "hermes-deals", displayName: "Hermes Deals", repository: "rozkalnsandris/hermes-deals", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
+  { id: "rozkalns-cv", displayName: "Rozkalns CV", repository: "rozkalnsandris/rozkalns-cv", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
+  { id: "rpi5-main", displayName: "RPi5 Main", repository: "rozkalnsandris/RPi5_main", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
+  { id: "ops-workflows", displayName: "Ops Workflows", repository: "rozkalnsandris/ops-workflows", enabled: true, githubReadEnabled: true, canRequestChanges: true, canMerge: false, canLater: true, productionAdapter: "none" },
+  { id: "profile", displayName: "GitHub Profile", repository: "rozkalnsandris/rozkalnsandris", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "none" },
 ] as const satisfies readonly ManagedProjectPolicy[];
 
 export const explicitlyExcludedRepositories = ["rozkalnsandris/hermes-email-skill"] as const;
-
-function normalizeRepository(repository: string) {
-  return repository.trim().toLowerCase();
-}
-
-const policyByRepository = new Map(
-  managedProjectPolicies.map((policy) => [normalizeRepository(policy.repository), policy] as const),
-);
-
+function normalizeRepository(repository: string) { return repository.trim().toLowerCase(); }
+const policyByRepository = new Map(managedProjectPolicies.map((policy) => [normalizeRepository(policy.repository), policy] as const));
 const excludedRepositories = new Set(explicitlyExcludedRepositories.map(normalizeRepository));
-
-export class RepositoryNotAllowedError extends Error {
-  constructor(repository: string) {
-    super(`Repository is not enabled for Rozkalns Control reads: ${repository}`);
-    this.name = "RepositoryNotAllowedError";
-  }
-}
-
-export class RepositoryNeedsChangesNotAllowedError extends Error {
-  constructor(repository: string) {
-    super(`Repository is not enabled for Rozkalns Control Needs changes actions: ${repository}`);
-    this.name = "RepositoryNeedsChangesNotAllowedError";
-  }
-}
-
-export class RepositoryMergeNotAllowedError extends Error {
-  constructor(repository: string) {
-    super(`Repository is not enabled for Rozkalns Control Merge actions: ${repository}`);
-    this.name = "RepositoryMergeNotAllowedError";
-  }
-}
-
-export class RepositoryLaterNotAllowedError extends Error {
-  constructor(repository: string) {
-    super(`Repository is not enabled for Rozkalns Control Later actions: ${repository}`);
-    this.name = "RepositoryLaterNotAllowedError";
-  }
-}
-
-export function isExplicitlyExcludedRepository(repository: string) {
-  return excludedRepositories.has(normalizeRepository(repository));
-}
-
-export function resolveManagedProjectPolicy(repository: string): ManagedProjectPolicy | null {
-  const policy = policyByRepository.get(normalizeRepository(repository));
-  if (!policy || !policy.enabled || !policy.githubReadEnabled) return null;
-  return policy;
-}
-
-export function requireManagedProjectPolicy(repository: string): ManagedProjectPolicy {
-  const policy = resolveManagedProjectPolicy(repository);
-  if (!policy) throw new RepositoryNotAllowedError(repository);
-  return policy;
-}
-
-export function resolveNeedsChangesProjectPolicy(repository: string): ManagedProjectPolicy | null {
-  const policy = resolveManagedProjectPolicy(repository);
-  if (!policy || policy.canRequestChanges !== true) return null;
-  return policy;
-}
-
-export function requireNeedsChangesProjectPolicy(repository: string): ManagedProjectPolicy {
-  const policy = resolveNeedsChangesProjectPolicy(repository);
-  if (!policy) throw new RepositoryNeedsChangesNotAllowedError(repository);
-  return policy;
-}
-
-export function resolveMergeProjectPolicy(repository: string): ManagedProjectPolicy | null {
-  const policy = resolveManagedProjectPolicy(repository);
-  if (!policy || policy.canMerge !== true) return null;
-  return policy;
-}
-
-export function requireMergeProjectPolicy(repository: string): ManagedProjectPolicy {
-  const policy = resolveMergeProjectPolicy(repository);
-  if (!policy) throw new RepositoryMergeNotAllowedError(repository);
-  return policy;
-}
-
-export function resolveLaterProjectPolicy(repository: string): ManagedProjectPolicy | null {
-  const policy = resolveManagedProjectPolicy(repository);
-  if (!policy || policy.canLater !== true) return null;
-  return policy;
-}
-
-export function requireLaterProjectPolicy(repository: string): ManagedProjectPolicy {
-  const policy = resolveLaterProjectPolicy(repository);
-  if (!policy) throw new RepositoryLaterNotAllowedError(repository);
-  return policy;
-}
+export class RepositoryNotAllowedError extends Error { constructor(repository: string) { super(`Repository is not enabled for Rozkalns Control reads: ${repository}`); this.name = "RepositoryNotAllowedError"; } }
+export class RepositoryNeedsChangesNotAllowedError extends Error { constructor(repository: string) { super(`Repository is not enabled for Rozkalns Control Needs changes actions: ${repository}`); this.name = "RepositoryNeedsChangesNotAllowedError"; } }
+export class RepositoryMergeNotAllowedError extends Error { constructor(repository: string) { super(`Repository is not enabled for Rozkalns Control Merge actions: ${repository}`); this.name = "RepositoryMergeNotAllowedError"; } }
+export class RepositoryLaterNotAllowedError extends Error { constructor(repository: string) { super(`Repository is not enabled for Rozkalns Control Later actions: ${repository}`); this.name = "RepositoryLaterNotAllowedError"; } }
+export function isExplicitlyExcludedRepository(repository: string) { return excludedRepositories.has(normalizeRepository(repository)); }
+export function resolveManagedProjectPolicy(repository: string): ManagedProjectPolicy | null { const policy = policyByRepository.get(normalizeRepository(repository)); if (!policy || !policy.enabled || !policy.githubReadEnabled) return null; return policy; }
+export function requireManagedProjectPolicy(repository: string): ManagedProjectPolicy { const policy = resolveManagedProjectPolicy(repository); if (!policy) throw new RepositoryNotAllowedError(repository); return policy; }
+export function resolveNeedsChangesProjectPolicy(repository: string): ManagedProjectPolicy | null { const policy = resolveManagedProjectPolicy(repository); if (!policy || policy.canRequestChanges !== true) return null; return policy; }
+export function requireNeedsChangesProjectPolicy(repository: string): ManagedProjectPolicy { const policy = resolveNeedsChangesProjectPolicy(repository); if (!policy) throw new RepositoryNeedsChangesNotAllowedError(repository); return policy; }
+export function resolveMergeProjectPolicy(repository: string): ManagedProjectPolicy | null { const policy = resolveManagedProjectPolicy(repository); if (!policy || policy.canMerge !== true) return null; return policy; }
+export function requireMergeProjectPolicy(repository: string): ManagedProjectPolicy { const policy = resolveMergeProjectPolicy(repository); if (!policy) throw new RepositoryMergeNotAllowedError(repository); return policy; }
+export function resolveLaterProjectPolicy(repository: string): ManagedProjectPolicy | null { const policy = resolveManagedProjectPolicy(repository); if (!policy || policy.canLater !== true) return null; return policy; }
+export function requireLaterProjectPolicy(repository: string): ManagedProjectPolicy { const policy = resolveLaterProjectPolicy(repository); if (!policy) throw new RepositoryLaterNotAllowedError(repository); return policy; }

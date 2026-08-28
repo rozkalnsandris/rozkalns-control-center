@@ -6,7 +6,7 @@ async function source(path: string) {
   return readFile(path, "utf8");
 }
 
-test("Phase 1 keeps fixture mode explicit and mock actions network-free", async () => {
+test("Phase 1 fixture fallback remains explicit and mutation-free", async () => {
   const [app, decisionCard, fixtures] = await Promise.all([
     source("src/react-app/App.tsx"),
     source("src/react-app/components/DecisionCard.tsx"),
@@ -14,7 +14,11 @@ test("Phase 1 keeps fixture mode explicit and mock actions network-free", async 
   ]);
 
   assert.match(app, /FIXTURE MODE/);
-  assert.match(app, /No GitHub action can execute/);
+  assert.match(app, /Fixture fallback has no live mutation authority/);
+  assert.match(
+    app,
+    /allowedActions:\s*decision\.allowedActions\.filter\(\(action\)\s*=>\s*action\s*===\s*"OPEN_PR"\)/,
+  );
   assert.equal(decisionCard.includes("fetch("), false);
   assert.equal(fixtures.includes("https://"), false);
   assert.equal(fixtures.includes("api.github.com"), false);
