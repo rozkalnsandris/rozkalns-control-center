@@ -30,9 +30,11 @@ The live dashboard is observational until branch-policy evidence becomes complet
 - latest effective review state containing `CHANGES_REQUESTED` -> `NEEDS_ANDRIS`;
 - draft, running, missing, ambiguous or otherwise non-authoritative readiness -> `WAITING`;
 - observational snapshots never emit `MERGE_READY`;
-- `allowedActions` is exactly `OPEN_PR` for a live PR.
+- `OPEN_PR` remains navigation-only for every live PR;
+- `LATER` may additionally be projected only when that managed project's source policy has `canLater=true`;
+- `MERGE` and `NEEDS_CHANGES` remain suppressed by the lightweight dashboard unless complete write identity and authoritative readiness exist; the current observational projection does not provide that authority.
 
-An observed green CI state is useful evidence, but it is not sufficient to claim merge readiness when required-check/review/branch-policy coverage is incomplete.
+An observed green CI state is useful evidence, but it is not sufficient to claim merge readiness when required-check/review/branch-policy coverage is incomplete. A projected `LATER` action is also not persistence authority: the authenticated Later backend re-reads fresh normalized state, rechecks project capability/action authority and requires the exact material-state fingerprint before any D1 write.
 
 ## Credential/session behavior
 
@@ -54,4 +56,6 @@ The narrow `/api/github/reconcile` path keeps its existing one-repository REST/G
 
 The React client performs one hoisted dashboard request rather than per-card requests. Live mode renders the same mobile-first normalized model as fixtures. A real PR URL is navigation and must be rendered as an anchor; evidence disclosure remains native `<details>/<summary>`.
 
-Production activation or redeployment remains a separate explicit owner authorization after source merge and exact-main CI. This source boundary does not authorize a production deploy.
+After PR #448, React source also contains one typed same-origin confirmed-action client for Merge, Needs changes and Later. Mutating buttons are rendered only from fresh `LIVE` normalized state and are suppressed for fixture/loading/refreshing/error/stale state. The first click only opens explicit confirmation; the Worker remains authoritative for authentication, capability, reconciliation, stale-state and persistence/write gates.
+
+Production activation or redeployment remains a separate explicit owner authorization after source merge and exact-main CI. This source boundary does not authorize a production deploy or any live decision action.
