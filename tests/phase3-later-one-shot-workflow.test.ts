@@ -66,9 +66,14 @@ test("exactly one Later route call consumes authorization before the external PO
   const laterRoutes = text.match(/\$\{CONTROL_ORIGIN\}\/api\/github\/later/g) ?? [];
   assert.equal(laterRoutes.length, 1);
 
-  const started = text.indexOf("printf 'LATER_POST_STARTED=YES\\n'");
-  const consumed = text.indexOf("printf 'AUTHORIZATION_CONSUMED=YES\\n'");
-  const route = text.indexOf('"${CONTROL_ORIGIN}/api/github/later"');
+  const functionStart = text.indexOf("access_post_later() {");
+  const functionEnd = text.indexOf('cat > "$tmp/evaluate-dashboard.mjs"', functionStart);
+  assert.ok(functionStart >= 0 && functionEnd > functionStart);
+  const accessPostLater = text.slice(functionStart, functionEnd);
+
+  const started = accessPostLater.indexOf("printf 'LATER_POST_STARTED=YES\\n'");
+  const consumed = accessPostLater.indexOf("printf 'AUTHORIZATION_CONSUMED=YES\\n'");
+  const route = accessPostLater.indexOf('"${CONTROL_ORIGIN}/api/github/later"');
   assert.ok(started >= 0 && consumed > started && route > consumed);
 
   const postCount = text.match(/\s-X POST \\/g) ?? [];
