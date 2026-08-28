@@ -1,0 +1,363 @@
+name: Phase 3 Later one-shot canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact post-merge control main SHA
+        required: true
+        type: string
+      expected_ci_run_id:
+        description: Exact successful push CI run ID for approved_sha
+        required: true
+        type: string
+      expected_preflight_run_id:
+        description: Exact successful Later read-only preflight run ID for approved_sha
+        required: true
+        type: string
+      expected_deployment:
+        description: Exact currently active Worker deployment ID
+        required: true
+        type: string
+      expected_version:
+        description: Exact currently active Worker version ID
+        required: true
+        type: string
+      pr_number:
+        description: Exact disposable ops-workflows canary PR number
+        required: true
+        type: string
+      expected_pr_head:
+        description: Exact disposable canary PR head SHA
+        required: true
+        type: string
+      expected_target_main:
+        description: Exact ops-workflows main SHA
+        required: true
+        type: string
+      expected_fingerprint:
+        description: Exact later-v1 material-state fingerprint
+        required: true
+        type: string
+      owner_authorization:
+        description: Exact one-shot owner authorization string
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase3-later-one-shot-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: execute exact authorized one-shot Later canary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      DB_NAME: rozkalns-control-production
+      DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
+      CONTROL_ORIGIN: https://control.rozkalns.net
+      TARGET_REPOSITORY: rozkalnsandris/ops-workflows
+      TARGET_PROJECT_ID: ops-workflows
+      APPROVED_SHA: ${{ inputs.approved_sha }}
+      EXPECTED_CI_RUN_ID: ${{ inputs.expected_ci_run_id }}
+      EXPECTED_PREFLIGHT_RUN_ID: ${{ inputs.expected_preflight_run_id }}
+      EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      EXPECTED_PR_HEAD: ${{ inputs.expected_pr_head }}
+      EXPECTED_TARGET_MAIN: ${{ inputs.expected_target_main }}
+      EXPECTED_FINGERPRINT: ${{ inputs.expected_fingerprint }}
+      OWNER_AUTHORIZATION: ${{ inputs.owner_authorization }}
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+      CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+      CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
+
+    steps:
+      - name: Revalidate and execute one authorized Later POST
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop_pre() {
+            {
+              printf 'LATER_CANARY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=NO\n'
+              printf 'LATER_POST_STARTED=NO\n'
+              printf 'LATER_POST_SENT=NO\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          stop_post() {
+            {
+              printf 'LATER_CANARY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=YES\n'
+              printf 'LATER_POST_STARTED=YES\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          for cmd in curl jq node; do
+            command -v "$cmd" >/dev/null 2>&1 || stop_pre "MISSING_${cmd^^}"
+          done
+
+          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop_pre WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop_pre WORKFLOW_REF_NOT_MAIN
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop_pre WORKFLOW_ATTEMPT_NOT_ONE
+          [ "${GITHUB_SHA:-}" = "${APPROVED_SHA:-}" ] || stop_pre WORKFLOW_SHA_NOT_APPROVED
+
+          [[ "${APPROVED_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || stop_pre APPROVED_SHA_INVALID
+          [[ "${EXPECTED_CI_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre CI_RUN_ID_INVALID
+          [[ "${EXPECTED_PREFLIGHT_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre PREFLIGHT_RUN_ID_INVALID
+          [[ "${EXPECTED_DEPLOYMENT:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop_pre EXPECTED_DEPLOYMENT_INVALID
+          [[ "${EXPECTED_VERSION:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop_pre EXPECTED_VERSION_INVALID
+          [[ "${PR_NUMBER:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre PR_NUMBER_INVALID
+          [[ "${EXPECTED_PR_HEAD:-}" =~ ^[0-9a-f]{40}$ ]] || stop_pre EXPECTED_PR_HEAD_INVALID
+          [[ "${EXPECTED_TARGET_MAIN:-}" =~ ^[0-9a-f]{40}$ ]] || stop_pre EXPECTED_TARGET_MAIN_INVALID
+          [[ "${EXPECTED_FINGERPRINT:-}" =~ ^later-v1-[0-9a-f]{16}$ ]] || stop_pre EXPECTED_FINGERPRINT_INVALID
+
+          expected_authorization="AUTHORIZE_LATER_CANARY:${APPROVED_SHA}:${EXPECTED_CI_RUN_ID}:${EXPECTED_PREFLIGHT_RUN_ID}:${EXPECTED_DEPLOYMENT}:${EXPECTED_VERSION}:${PR_NUMBER}:${EXPECTED_PR_HEAD}:${EXPECTED_TARGET_MAIN}:${EXPECTED_FINGERPRINT}:POST1"
+          [ "${OWNER_AUTHORIZATION:-}" = "$expected_authorization" ] || stop_pre OWNER_AUTHORIZATION_INVALID
+
+          [ -n "${GITHUB_TOKEN:-}" ] || stop_pre MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_WORKERS_READ_TOKEN:-}" ] || stop_pre MISSING_CLOUDFLARE_API_TOKEN
+          [ -n "${CLOUDFLARE_D1_READ_TOKEN:-}" ] || stop_pre MISSING_CLOUDFLARE_D1_READ_TOKEN
+          [ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ] || stop_pre MISSING_CONTROL_ACCESS_CLIENT_ID
+          [ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ] || stop_pre MISSING_CONTROL_ACCESS_CLIENT_SECRET
+
+          tmp="$(mktemp -d)"
+
+          gh_control_get_pre() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop_pre GITHUB_CONTROL_GET_FAILED
+          }
+
+          gh_target_get_pre() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${TARGET_REPOSITORY}${path}" > "$out" || stop_pre GITHUB_TARGET_GET_FAILED
+          }
+
+          gh_control_get_post() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop_post POSTVERIFY_GITHUB_CONTROL_GET_FAILED
+          }
+
+          gh_target_get_post() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${TARGET_REPOSITORY}${path}" > "$out" || stop_post POSTVERIFY_GITHUB_TARGET_GET_FAILED
+          }
+
+          cf_workers_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_WORKERS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop_pre CLOUDFLARE_WORKERS_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop_pre CLOUDFLARE_WORKERS_RESPONSE_INVALID
+          }
+
+          cf_d1_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop_pre CLOUDFLARE_D1_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop_pre CLOUDFLARE_D1_RESPONSE_INVALID
+          }
+
+          d1_select_pre() {
+            local decision_id="$1" out="$2"
+            local sql='SELECT decision_id, schema_version, project_id, issue_number, pr_number, state_fingerprint, deferred_at FROM later_deferrals WHERE decision_id = ? LIMIT 2'
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X POST \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$(jq -cn --arg sql "$sql" --arg decision_id "$decision_id" '{sql:$sql,params:[$decision_id]}')" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${DB_ID}/query" > "$out" || stop_pre D1_SELECT_FAILED
+            jq -e '.success == true and (.result|type == "array") and (.result|length == 1) and .result[0].success == true and ((.result[0].meta.changed_db // false) == false) and (((.result[0].meta.rows_written // 0)|tonumber) == 0) and (((.result[0].meta.changes // 0)|tonumber) == 0)' "$out" >/dev/null || stop_pre D1_SELECT_REPORTED_MUTATION_OR_FAILURE
+          }
+
+          d1_select_post() {
+            local decision_id="$1" out="$2"
+            local sql='SELECT decision_id, schema_version, project_id, issue_number, pr_number, state_fingerprint, deferred_at FROM later_deferrals WHERE decision_id = ? LIMIT 2'
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X POST \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$(jq -cn --arg sql "$sql" --arg decision_id "$decision_id" '{sql:$sql,params:[$decision_id]}')" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${DB_ID}/query" > "$out" || stop_post POSTVERIFY_D1_SELECT_FAILED
+            jq -e '.success == true and (.result|type == "array") and (.result|length == 1) and .result[0].success == true and ((.result[0].meta.changed_db // false) == false) and (((.result[0].meta.rows_written // 0)|tonumber) == 0) and (((.result[0].meta.changes // 0)|tonumber) == 0)' "$out" >/dev/null || stop_post POSTVERIFY_D1_SELECT_REPORTED_MUTATION_OR_FAILURE
+          }
+
+          access_get_pre() {
+            local path="$1" out="$2" code_file="$3"
+            local code
+            code="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 45 \
+              -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}" \
+              -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}" \
+              -H 'Cache-Control: no-cache' \
+              -H 'Accept: application/json' \
+              -o "$out" -w '%{http_code}' "${CONTROL_ORIGIN}${path}")" || stop_pre ACCESS_GET_FAILED
+            printf '%s' "$code" > "$code_file"
+          }
+
+          access_post_later() {
+            local body="$1" out="$2" code_file="$3"
+            local code
+            printf 'LATER_POST_STARTED=YES\n'
+            printf 'AUTHORIZATION_CONSUMED=YES\n'
+            code="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 45 \
+              -X POST \
+              -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}" \
+              -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}" \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              --data "$body" \
+              -o "$out" -w '%{http_code}' "${CONTROL_ORIGIN}/api/github/later")" || stop_post LATER_POST_TRANSPORT_FAILED
+            printf '%s' "$code" > "$code_file"
+          }
+
+          cat > "$tmp/evaluate-dashboard.mjs" <<'NODE'
+          import fs from 'node:fs';
+          const [dashboardPath, outputPath] = process.argv.slice(2);
+          const data = JSON.parse(fs.readFileSync(dashboardPath, 'utf8'));
+          const projectId = process.env.TARGET_PROJECT_ID;
+          const repository = process.env.TARGET_REPOSITORY;
+          const fail = (message) => { process.stderr.write(`${message}\n`); process.exit(1); };
+          const iso = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value)) && new Date(Date.parse(value)).toISOString() === value;
+          const sha = (value) => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+          const positiveIntegerOrNull = (value) => value === null || (Number.isSafeInteger(value) && value > 0);
+          if (!data || typeof data !== 'object' || !iso(data.generatedAt)) fail('DASHBOARD_SHAPE_INVALID');
+          const skew = Date.now() - Date.parse(data.generatedAt);
+          if (skew < -10000 || skew > 120000) fail('DASHBOARD_NOT_FRESH');
+          if (!Array.isArray(data.projects) || !Array.isArray(data.decisions)) fail('DASHBOARD_SHAPE_INVALID');
+          const projects = data.projects.filter((project) => project?.enabled === true && project.id === projectId && project.repository === repository);
+          if (projects.length !== 1) fail('TARGET_PROJECT_NOT_PRESENT');
+          const candidates = data.decisions.filter((decision) => decision?.projectId === projectId && Array.isArray(decision.allowedActions) && decision.allowedActions.includes('LATER'));
+          if (candidates.length === 0) fail('NO_GENUINE_LATER_TARGET');
+          if (candidates.length !== 1) fail('AMBIGUOUS_LATER_TARGETS');
+          const item = candidates[0];
+          const workflowStates = new Set(['NEEDS_ANDRIS','WORKING','WAITING','CI_FAILED','MERGE_READY','DONE']);
+          const ciStates = new Set(['PASS','FAIL','RUNNING','WAITING']);
+          const reviewStates = new Set(['PASS','CHANGES_REQUESTED','PENDING','NOT_REQUIRED']);
+          const deployImpacts = new Set(['NO_DEPLOY','AUTO_DEPLOY_SAFE','MANUAL_ROLLOUT_REQUIRED','DB_HOST_APPLY_REQUIRED','UNKNOWN']);
+          const actionSet = new Set(['MERGE','NEEDS_CHANGES','LATER','OPEN_PR']);
+          if (item.id !== `github:ops-workflows:pr:${process.env.PR_NUMBER}`) fail('DECISION_ID_DRIFT');
+          if (item.projectId !== projectId || item.prNumber !== Number(process.env.PR_NUMBER)) fail('TARGET_IDENTITY_DRIFT');
+          if (!positiveIntegerOrNull(item.issueNumber) || !workflowStates.has(item.workflowState) || !ciStates.has(item.ci) || !reviewStates.has(item.review) || !deployImpacts.has(item.deployImpact)) fail('TARGET_SHAPE_INVALID');
+          if (!Number.isSafeInteger(item.changedFiles) || item.changedFiles < 0) fail('TARGET_SHAPE_INVALID');
+          if (typeof item.reason !== 'string' || item.reason.length === 0 || item.reason.length > 4096) fail('TARGET_SHAPE_INVALID');
+          if (!sha(item.expectedHeadSha) || item.currentHeadSha !== item.expectedHeadSha || item.expectedHeadSha !== process.env.EXPECTED_PR_HEAD) fail('HEAD_SHA_DRIFT');
+          if (!sha(item.mainSha) || item.mainSha !== process.env.EXPECTED_TARGET_MAIN) fail('TARGET_MAIN_SHA_DRIFT');
+          if (item.lastReconciledAt !== data.generatedAt) fail('LATER_TARGET_NOT_CURRENT_OBSERVATION');
+          if (!Array.isArray(item.allowedActions) || new Set(item.allowedActions).size !== item.allowedActions.length || item.allowedActions.some((action) => !actionSet.has(action)) || !item.allowedActions.includes('LATER')) fail('LATER_AUTHORITY_MISSING');
+          const material = JSON.stringify(['later-decision-v1',item.id,item.projectId,item.workflowState,item.issueNumber,item.prNumber,item.ci,item.review,item.deployImpact,item.changedFiles,item.expectedHeadSha,item.currentHeadSha,item.mainSha,item.reason,[...item.allowedActions].sort()]);
+          let hash = 0xcbf29ce484222325n;
+          const prime = 0x100000001b3n;
+          const mask = 0xffffffffffffffffn;
+          for (const byte of new TextEncoder().encode(material)) { hash ^= BigInt(byte); hash = (hash * prime) & mask; }
+          const fingerprint = `later-v1-${hash.toString(16).padStart(16, '0')}`;
+          if (fingerprint !== process.env.EXPECTED_FINGERPRINT) fail('STATE_FINGERPRINT_DRIFT');
+          fs.writeFileSync(outputPath, JSON.stringify({decisionId:item.id,prNumber:item.prNumber,headSha:item.expectedHeadSha,targetMainSha:item.mainSha,fingerprint,generatedAt:data.generatedAt}));
+          NODE
+
+          revalidate_bound_state() {
+            local phase="$1"
+            gh_control_get_pre '/branches/main' "$tmp/${phase}-control-main.json"
+            jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/${phase}-control-main.json" >/dev/null || stop_pre MAIN_SHA_DRIFT
+            gh_control_get_pre "/actions/runs/${EXPECTED_CI_RUN_ID}" "$tmp/${phase}-ci.json"
+            jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_CI_RUN_ID" '.id == $id and .name == "CI" and .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .status == "completed" and .conclusion == "success"' "$tmp/${phase}-ci.json" >/dev/null || stop_pre EXACT_MAIN_CI_DRIFT
+            gh_control_get_pre "/actions/runs/${EXPECTED_PREFLIGHT_RUN_ID}" "$tmp/${phase}-preflight.json"
+            jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_PREFLIGHT_RUN_ID" '.id == $id and .name == "Phase 3 Later read-only preflight" and .path == ".github/workflows/phase3-later-readonly-preflight.yml" and .head_branch == "main" and .head_sha == $sha and .event == "workflow_dispatch" and .status == "completed" and .conclusion == "success" and .run_attempt == 1' "$tmp/${phase}-preflight.json" >/dev/null || stop_pre READONLY_PREFLIGHT_NOT_BOUND
+            cf_workers_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/${phase}-deployments.json"
+            jq -e --arg deployment "$EXPECTED_DEPLOYMENT" --arg version "$EXPECTED_VERSION" '(.result.deployments|type == "array") and (.result.deployments|length >= 1) and .result.deployments[0].id == $deployment and (.result.deployments[0].versions|type == "array") and (.result.deployments[0].versions|length == 1) and .result.deployments[0].versions[0].version_id == $version and .result.deployments[0].versions[0].percentage == 100' "$tmp/${phase}-deployments.json" >/dev/null || stop_pre PRODUCTION_WORKER_BASELINE_DRIFT
+            access_get_pre '/api/health' "$tmp/${phase}-health.json" "$tmp/${phase}-health.code"
+            [ "$(cat "$tmp/${phase}-health.code")" = "200" ] || stop_pre HEALTH_HTTP_NOT_200
+            jq -e --arg service "$WORKER_NAME" --arg version "$EXPECTED_VERSION" '.status == "ok" and .service == $service and .workerVersion == $version' "$tmp/${phase}-health.json" >/dev/null || stop_pre HEALTH_IDENTITY_MISMATCH
+            access_get_pre '/api/github/dashboard' "$tmp/${phase}-dashboard.json" "$tmp/${phase}-dashboard.code"
+            [ "$(cat "$tmp/${phase}-dashboard.code")" = "200" ] || stop_pre DASHBOARD_HTTP_NOT_200
+            node "$tmp/evaluate-dashboard.mjs" "$tmp/${phase}-dashboard.json" "$tmp/${phase}-target.json" || stop_pre DASHBOARD_TARGET_REVALIDATION_FAILED
+            gh_target_get_pre "/pulls/${PR_NUMBER}" "$tmp/${phase}-target-pr.json"
+            jq -e --arg head "$EXPECTED_PR_HEAD" '.state == "open" and .merged == false and .draft == false and .base.ref == "main" and .head.sha == $head' "$tmp/${phase}-target-pr.json" >/dev/null || stop_pre TARGET_PR_DRIFT
+            gh_target_get_pre '/branches/main' "$tmp/${phase}-target-main.json"
+            jq -e --arg sha "$EXPECTED_TARGET_MAIN" '.commit.sha == $sha' "$tmp/${phase}-target-main.json" >/dev/null || stop_pre TARGET_MAIN_DRIFT
+            cf_d1_get "/d1/database/${DB_ID}" "$tmp/${phase}-db.json"
+            jq -e --arg id "$DB_ID" --arg name "$DB_NAME" '.result.uuid == $id and .result.name == $name' "$tmp/${phase}-db.json" >/dev/null || stop_pre D1_IDENTITY_MISMATCH
+            local decision_id="github:ops-workflows:pr:${PR_NUMBER}"
+            d1_select_pre "$decision_id" "$tmp/${phase}-deferral.json"
+            [ "$(jq '.result[0].results|length' "$tmp/${phase}-deferral.json")" = "0" ] || stop_pre LATER_DEFERRAL_PRESTATE_NOT_EMPTY
+          }
+
+          printf 'STAGE=INITIAL_REVALIDATION\n'
+          revalidate_bound_state initial
+          printf 'INITIAL_REVALIDATION=PASS\n'
+          printf 'STAGE=IMMEDIATE_PREWRITE_REVALIDATION\n'
+          revalidate_bound_state prewrite
+          printf 'PREWRITE_GATE=PASS\n'
+
+          decision_id="github:ops-workflows:pr:${PR_NUMBER}"
+          request_body="$(jq -cn --arg repository "$TARGET_REPOSITORY" --arg decisionId "$decision_id" --arg fingerprint "$EXPECTED_FINGERPRINT" '{repository:$repository,decisionId:$decisionId,expectedStateFingerprint:$fingerprint}')"
+          printf 'STAGE=LATER_POST\n'
+          access_post_later "$request_body" "$tmp/later-response.json" "$tmp/later-response.code"
+          [ "$(cat "$tmp/later-response.code")" = "200" ] || stop_post LATER_POST_HTTP_NOT_200
+          jq -e --arg repository "$TARGET_REPOSITORY" --arg project "$TARGET_PROJECT_ID" --arg decision "$decision_id" --arg fingerprint "$EXPECTED_FINGERPRINT" '.status == "DEFERRED" and .repository == $repository and .projectId == $project and .decisionId == $decision and .stateFingerprint == $fingerprint and (.observedAt|type == "string")' "$tmp/later-response.json" >/dev/null || stop_post LATER_RESPONSE_MISMATCH
+          observed_at="$(jq -r '.observedAt' "$tmp/later-response.json")"
+          printf 'LATER_POST_SENT=YES\n'
+          printf 'LATER_RESPONSE_STATUS=DEFERRED\n'
+
+          printf 'STAGE=POSTVERIFY_D1\n'
+          d1_select_post "$decision_id" "$tmp/post-deferral.json"
+          jq -e --arg decision "$decision_id" --arg project "$TARGET_PROJECT_ID" --argjson pr "$PR_NUMBER" --arg fingerprint "$EXPECTED_FINGERPRINT" --arg observed "$observed_at" '(.result[0].results|length) == 1 and .result[0].results[0].decision_id == $decision and .result[0].results[0].schema_version == 1 and .result[0].results[0].project_id == $project and .result[0].results[0].issue_number == null and .result[0].results[0].pr_number == $pr and .result[0].results[0].state_fingerprint == $fingerprint and .result[0].results[0].deferred_at == $observed' "$tmp/post-deferral.json" >/dev/null || stop_post POSTVERIFY_DEFERRAL_ROW_MISMATCH
+          printf 'POSTVERIFY_DEFERRAL_ROWS=1\n'
+
+          printf 'STAGE=POSTVERIFY_GITHUB\n'
+          gh_target_get_post "/pulls/${PR_NUMBER}" "$tmp/post-target-pr.json"
+          jq -e --arg head "$EXPECTED_PR_HEAD" '.state == "open" and .merged == false and .draft == false and .base.ref == "main" and .head.sha == $head' "$tmp/post-target-pr.json" >/dev/null || stop_post POSTVERIFY_TARGET_PR_DRIFT
+          gh_target_get_post '/branches/main' "$tmp/post-target-main.json"
+          jq -e --arg sha "$EXPECTED_TARGET_MAIN" '.commit.sha == $sha' "$tmp/post-target-main.json" >/dev/null || stop_post POSTVERIFY_TARGET_MAIN_DRIFT
+          gh_control_get_post '/branches/main' "$tmp/post-control-main.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/post-control-main.json" >/dev/null || stop_post POSTVERIFY_CONTROL_MAIN_DRIFT
+
+          printf 'LATER_CANARY=PASS\n'
+          printf 'AUTHORIZATION_CONSUMED=YES\n'
+          printf 'LATER_POST_STARTED=YES\n'
+          printf 'LATER_POST_SENT=YES\n'
+          printf 'REMOTE_D1_MUTATION=ONE_LATER_DEFERRAL_WRITE_THROUGH_WORKER\n'
+          printf 'WORKER_MUTATION=NO\n'
+          printf 'GITHUB_DECISION_MUTATION=NO\n'
+          printf 'CLOUDFLARE_CONFIG_MUTATION=NO\n'
+          printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
