@@ -61,7 +61,7 @@ function requireRequestId(value: string): string {
 
 function defaultRequestId(action: "MERGE" | "NEEDS_CHANGES"): string {
   const prefix = action === "MERGE" ? "rcmerge_" : "rcneeds_";
-  return `${prefix}${crypto.randomUUID().replaceAll("-", "_")}`;
+  return `${prefix}${crypto.randomUUID().replace(/-/g, "_")}`;
 }
 
 function requireReviewBody(value: string | undefined): string {
