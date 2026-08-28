@@ -1,5 +1,5 @@
-import type { DecisionReadModel, MockAction, ProjectReadModel } from "../shared/control-model";
-import { laterDecisionStateFingerprint } from "../shared/later-decision";
+import type { DecisionReadModel, MockAction, ProjectReadModel } from "../shared/control-model.js";
+import { laterDecisionStateFingerprint } from "../shared/later-decision.js";
 
 export type MutatingDecisionAction = Exclude<MockAction, "OPEN_PR">;
 
