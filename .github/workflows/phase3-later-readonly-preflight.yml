@@ -11,6 +11,8 @@ on:
         description: Exact currently active Worker version ID
         required: true
         type: string
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
@@ -22,6 +24,17 @@ concurrency:
 
 jobs:
   preflight:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.action == 'created' &&
+        github.event.issue.number == 278 &&
+        github.event.issue.pull_request == null &&
+        github.event.comment.user.id == 277435981 &&
+        github.event.comment.user.type == 'User' &&
+        github.event.comment.body == '/phase3-later-preflight'
+      )
     name: verify Later canary read-only baseline
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -73,10 +86,25 @@ jobs:
             command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
           done
 
-          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop WORKFLOW_EVENT_NOT_DISPATCH
           [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
-          [[ "${EXPECTED_DEPLOYMENT:-}" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_DEPLOYMENT_INVALID
-          [[ "${EXPECTED_VERSION:-}" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_VERSION_INVALID
+          case "${GITHUB_EVENT_NAME:-}" in
+            workflow_dispatch)
+              [[ "${EXPECTED_DEPLOYMENT:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop EXPECTED_DEPLOYMENT_INVALID
+              [[ "${EXPECTED_VERSION:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop EXPECTED_VERSION_INVALID
+              ;;
+            issue_comment)
+              [ -n "${GITHUB_EVENT_PATH:-}" ] || stop MISSING_GITHUB_EVENT_PATH
+              jq -e '
+                .action == "created" and
+                .issue.number == 278 and
+                (.issue | has("pull_request") | not) and
+                .comment.user.id == 277435981 and
+                .comment.user.type == "User" and
+                .comment.body == "/phase3-later-preflight"
+              ' "$GITHUB_EVENT_PATH" >/dev/null || stop OWNER_COMMENT_TRIGGER_INVALID
+              ;;
+            *) stop WORKFLOW_EVENT_UNSUPPORTED ;;
+          esac
 
           [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
           [ -n "${CLOUDFLARE_WORKERS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_API_TOKEN
@@ -206,6 +234,21 @@ jobs:
 
           printf '%s\n' STAGE=PRODUCTION_WORKER_BASELINE
           cf_workers_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments.json"
+          if [ "${GITHUB_EVENT_NAME:-}" = "issue_comment" ]; then
+            jq -e '
+              (.result.deployments | type == "array") and
+              (.result.deployments | length >= 1) and
+              (.result.deployments[0].id | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and
+              (.result.deployments[0].versions | type == "array") and
+              (.result.deployments[0].versions | length == 1) and
+              (.result.deployments[0].versions[0].version_id | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and
+              .result.deployments[0].versions[0].percentage == 100
+            ' "$tmp/deployments.json" >/dev/null || stop PRODUCTION_WORKER_AUTORESOLVE_INVALID
+            EXPECTED_DEPLOYMENT="$(jq -r '.result.deployments[0].id' "$tmp/deployments.json")"
+            EXPECTED_VERSION="$(jq -r '.result.deployments[0].versions[0].version_id' "$tmp/deployments.json")"
+          fi
+          [[ "${EXPECTED_DEPLOYMENT:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop EXPECTED_DEPLOYMENT_INVALID
+          [[ "${EXPECTED_VERSION:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop EXPECTED_VERSION_INVALID
           jq -e --arg deployment "$EXPECTED_DEPLOYMENT" --arg version "$EXPECTED_VERSION" '
             (.result.deployments | type == "array") and
             (.result.deployments | length >= 1) and
