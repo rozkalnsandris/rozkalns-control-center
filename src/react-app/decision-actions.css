@@ -1,0 +1,36 @@
+.decision-action-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: end center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.decision-action-dialog {
+  width: min(100%, 520px);
+  max-height: min(86dvh, 720px);
+  overflow: auto;
+  border-radius: 20px;
+  padding: 20px;
+  background: var(--surface, #fff);
+  box-shadow: 0 24px 72px rgba(15, 23, 42, 0.3);
+}
+
+.decision-action-dialog h2 { margin: 4px 0 10px; }
+.decision-action-dialog > p:not(.eyebrow) { margin: 0; line-height: 1.5; }
+.decision-action-evidence { display: grid; gap: 10px; margin: 18px 0; }
+.decision-action-evidence div { display: grid; grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr); gap: 12px; }
+.decision-action-evidence dt, .decision-action-review span { font-weight: 700; }
+.decision-action-evidence dd { margin: 0; overflow-wrap: anywhere; }
+.decision-action-review { display: grid; gap: 8px; margin: 18px 0; }
+.decision-action-review textarea { width: 100%; min-height: 132px; resize: vertical; border: 1px solid currentColor; border-radius: 12px; padding: 12px; font: inherit; }
+.decision-action-review small { line-height: 1.4; }
+.decision-action-dialog__actions { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 20px; }
+.decision-action-dialog__actions .action-button { min-height: 48px; }
+
+@media (min-width: 560px) {
+  .decision-action-overlay { place-items: center; }
+  .decision-action-dialog__actions { grid-template-columns: 1fr 1fr; }
+}
