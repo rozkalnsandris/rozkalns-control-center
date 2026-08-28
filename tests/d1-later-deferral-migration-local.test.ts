@@ -159,7 +159,9 @@ test("0009 permits nullable issue/PR and actor email without storing protected c
       actor_email: string | null;
     };
 
-    assert.deepEqual(row, { issue_number: null, pr_number: null, actor_email: null });
+    assert.equal(row.issue_number, null);
+    assert.equal(row.pr_number, null);
+    assert.equal(row.actor_email, null);
   } finally {
     database.close();
   }
