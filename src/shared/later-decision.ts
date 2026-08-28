@@ -67,12 +67,21 @@ function fail(code: LaterDecisionErrorCode): never {
   throw new LaterDecisionError(code);
 }
 
+function hasControlCharacter(value: string, includeWhitespaceControls: boolean): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint === 0x7f) return true;
+    if (includeWhitespaceControls) return codePoint <= 0x1f;
+    return codePoint === 0;
+  });
+}
+
 function requireIdentifier(value: unknown): string {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
     value.length > IDENTIFIER_LIMIT ||
-    /[\u0000-\u001f\u007f]/u.test(value)
+    hasControlCharacter(value, true)
   ) {
     fail("INVALID_INPUT");
   }
@@ -140,7 +149,7 @@ function validateDecision(item: DecisionReadModel): void {
     typeof item.reason !== "string" ||
     item.reason.length === 0 ||
     item.reason.length > REASON_LIMIT ||
-    /[\u0000\u007f]/u.test(item.reason)
+    hasControlCharacter(item.reason, false)
   ) {
     fail("INVALID_INPUT");
   }
