@@ -21,7 +21,7 @@ test("Later canary workflow is manual, main-only, attempt-one and least privileg
   assert.match(text, /cancel-in-progress: false/);
 });
 
-test("Later canary binds exact source, CI, read-only preflight and target evidence", async () => {
+test("Later canary binds exact source, CI, supported read-only preflight event and target evidence", async () => {
   const text = await source();
   for (const expected of [
     "rozkalnsandris/rozkalns-control-center",
@@ -38,6 +38,22 @@ test("Later canary binds exact source, CI, read-only preflight and target eviden
     "LATER_DEFERRAL_PRESTATE_NOT_EMPTY",
   ]) assert.ok(text.includes(expected), `missing ${expected}`);
 
+  const preflightRunStart = text.indexOf(
+    'gh_control_get_pre "/actions/runs/${EXPECTED_PREFLIGHT_RUN_ID}"',
+  );
+  const preflightRunEnd = text.indexOf(
+    'cf_workers_get "/workers/scripts/${WORKER_NAME}/deployments"',
+    preflightRunStart,
+  );
+  assert.ok(preflightRunStart >= 0 && preflightRunEnd > preflightRunStart);
+  const preflightRunCheck = text.slice(preflightRunStart, preflightRunEnd);
+
+  assert.match(
+    preflightRunCheck,
+    /\.event == "workflow_dispatch" or \.event == "issue_comment"/,
+  );
+  assert.doesNotMatch(preflightRunCheck, /\.event == "(?:push|pull_request|schedule)"/);
+  assert.match(preflightRunCheck, /\.run_attempt == 1/);
   assert.match(
     text,
     /AUTHORIZE_LATER_CANARY:\$\{APPROVED_SHA\}:\$\{EXPECTED_CI_RUN_ID\}:\$\{EXPECTED_PREFLIGHT_RUN_ID\}:\$\{EXPECTED_DEPLOYMENT\}:\$\{EXPECTED_VERSION\}:\$\{PR_NUMBER\}:\$\{EXPECTED_PR_HEAD\}:\$\{EXPECTED_TARGET_MAIN\}:\$\{EXPECTED_FINGERPRINT\}:POST1/,
