@@ -1,9 +1,16 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { DecisionActionTarget } from "../decision-action-client";
 
 interface ActionConfirmationDialogProps {
   target: DecisionActionTarget | null;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: (reviewBody: string) => void;
+}
+
+interface ActionConfirmationDialogContentProps {
+  target: DecisionActionTarget;
   pending: boolean;
   onCancel: () => void;
   onConfirm: (reviewBody: string) => void;
@@ -29,20 +36,13 @@ function actionSummary(target: DecisionActionTarget): string {
   return "This defers the current material decision state without approving, rejecting, merging, or deploying it.";
 }
 
-export function ActionConfirmationDialog({
+function ActionConfirmationDialogContent({
   target,
   pending,
   onCancel,
   onConfirm,
-}: ActionConfirmationDialogProps) {
+}: ActionConfirmationDialogContentProps) {
   const [reviewBody, setReviewBody] = useState("");
-
-  useEffect(() => {
-    setReviewBody("");
-  }, [target?.action, target?.item.id]);
-
-  if (!target) return null;
-
   const needsMessage = target.action === "NEEDS_CHANGES";
   const confirmDisabled = pending || (needsMessage && reviewBody.trim().length === 0);
 
@@ -103,5 +103,24 @@ export function ActionConfirmationDialog({
         </div>
       </section>
     </div>
+  );
+}
+
+export function ActionConfirmationDialog({
+  target,
+  pending,
+  onCancel,
+  onConfirm,
+}: ActionConfirmationDialogProps) {
+  if (!target) return null;
+
+  return (
+    <ActionConfirmationDialogContent
+      key={`${target.action}:${target.item.id}`}
+      target={target}
+      pending={pending}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   );
 }

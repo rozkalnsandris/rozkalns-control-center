@@ -1,3 +1,4 @@
+import { setTimeout as scheduleTimeout } from "node:timers";
 import { URL } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -14,7 +15,7 @@ export default defineConfig({ plugins: [react(), { name: "control-browser-regres
     if (requestUrl.startsWith("/__browser/state")) { sendJson(response, 200, { dashboardRequests, actionRequests }); return; }
     if (requestUrl.startsWith("/api/health")) { sendJson(response, 200, { status: "ok", service: "rozkalns-control", phase: "phase-0", workerVersion: "browser-regression" }); return; }
     if (requestUrl.startsWith("/api/github/dashboard")) { dashboardRequests += 1; const scenario = scenarioFromReferer(request); if (scenario === "fixture") { sendJson(response, 503, { error: "LIVE_READ_DISABLED" }); return; } if (scenario === "stale" && staleArmed) { sendJson(response, 500, { error: "BROWSER_TEST_REFRESH_FAILURE" }); return; } sendJson(response, 200, liveDashboard); return; }
-    if (request.method === "POST" && ["/api/github/merge", "/api/github/needs-changes", "/api/github/later"].includes(requestUrl)) { void readJsonBody(request).then((body) => { actionRequests.push({ path: requestUrl, body }); setTimeout(() => sendJson(response, 200, { ok: true }), 120); }).catch(() => sendJson(response, 400, { error: "INVALID_BROWSER_REQUEST" })); return; }
+    if (request.method === "POST" && ["/api/github/merge", "/api/github/needs-changes", "/api/github/later"].includes(requestUrl)) { void readJsonBody(request).then((body) => { actionRequests.push({ path: requestUrl, body }); scheduleTimeout(() => sendJson(response, 200, { ok: true }), 120); }).catch(() => sendJson(response, 400, { error: "INVALID_BROWSER_REQUEST" })); return; }
     next();
   });
 } }] });
