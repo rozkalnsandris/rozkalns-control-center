@@ -37,6 +37,9 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
     CONTROL_MERGE_ACCESS_ISSUER: "https://super-salad-2357.cloudflareaccess.com",
     CONTROL_MERGE_ACCESS_AUDIENCE:
       "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
+    CONTROL_LATER_ACCESS_ISSUER: "https://super-salad-2357.cloudflareaccess.com",
+    CONTROL_LATER_ACCESS_AUDIENCE:
+      "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
   });
   assert.equal(config.vars?.CONTROL_LIVE_READ_ENABLED, "true");
   assert.equal(config.vars?.CONTROL_WEBHOOK_RUNTIME_ENABLED, "true");
@@ -54,6 +57,14 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
   );
   assert.equal(
     config.vars?.CONTROL_MERGE_ACCESS_AUDIENCE,
+    "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
+  );
+  assert.equal(
+    config.vars?.CONTROL_LATER_ACCESS_ISSUER,
+    "https://super-salad-2357.cloudflareaccess.com",
+  );
+  assert.equal(
+    config.vars?.CONTROL_LATER_ACCESS_AUDIENCE,
     "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
   );
   assert.deepEqual(config.secrets?.required, ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]);
