@@ -10,28 +10,27 @@ const policySource = readFileSync(resolve(process.cwd(), "src/shared/project-pol
 const routeSource = readFileSync(resolve(process.cwd(), "src/worker/github-merge-route.ts"), "utf8");
 const runtimeSource = readFileSync(resolve(process.cwd(), "src/worker/github-merge-runtime.ts"), "utf8");
 
-test("Phase 3 Merge Worker boundary remains detached from production entrypoints and UI", () => {
-  for (const forbidden of [
-    "github-merge-route",
-    "github-merge-runtime",
-    "/api/github/merge",
-    "GITHUB_MERGE_ROUTE_PATH",
-    "handleGitHubMergeRequest",
-    "resolveCloudflareMergeRuntime",
-  ]) {
-    assert.equal(workerIndex.includes(forbidden), false, `unexpected Worker Merge wiring: ${forbidden}`);
-  }
+test("Phase 3 Merge route is Worker-reachable while UI and capability remain disabled", () => {
+  assert.match(workerIndex, /GITHUB_MERGE_ROUTE_PATH/);
+  assert.match(workerIndex, /handleGitHubMergeRequest/);
+  assert.match(workerIndex, /resolveCloudflareMergeRuntime/);
+  assert.match(workerIndex, /function resolveMergeRuntime\(env: Env\)/);
+  assert.match(workerIndex, /url\.pathname === GITHUB_MERGE_ROUTE_PATH/);
+  assert.match(
+    workerIndex,
+    /handleGitHubMergeRequest\(request, resolveMergeRuntime\(env\)\)/,
+  );
 
   assert.equal(appSource.includes("/api/github/merge"), false);
   assert.equal(appSource.includes("GITHUB_MERGE_ROUTE_PATH"), false);
 
-  assert.equal(wranglerConfig.includes("CONTROL_MERGE_ACCESS_ISSUER"), false);
-  assert.equal(wranglerConfig.includes("CONTROL_MERGE_ACCESS_AUDIENCE"), false);
+  assert.match(wranglerConfig, /"CONTROL_MERGE_ACCESS_ISSUER"\s*:/);
+  assert.match(wranglerConfig, /"CONTROL_MERGE_ACCESS_AUDIENCE"\s*:/);
   assert.equal(wranglerConfig.includes("GITHUB_CONTENTS_WRITE_PERMISSION"), false);
   assert.equal(wranglerConfig.includes("contents:write"), false);
 });
 
-test("detached Merge handler and runtime retain independent fail-closed capability gates", () => {
+test("reachable Merge handler and runtime retain independent fail-closed capability gates", () => {
   assert.match(routeSource, /resolveMergeProjectPolicy/);
   assert.match(routeSource, /project\.canMerge\s*!==\s*true/);
   assert.match(routeSource, /ACTION_NOT_ALLOWED/);
@@ -39,6 +38,7 @@ test("detached Merge handler and runtime retain independent fail-closed capabili
   assert.match(routeSource, /WRITE_OUTCOME_UNKNOWN/);
 
   assert.match(runtimeSource, /requireMergeProjectPolicy\(request\.repository\)/);
+  assert.match(runtimeSource, /if \(issuer === null \|\| audience === null\) return null/);
   assert.match(runtimeSource, /D1MergeDecisionAuditStore/);
   assert.match(runtimeSource, /createGitHubAppMergeSessionProvider/);
   assert.match(runtimeSource, /createGitHubPullRequestMergeWriter/);

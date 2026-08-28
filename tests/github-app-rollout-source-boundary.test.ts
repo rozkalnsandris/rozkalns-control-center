@@ -34,6 +34,9 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
     CONTROL_NEEDS_CHANGES_ACCESS_ISSUER: "https://super-salad-2357.cloudflareaccess.com",
     CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE:
       "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
+    CONTROL_MERGE_ACCESS_ISSUER: "https://super-salad-2357.cloudflareaccess.com",
+    CONTROL_MERGE_ACCESS_AUDIENCE:
+      "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
   });
   assert.equal(config.vars?.CONTROL_LIVE_READ_ENABLED, "true");
   assert.equal(config.vars?.CONTROL_WEBHOOK_RUNTIME_ENABLED, "true");
@@ -45,8 +48,16 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
     config.vars?.CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE,
     "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
   );
+  assert.equal(
+    config.vars?.CONTROL_MERGE_ACCESS_ISSUER,
+    "https://super-salad-2357.cloudflareaccess.com",
+  );
+  assert.equal(
+    config.vars?.CONTROL_MERGE_ACCESS_AUDIENCE,
+    "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
+  );
   assert.deepEqual(config.secrets?.required, ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]);
-  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_|test-webhook-secret/i);
+  assert.doesNotMatch(wrangler, /-----BEGIN|ghs_|test-webhook-secret|contents:write/i);
 
   assert.doesNotMatch(worker, /app-read-rollout-plan|GitHubReadRollout|cloudflare-worker-runtime|GITHUB_APP_/);
 });
