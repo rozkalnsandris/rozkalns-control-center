@@ -10,7 +10,7 @@ import {
   selectLatestEffectiveCheckRuns,
   selectLatestEffectiveWorkflowRuns,
 } from "./github-evidence-selection.js";
-import { aggregateReviewState } from "./github-projection.js";
+import { aggregateReviewState, isReviewRequirementSatisfied } from "./github-projection.js";
 import { managedProjectPolicies, type ManagedProjectPolicy } from "./project-policy.js";
 import type {
   CheckRunRead,
@@ -85,6 +85,28 @@ function observedWorkflowState(ci: CiState, review: ReviewState): WorkflowState 
   return "WAITING";
 }
 
+function allowedActionsForLiveDecision(
+  policy: ManagedProjectPolicy,
+  decision: Pick<
+    DecisionReadModel,
+    "workflowState" | "ci" | "review" | "issueNumber" | "prNumber"
+  >,
+): DecisionReadModel["allowedActions"] {
+  const actions: DecisionReadModel["allowedActions"] = [];
+  const gitHubWriteReady =
+    decision.issueNumber !== null &&
+    decision.prNumber !== null &&
+    decision.workflowState === "MERGE_READY" &&
+    decision.ci === "PASS" &&
+    isReviewRequirementSatisfied(decision.review);
+
+  if (gitHubWriteReady && policy.canMerge) actions.push("MERGE");
+  if (gitHubWriteReady && policy.canRequestChanges) actions.push("NEEDS_CHANGES");
+  if (policy.canLater) actions.push("LATER");
+  actions.push("OPEN_PR");
+  return actions;
+}
+
 function observedReason(
   pull: PullRequestRead,
   ci: CiState,
@@ -92,15 +114,15 @@ function observedReason(
   mergeState: PullRequestMergeStateRead,
 ): string {
   if (ci === "FAIL") {
-    return "An observed exact-head GitHub check or workflow reports failure. Control remains read-only and cannot mutate the pull request.";
+    return "An observed exact-head GitHub check or workflow reports failure. GitHub write actions remain unavailable from this lightweight observation.";
   }
   if (review === "CHANGES_REQUESTED") {
-    return "The latest effective GitHub review state includes changes requested. Human attention is required; only the pull request can be opened from Control.";
+    return "The latest effective GitHub review state includes changes requested. Human attention is required; GitHub write actions remain unavailable from this lightweight observation.";
   }
-  if (pull.draft) return "The pull request is still a draft. Control remains read-only and waits for the source workflow to advance.";
+  if (pull.draft) return "The pull request is still a draft. Control waits for the source workflow to advance.";
   if (ci === "RUNNING") return "Exact-head GitHub checks or workflows are still running. Control waits for fresh evidence.";
   if (ci === "WAITING") return "Exact-head CI evidence is missing or ambiguous. Control fails closed and does not declare merge readiness.";
-  return `Observed exact-head CI currently passes and GitHub reports ${mergeState.mergeable}/${mergeState.mergeStateStatus}, but branch-policy coverage is not complete enough to declare merge readiness.`;
+  return `Observed exact-head CI currently passes and GitHub reports ${mergeState.mergeable}/${mergeState.mergeStateStatus}, but branch-policy coverage is not complete enough to declare merge readiness; GitHub write actions remain fail closed.`;
 }
 
 async function readDecision(
@@ -121,12 +143,13 @@ async function readDecision(
   const ci = aggregateObservedCiState(checkRuns, workflowRuns);
   const review = aggregateReviewState(reviews);
   const state = observedWorkflowState(ci, review);
+  const issueNumber = null;
 
   return {
     id: `github:${policy.id}:pr:${pull.number}`,
     projectId: policy.id,
     workflowState: state,
-    issueNumber: null,
+    issueNumber,
     issueTitle: null,
     prNumber: pull.number,
     prTitle: pull.title,
@@ -140,7 +163,13 @@ async function readDecision(
     mainSha,
     reason: observedReason(pull, ci, review, mergeState),
     lastReconciledAt: observedAt,
-    allowedActions: ["OPEN_PR"],
+    allowedActions: allowedActionsForLiveDecision(policy, {
+      workflowState: state,
+      ci,
+      review,
+      issueNumber,
+      prNumber: pull.number,
+    }),
   };
 }
 

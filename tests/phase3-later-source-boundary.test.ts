@@ -1,15 +1,77 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
-async function source(path: string): Promise<string> { return readFile(path, "utf8"); }
 
-test("Later route, canary policy and confirmed UI client remain fail-closed at their separate boundaries", async () => {
-  const [laterSource, actionSource, storeSource, routeSource, runtimeSource, policySource, workerIndex, appSource, clientSource, wranglerSource, migrationEntries] = await Promise.all([
-    source("src/shared/later-decision.ts"), source("src/shared/later-action.ts"), source("src/integrations/cloudflare/d1-later-deferral-store.ts"), source("src/worker/github-later-route.ts"), source("src/worker/github-later-runtime.ts"), source("src/shared/project-policy.ts"), source("src/worker/index.ts"), source("src/react-app/App.tsx"), source("src/react-app/decision-action-client.ts"), source("wrangler.jsonc"), readdir("migrations"),
+async function source(path: string): Promise<string> {
+  return readFile(path, "utf8");
+}
+
+test("Later route, canary policy, live projection and confirmed UI client remain fail-closed at their separate boundaries", async () => {
+  const [
+    laterSource,
+    actionSource,
+    storeSource,
+    routeSource,
+    runtimeSource,
+    policySource,
+    liveDashboardSource,
+    workerIndex,
+    appSource,
+    clientSource,
+    wranglerSource,
+    migrationEntries,
+  ] = await Promise.all([
+    source("src/shared/later-decision.ts"),
+    source("src/shared/later-action.ts"),
+    source("src/integrations/cloudflare/d1-later-deferral-store.ts"),
+    source("src/worker/github-later-route.ts"),
+    source("src/worker/github-later-runtime.ts"),
+    source("src/shared/project-policy.ts"),
+    source("src/shared/live-dashboard.ts"),
+    source("src/worker/index.ts"),
+    source("src/react-app/App.tsx"),
+    source("src/react-app/decision-action-client.ts"),
+    source("wrangler.jsonc"),
+    readdir("migrations"),
   ]);
-  assert.match(laterSource, /createLaterDeferral/); assert.match(laterSource, /evaluateLaterDeferral/); assert.match(actionSource, /readDashboard/); assert.match(actionSource, /laterDecisionStateFingerprint/); assert.match(actionSource, /AUTHORIZATION_STALE_STATE/); assert.match(actionSource, /allowedActions\.includes\("LATER"\)/); assert.match(storeSource, /ON CONFLICT\(decision_id\) DO NOTHING/); assert.match(storeSource, /UPDATE later_deferrals/);
-  assert.match(routeSource, /GITHUB_LATER_ROUTE_PATH = "\/api\/github\/later"/); assert.match(routeSource, /authenticateRequest/); assert.match(routeSource, /resolveLaterProjectPolicy/); assert.match(routeSource, /project\.canLater !== true/); assert.match(runtimeSource, /CloudflareAccessRequestAuthenticator/); assert.match(runtimeSource, /D1LaterDeferralStore/); assert.match(runtimeSource, /requireLaterProjectPolicy/); assert.match(workerIndex, /GITHUB_LATER_ROUTE_PATH/);
-  assert.equal((policySource.match(/canLater: false/g) ?? []).length, 5); assert.equal((policySource.match(/canLater: true/g) ?? []).length, 1); assert.match(policySource, /repository: "rozkalnsandris\/ops-workflows"[\s\S]*?canLater: true/);
-  assert.match(clientSource, /"\/api\/github\/later"/); assert.match(clientSource, /laterDecisionStateFingerprint/); assert.match(clientSource, /"\/api\/github\/merge"/); assert.match(clientSource, /mergeMethod: "squash"/); assert.match(clientSource, /"\/api\/github\/needs-changes"/); assert.match(appSource, /ActionConfirmationDialog/); assert.match(appSource, /postDecisionAction/); assert.match(appSource, /liveState !== "LIVE"/); assert.doesNotMatch(appSource, /handleMockAction|demo only/);
-  assert.match(wranglerSource, /CONTROL_LATER_ACCESS_ISSUER/); assert.match(wranglerSource, /CONTROL_LATER_ACCESS_AUDIENCE/); assert.doesNotMatch(wranglerSource, /CONTROL_LATER_RUNTIME_ENABLED/); assert.equal(migrationEntries.includes("0009_later_deferrals.sql"), true); assert.equal(migrationEntries.filter((entry) => /later|deferral/i.test(entry)).length, 1);
+
+  assert.match(laterSource, /createLaterDeferral/);
+  assert.match(laterSource, /evaluateLaterDeferral/);
+  assert.match(actionSource, /readDashboard/);
+  assert.match(actionSource, /laterDecisionStateFingerprint/);
+  assert.match(actionSource, /AUTHORIZATION_STALE_STATE/);
+  assert.match(actionSource, /allowedActions\.includes\("LATER"\)/);
+  assert.match(storeSource, /ON CONFLICT\(decision_id\) DO NOTHING/);
+  assert.match(storeSource, /UPDATE later_deferrals/);
+
+  assert.match(routeSource, /GITHUB_LATER_ROUTE_PATH = "\/api\/github\/later"/);
+  assert.match(routeSource, /authenticateRequest/);
+  assert.match(routeSource, /resolveLaterProjectPolicy/);
+  assert.match(routeSource, /project\.canLater !== true/);
+  assert.match(runtimeSource, /CloudflareAccessRequestAuthenticator/);
+  assert.match(runtimeSource, /D1LaterDeferralStore/);
+  assert.match(runtimeSource, /requireLaterProjectPolicy/);
+  assert.match(workerIndex, /GITHUB_LATER_ROUTE_PATH/);
+
+  assert.equal((policySource.match(/canLater: false/g) ?? []).length, 5);
+  assert.equal((policySource.match(/canLater: true/g) ?? []).length, 1);
+  assert.match(policySource, /repository: "rozkalnsandris\/ops-workflows"[\s\S]*?canLater: true/);
+  assert.match(liveDashboardSource, /policy\.canLater/);
+  assert.match(liveDashboardSource, /actions\.push\("LATER"\)/);
+
+  assert.match(clientSource, /"\/api\/github\/later"/);
+  assert.match(clientSource, /laterDecisionStateFingerprint/);
+  assert.match(clientSource, /"\/api\/github\/merge"/);
+  assert.match(clientSource, /mergeMethod: "squash"/);
+  assert.match(clientSource, /"\/api\/github\/needs-changes"/);
+  assert.match(appSource, /ActionConfirmationDialog/);
+  assert.match(appSource, /postDecisionAction/);
+  assert.match(appSource, /liveState\s*!==\s*"LIVE"/);
+  assert.doesNotMatch(appSource, /handleMockAction|demo only/);
+
+  assert.match(wranglerSource, /CONTROL_LATER_ACCESS_ISSUER/);
+  assert.match(wranglerSource, /CONTROL_LATER_ACCESS_AUDIENCE/);
+  assert.doesNotMatch(wranglerSource, /CONTROL_LATER_RUNTIME_ENABLED/);
+  assert.equal(migrationEntries.includes("0009_later_deferrals.sql"), true);
+  assert.equal(migrationEntries.filter((entry) => /later|deferral/i.test(entry)).length, 1);
 });

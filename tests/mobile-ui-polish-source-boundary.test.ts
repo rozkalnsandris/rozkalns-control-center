@@ -6,7 +6,7 @@ const APP = "src/react-app/App.tsx";
 const CARD = "src/react-app/components/DecisionCard.tsx";
 const CSS = "src/react-app/index.css";
 
-test("public UI keeps the 320–430px mobile-first decision contract while adding one normalized live read", async () => {
+test("public UI keeps the 320–430px mobile-first decision contract with confirmed live actions", async () => {
   const [app, card, css, liveCss] = await Promise.all([
     readFile(APP, "utf8"),
     readFile(CARD, "utf8"),
@@ -27,7 +27,7 @@ test("public UI keeps the 320–430px mobile-first decision contract while addin
   assert.equal(app.includes("fixture-notice"), false);
   assert.equal(app.includes('fetch("/api/github/dashboard"'), true);
   assert.equal(app.includes("AbortController"), true);
-  assert.equal(app.includes("LIVE READ-ONLY"), true);
+  assert.equal(app.includes("LIVE CONTROL"), true);
   assert.equal(app.includes("Live data unavailable · fixture data shown"), true);
   assert.equal(app.includes("api.github.com"), false);
 
@@ -40,9 +40,8 @@ test("public UI keeps the 320–430px mobile-first decision contract while addin
   assert.equal(card.includes("action-button--tertiary"), true);
   assert.equal(card.includes("fetch("), false);
   assert.equal(card.includes("api.github.com"), false);
-  assert.equal(card.includes('<a className={actionClass(action)} href={item.prUrl}'), true);
+  assert.match(card, /if\s*\(\s*action\s*===\s*"OPEN_PR"\s*\)/);
   assert.equal(card.includes('target="_blank"'), false);
-
-  assert.equal(card.includes("onMockAction(action, item)"), true);
+  assert.match(card, /onAction\(action,\s*item,\s*project\)/);
   assert.equal(card.includes('type="button"'), true);
 });
