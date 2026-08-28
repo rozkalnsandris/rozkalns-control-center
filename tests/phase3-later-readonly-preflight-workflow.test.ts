@@ -5,10 +5,24 @@ import test from "node:test";
 const workflowPath = ".github/workflows/phase3-later-readonly-preflight.yml";
 const source = readFileSync(workflowPath, "utf8");
 
-test("Later canary preflight workflow stays manual and read-only", () => {
+test("Later canary preflight supports manual and exact owner-comment triggers while staying read-only", () => {
   assert.match(source, /workflow_dispatch:/);
-  assert.match(source, /contents: read/);
-  assert.match(source, /actions: read/);
+  assert.match(source, /issue_comment:\s*\n\s+types: \[created\]/);
+  assert.match(source, /github\.event\.issue\.number == 278/);
+  assert.match(source, /github\.event\.issue\.pull_request == null/);
+  assert.match(source, /github\.event\.comment\.user\.id == 277435981/);
+  assert.match(source, /github\.event\.comment\.user\.type == 'User'/);
+  assert.match(source, /github\.event\.comment\.body == '\/phase3-later-preflight'/);
+  assert.match(source, /\.issue\.number == 278/);
+  assert.match(source, /has\("pull_request"\) \| not/);
+  assert.match(source, /\.comment\.user\.id == 277435981/);
+  assert.match(source, /\.comment\.user\.type == "User"/);
+  assert.match(source, /\.comment\.body == "\/phase3-later-preflight"/);
+  assert.match(source, /OWNER_COMMENT_TRIGGER_INVALID/);
+  assert.match(source, /WORKFLOW_EVENT_UNSUPPORTED/);
+
+  assert.match(source, /permissions:\s*\n\s+contents: read\s*\n\s+actions: read/);
+  assert.doesNotMatch(source, /actions: write|issues: write|pull-requests: write|contents: write/);
   assert.match(source, /name: production-readonly-reconcile/);
   assert.match(source, /deployment: false/);
 
@@ -42,16 +56,24 @@ test("Later canary preflight workflow stays manual and read-only", () => {
   assert.match(source, /GITHUB_DECISION_MUTATION=NO/);
 });
 
-test("Later preflight binds current-main CI and exact operator-supplied Worker baseline", () => {
+test("Later preflight keeps manual IDs and auto-resolves only a single 100% Worker version for owner comments", () => {
   assert.match(source, /GITHUB_REF_NAME:-.*main/);
   assert.match(source, /\.commit\.sha == \$sha/);
   assert.match(source, /event=push&branch=main&head_sha=\$\{run_sha\}/);
   assert.match(source, /conclusion == "success"/);
   assert.match(source, /EXPECTED_DEPLOYMENT: \$\{\{ inputs\.expected_deployment \}\}/);
   assert.match(source, /EXPECTED_VERSION: \$\{\{ inputs\.expected_version \}\}/);
-  assert.match(source, /\.result\.deployments\[0\]\.id == \$deployment/);
+
+  assert.match(source, /GITHUB_EVENT_NAME:-.*issue_comment/);
+  assert.match(source, /cf_workers_get "\/workers\/scripts\/\$\{WORKER_NAME\}\/deployments"/);
+  assert.match(source, /PRODUCTION_WORKER_AUTORESOLVE_INVALID/);
+  assert.match(source, /EXPECTED_DEPLOYMENT="\$\(jq -r '\.result\.deployments\[0\]\.id'/);
+  assert.match(source, /EXPECTED_VERSION="\$\(jq -r '\.result\.deployments\[0\]\.versions\[0\]\.version_id'/);
   assert.match(source, /\.result\.deployments\[0\]\.versions \| length == 1/);
   assert.match(source, /\.percentage == 100/);
+  assert.match(source, /\.result\.deployments\[0\]\.id == \$deployment/);
+  assert.match(source, /\.result\.deployments\[0\]\.versions\[0\]\.version_id == \$version/);
+  assert.doesNotMatch(source, /\/workers\/scripts\/\$\{WORKER_NAME\}\/deployments[^\n]*-X POST/);
 });
 
 test("Later preflight independently revalidates the selected target and exact fingerprint contract", () => {
