@@ -21,7 +21,9 @@
     "CONTROL_NEEDS_CHANGES_ACCESS_ISSUER": "https://super-salad-2357.cloudflareaccess.com",
     "CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE": "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
     "CONTROL_MERGE_ACCESS_ISSUER": "https://super-salad-2357.cloudflareaccess.com",
-    "CONTROL_MERGE_ACCESS_AUDIENCE": "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc"
+    "CONTROL_MERGE_ACCESS_AUDIENCE": "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
+    "CONTROL_LATER_ACCESS_ISSUER": "https://super-salad-2357.cloudflareaccess.com",
+    "CONTROL_LATER_ACCESS_AUDIENCE": "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc"
   },
   "secrets": {
     "required": ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]
