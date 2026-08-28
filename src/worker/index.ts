@@ -11,6 +11,14 @@ import type { QueueMessageBatchLike } from "../integrations/cloudflare/reconcili
 import { buildHealthPayload } from "../shared/health";
 import { handleGitHubDashboardRequest } from "./github-dashboard-route";
 import {
+  GITHUB_LATER_ROUTE_PATH,
+  handleGitHubLaterRequest,
+} from "./github-later-route";
+import {
+  resolveCloudflareLaterRuntime,
+  type CloudflareLaterProductionBindings,
+} from "./github-later-runtime";
+import {
   GITHUB_MERGE_ROUTE_PATH,
   handleGitHubMergeRequest,
 } from "./github-merge-route";
@@ -68,6 +76,12 @@ function resolveMergeRuntime(env: Env) {
   );
 }
 
+function resolveLaterRuntime(env: Env) {
+  return resolveCloudflareLaterRuntime(
+    env as unknown as CloudflareLaterProductionBindings,
+  );
+}
+
 const worker: ExportedHandler<Env> = {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -117,6 +131,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === GITHUB_MERGE_ROUTE_PATH) {
       return handleGitHubMergeRequest(request, resolveMergeRuntime(env));
+    }
+
+    if (url.pathname === GITHUB_LATER_ROUTE_PATH) {
+      return handleGitHubLaterRequest(request, resolveLaterRuntime(env));
     }
 
     if (url.pathname === GITHUB_WEBHOOK_OBSERVABILITY_ROUTE_PATH) {

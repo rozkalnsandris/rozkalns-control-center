@@ -8,6 +8,7 @@ export interface ManagedProjectPolicy {
   githubReadEnabled: boolean;
   canRequestChanges: boolean;
   canMerge: boolean;
+  canLater: boolean;
   productionAdapter: ProductionAdapter;
 }
 
@@ -20,6 +21,7 @@ export const managedProjectPolicies = [
     githubReadEnabled: true,
     canRequestChanges: false,
     canMerge: false,
+    canLater: false,
     productionAdapter: "rpi5",
   },
   {
@@ -30,6 +32,7 @@ export const managedProjectPolicies = [
     githubReadEnabled: true,
     canRequestChanges: false,
     canMerge: false,
+    canLater: false,
     productionAdapter: "rpi5",
   },
   {
@@ -40,6 +43,7 @@ export const managedProjectPolicies = [
     githubReadEnabled: true,
     canRequestChanges: false,
     canMerge: false,
+    canLater: false,
     productionAdapter: "rpi5",
   },
   {
@@ -50,6 +54,7 @@ export const managedProjectPolicies = [
     githubReadEnabled: true,
     canRequestChanges: false,
     canMerge: false,
+    canLater: false,
     productionAdapter: "rpi5",
   },
   {
@@ -60,6 +65,7 @@ export const managedProjectPolicies = [
     githubReadEnabled: true,
     canRequestChanges: true,
     canMerge: false,
+    canLater: false,
     productionAdapter: "none",
   },
   {
@@ -70,6 +76,7 @@ export const managedProjectPolicies = [
     githubReadEnabled: true,
     canRequestChanges: false,
     canMerge: false,
+    canLater: false,
     productionAdapter: "none",
   },
 ] as const satisfies readonly ManagedProjectPolicy[];
@@ -104,6 +111,13 @@ export class RepositoryMergeNotAllowedError extends Error {
   constructor(repository: string) {
     super(`Repository is not enabled for Rozkalns Control Merge actions: ${repository}`);
     this.name = "RepositoryMergeNotAllowedError";
+  }
+}
+
+export class RepositoryLaterNotAllowedError extends Error {
+  constructor(repository: string) {
+    super(`Repository is not enabled for Rozkalns Control Later actions: ${repository}`);
+    this.name = "RepositoryLaterNotAllowedError";
   }
 }
 
@@ -144,5 +158,17 @@ export function resolveMergeProjectPolicy(repository: string): ManagedProjectPol
 export function requireMergeProjectPolicy(repository: string): ManagedProjectPolicy {
   const policy = resolveMergeProjectPolicy(repository);
   if (!policy) throw new RepositoryMergeNotAllowedError(repository);
+  return policy;
+}
+
+export function resolveLaterProjectPolicy(repository: string): ManagedProjectPolicy | null {
+  const policy = resolveManagedProjectPolicy(repository);
+  if (!policy || policy.canLater !== true) return null;
+  return policy;
+}
+
+export function requireLaterProjectPolicy(repository: string): ManagedProjectPolicy {
+  const policy = resolveLaterProjectPolicy(repository);
+  if (!policy) throw new RepositoryLaterNotAllowedError(repository);
   return policy;
 }

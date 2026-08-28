@@ -27,6 +27,7 @@ const enabledPolicy: ManagedProjectPolicy = {
   githubReadEnabled: true,
   canRequestChanges: true,
   canMerge: false,
+  canLater: false,
   productionAdapter: "rpi5",
 };
 
