@@ -52,10 +52,10 @@ test("Merge D1 preflight pins migration 0008 schema, indexes and a zero-row pre-
   assert.match(source, /\.result\.uuid == \$id and \.result\.name == \$name/);
 
   assert.equal((source.match(/-X POST/g) ?? []).length, 1);
-  assert.match(source, /PRAGMA table_info\(\"merge_decisions\"\)/);
-  assert.match(source, /PRAGMA index_list\(\"merge_decisions\"\)/);
-  assert.match(source, /PRAGMA index_info\(\"idx_merge_decisions_state_requested_at\"\)/);
-  assert.match(source, /PRAGMA index_info\(\"idx_merge_decisions_repository_pull_requested_at\"\)/);
+  assert.match(source, /PRAGMA table_info\("merge_decisions"\)/);
+  assert.match(source, /PRAGMA index_list\("merge_decisions"\)/);
+  assert.match(source, /PRAGMA index_info\("idx_merge_decisions_state_requested_at"\)/);
+  assert.match(source, /PRAGMA index_info\("idx_merge_decisions_repository_pull_requested_at"\)/);
   assert.match(source, /SELECT COUNT\(\*\) AS row_count FROM merge_decisions/);
 
   const expectedColumns = [
@@ -81,7 +81,7 @@ test("Merge D1 preflight pins migration 0008 schema, indexes and a zero-row pre-
     "completed_at",
   ];
   for (const column of expectedColumns) {
-    assert.match(source, new RegExp(`name:\"${column}\"`));
+    assert.match(source, new RegExp(`name:"${column}"`));
   }
 
   assert.match(source, /\["state", "requested_at"\]/);
