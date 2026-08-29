@@ -262,6 +262,51 @@ jobs:
             printf '%s' "$code" > "$code_file"
           }
 
+          wait_for_target_merge_convergence() {
+            local merge_sha="$1"
+            local attempt
+            for attempt in 1 2 3 4 5; do
+              gh_target_get_post "/pulls/${PR_NUMBER}" "$tmp/post-pr-${attempt}.json"
+              gh_target_get_post '/branches/main' "$tmp/post-target-main-${attempt}.json"
+
+              if jq -e --argjson number "$PR_NUMBER" --arg head "$EXPECTED_PR_HEAD" --arg merge "$merge_sha" --arg repo "$TARGET_REPOSITORY" '
+                .number == $number and
+                .state == "closed" and
+                .merged == true and
+                .draft == false and
+                .head.sha == $head and
+                .head.repo.full_name == $repo and
+                .base.ref == "main" and
+                .base.repo.full_name == $repo and
+                .merge_commit_sha == $merge
+              ' "$tmp/post-pr-${attempt}.json" >/dev/null &&
+                jq -e --arg sha "$merge_sha" '.commit.sha == $sha' "$tmp/post-target-main-${attempt}.json" >/dev/null; then
+                printf 'POSTVERIFY_TARGET_MERGE_CONVERGED_ATTEMPT=%s\n' "$attempt"
+                return 0
+              fi
+
+              jq -e --argjson number "$PR_NUMBER" --arg head "$EXPECTED_PR_HEAD" --arg main "$EXPECTED_TARGET_MAIN" --arg merge "$merge_sha" --arg repo "$TARGET_REPOSITORY" '
+                .number == $number and
+                .draft == false and
+                .head.sha == $head and
+                .head.repo.full_name == $repo and
+                .base.ref == "main" and
+                .base.repo.full_name == $repo and
+                ((.state == "open" and .merged == false and .base.sha == $main) or
+                 (.state == "closed" and .merged == true and .merge_commit_sha == $merge))
+              ' "$tmp/post-pr-${attempt}.json" >/dev/null || stop_post POSTVERIFY_TARGET_PR_UNEXPECTED_DRIFT
+
+              jq -e --arg old "$EXPECTED_TARGET_MAIN" --arg merge "$merge_sha" '
+                .commit.sha == $old or .commit.sha == $merge
+              ' "$tmp/post-target-main-${attempt}.json" >/dev/null || stop_post POSTVERIFY_TARGET_MAIN_UNEXPECTED_DRIFT
+
+              if [ "$attempt" -lt 5 ]; then
+                sleep 2
+              fi
+            done
+            stop_post POSTVERIFY_TARGET_MERGE_NOT_CONVERGED
+          }
+
           revalidate_bound_state() {
             local phase="$1"
             printf 'STAGE=BOUND_STATE_%s\n' "$phase"
@@ -397,22 +442,7 @@ jobs:
             ' "$tmp/merge-response.json" >/dev/null || stop_post MERGE_RESPONSE_INVALID
 
           merge_sha="$(jq -r '.mergeSha' "$tmp/merge-response.json")"
-
-          gh_target_get_post "/pulls/${PR_NUMBER}" "$tmp/post-pr.json"
-          jq -e --argjson number "$PR_NUMBER" --arg head "$EXPECTED_PR_HEAD" --arg merge "$merge_sha" --arg repo "$TARGET_REPOSITORY" '
-            .number == $number and
-            .state == "closed" and
-            .merged == true and
-            .draft == false and
-            .head.sha == $head and
-            .head.repo.full_name == $repo and
-            .base.ref == "main" and
-            .base.repo.full_name == $repo and
-            .merge_commit_sha == $merge
-          ' "$tmp/post-pr.json" >/dev/null || stop_post POSTVERIFY_TARGET_PR_NOT_EXACTLY_MERGED
-
-          gh_target_get_post '/branches/main' "$tmp/post-target-main.json"
-          jq -e --arg sha "$merge_sha" '.commit.sha == $sha' "$tmp/post-target-main.json" >/dev/null || stop_post POSTVERIFY_TARGET_MAIN_NOT_MERGE_SHA
+          wait_for_target_merge_convergence "$merge_sha"
 
           gh_target_get_post "/issues/${ISSUE_NUMBER}" "$tmp/post-issue.json"
           jq -e --argjson number "$ISSUE_NUMBER" '.number == $number and .state == "open" and (has("pull_request")|not)' "$tmp/post-issue.json" >/dev/null || stop_post POSTVERIFY_TARGET_ISSUE_DRIFT
