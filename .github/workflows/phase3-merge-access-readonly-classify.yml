@@ -1,0 +1,321 @@
+name: Phase 3 Merge Access read-only 403 classifier
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase3-merge-access-readonly-classify
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.action == 'created' &&
+        github.event.issue.number == 278 &&
+        github.event.issue.pull_request == null &&
+        github.event.comment.user.id == 277435981 &&
+        github.event.comment.user.type == 'User' &&
+        github.event.comment.body == '/phase3-merge-access-classify'
+      )
+    name: classify Merge Access 403 without mutation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      HOSTNAME: control.rozkalns.net
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+      CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
+
+    steps:
+      - name: Classify bounded production Access response
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop() {
+            {
+              printf 'MERGE_ACCESS_CLASSIFIER=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'ACCESS_REQUEST_METHOD=GET\n'
+              printf 'ACCESS_MUTATION=NO\n'
+              printf 'MERGE_POST_SENT=NO\n'
+              printf 'WORKER_MUTATION=NO\n'
+              printf 'CLOUDFLARE_CONFIG_MUTATION=NO\n'
+              printf 'GITHUB_DECISION_MUTATION=NO\n'
+              printf 'GITHUB_APP_PERMISSION_MUTATION=NO\n'
+            } >&2
+            exit 1
+          }
+
+          for cmd in curl jq sha256sum sed tr wc; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
+          case "${GITHUB_EVENT_NAME:-}" in
+            workflow_dispatch)
+              ;;
+            issue_comment)
+              [ -n "${GITHUB_EVENT_PATH:-}" ] || stop MISSING_GITHUB_EVENT_PATH
+              jq -e '
+                .action == "created" and
+                .issue.number == 278 and
+                (.issue | has("pull_request") | not) and
+                .comment.user.id == 277435981 and
+                .comment.user.type == "User" and
+                .comment.body == "/phase3-merge-access-classify"
+              ' "$GITHUB_EVENT_PATH" >/dev/null || stop OWNER_COMMENT_TRIGGER_INVALID
+              ;;
+            *) stop WORKFLOW_EVENT_UNSUPPORTED ;;
+          esac
+
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_WORKERS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_WORKERS_READ_TOKEN
+          [ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ] || stop MISSING_CONTROL_ACCESS_CLIENT_ID
+          [ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ] || stop MISSING_CONTROL_ACCESS_CLIENT_SECRET
+
+          printf 'WORKERS_READ_SECRET_NAME=CLOUDFLARE_API_TOKEN\n'
+          printf 'ACCESS_CREDENTIALS_SOURCE=ENVIRONMENT_SECRET_BINDINGS\n'
+
+          tmp="${RUNNER_TEMP}/phase3-merge-access-classify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$tmp"
+
+          gh_control_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_CONTROL_GET_FAILED
+          }
+
+          cf_workers_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_WORKERS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_WORKERS_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_WORKERS_RESPONSE_INVALID
+          }
+
+          access_get() {
+            local body="$1"
+            curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              --max-filesize 65536 \
+              -o "$body" \
+              -w '%{http_code}\n%{content_type}\n' \
+              -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}" \
+              -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}" \
+              -H 'Accept: application/json' \
+              "https://${HOSTNAME}/api/github/merge" || stop ACCESS_GET_FAILED
+          }
+
+          printf '%s\n' STAGE=GITHUB_EXACT_MAIN_CI
+          run_sha="${GITHUB_SHA:-}"
+          [[ "$run_sha" =~ ^[0-9a-f]{40}$ ]] || stop WORKFLOW_SHA_INVALID
+
+          gh_control_get '/branches/main' "$tmp/main.json"
+          jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+
+          gh_control_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${run_sha}&per_page=10" "$tmp/ci-runs.json"
+          ci_run_id="$(
+            jq -r --arg sha "$run_sha" '
+              [
+                .workflow_runs[]?
+                | select(
+                    .name == "CI" and
+                    .path == ".github/workflows/ci.yml" and
+                    .head_branch == "main" and
+                    .head_sha == $sha and
+                    .event == "push" and
+                    .status == "completed" and
+                    .conclusion == "success"
+                  )
+              ]
+              | sort_by(.run_number)
+              | last
+              | .id // empty
+            ' "$tmp/ci-runs.json"
+          )"
+          [[ "$ci_run_id" =~ ^[0-9]+$ ]] || stop EXACT_MAIN_CI_NOT_SUCCESS
+          gh_control_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
+          jq -e --arg sha "$run_sha" --argjson id "$ci_run_id" '
+            .id == $id and
+            .name == "CI" and
+            .path == ".github/workflows/ci.yml" and
+            .head_branch == "main" and
+            .head_sha == $sha and
+            .event == "push" and
+            .status == "completed" and
+            .conclusion == "success"
+          ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+          printf 'SOURCE_SHA=%s\n' "$run_sha"
+          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+
+          printf '%s\n' STAGE=PRODUCTION_WORKER_BASELINE
+          cf_workers_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments.json"
+          jq -e '
+            (.result.deployments | type == "array") and
+            (.result.deployments | length >= 1) and
+            (.result.deployments[0].id | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and
+            (.result.deployments[0].versions | type == "array") and
+            (.result.deployments[0].versions | length == 1) and
+            (.result.deployments[0].versions[0].version_id | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and
+            .result.deployments[0].versions[0].percentage == 100
+          ' "$tmp/deployments.json" >/dev/null || stop PRODUCTION_WORKER_BASELINE_INVALID
+          deployment_id="$(jq -r '.result.deployments[0].id' "$tmp/deployments.json")"
+          worker_version="$(jq -r '.result.deployments[0].versions[0].version_id' "$tmp/deployments.json")"
+          printf 'DEPLOYMENT_ID=%s\n' "$deployment_id"
+          printf 'WORKER_VERSION=%s\n' "$worker_version"
+          printf 'TRAFFIC_PERCENT=100\n'
+
+          printf '%s\n' STAGE=MERGE_ACCESS_403_CLASSIFIER
+          access_meta="$(access_get "$tmp/access.body")"
+          access_http="$(printf '%s\n' "$access_meta" | sed -n '1p')"
+          access_content_type="$(printf '%s\n' "$access_meta" | sed -n '2p')"
+          [[ "$access_http" =~ ^[0-9]{3}$ ]] || stop ACCESS_HTTP_STATUS_INVALID
+
+          body_bytes="$(wc -c < "$tmp/access.body" | tr -d '[:space:]')"
+          [[ "$body_bytes" =~ ^[0-9]+$ ]] || stop ACCESS_BODY_SIZE_INVALID
+          body_sha256="$(sha256sum "$tmp/access.body" | sed 's/ .*//')"
+          [[ "$body_sha256" =~ ^[0-9a-f]{64}$ ]] || stop ACCESS_BODY_SHA256_INVALID
+
+          normalized_content_type="$(printf '%s' "$access_content_type" | tr '[:upper:]' '[:lower:]')"
+          case "$normalized_content_type" in
+            application/json*|application/*+json*) body_class=JSON ;;
+            text/html*) body_class=HTML ;;
+            *) body_class=OTHER ;;
+          esac
+
+          classified_stop=""
+          case "$access_http" in
+            200)
+              if jq -e '
+                type == "object" and
+                .status == "AUTHENTICATED" and
+                (keys | sort) == ["status"]
+              ' "$tmp/access.body" >/dev/null 2>&1; then
+                printf 'MERGE_ACCESS_AUTH=PASS\n'
+                printf 'ACCESS_RESPONSE_CLASS=WORKER_AUTHENTICATED\n'
+              else
+                printf 'ACCESS_RESPONSE_BODY_BYTES=%s\n' "$body_bytes"
+                printf 'ACCESS_RESPONSE_BODY_SHA256=%s\n' "$body_sha256"
+                printf 'ACCESS_RESPONSE_BODY_CLASS=%s\n' "$body_class"
+                classified_stop=MERGE_ACCESS_CLASSIFIED_200_BODY_UNEXPECTED
+              fi
+              ;;
+            403)
+              printf 'ACCESS_403_BODY_BYTES=%s\n' "$body_bytes"
+              printf 'ACCESS_403_BODY_SHA256=%s\n' "$body_sha256"
+              printf 'ACCESS_403_BODY_CLASS=%s\n' "$body_class"
+
+              if jq -e 'type == "object"' "$tmp/access.body" >/dev/null 2>&1; then
+                access_error="$(jq -r '
+                  if ((.error? | type) == "string" and (.error | test("^[A-Z0-9_]{1,80}$")))
+                  then .error else "" end
+                ' "$tmp/access.body")"
+                access_diagnostic="$(jq -r '
+                  if ((.diagnostic? | type) == "string" and (.diagnostic | test("^[A-Z0-9_]{1,80}$")))
+                  then .diagnostic else "" end
+                ' "$tmp/access.body")"
+
+                if [ -n "$access_error" ]; then
+                  printf 'ACCESS_403_ERROR_CODE=%s\n' "$access_error"
+                fi
+                if [ -n "$access_diagnostic" ]; then
+                  printf 'ACCESS_403_DIAGNOSTIC_CODE=%s\n' "$access_diagnostic"
+                fi
+
+                if [ "$access_error" = ACCESS_AUTHENTICATION_FAILED ] &&
+                   [ "$access_diagnostic" = ACCESS_JWT_AUDIENCE_INVALID ] &&
+                   jq -e '
+                     (.audience | type == "object") and
+                     .audience.shape == "ARRAY" and
+                     (.audience.count | type == "number") and
+                     .audience.count >= 1 and
+                     .audience.count <= 32 and
+                     (.audience.sha256 | type == "array") and
+                     (.audience.sha256 | length >= 1 and length <= 4) and
+                     all(.audience.sha256[]; type == "string" and test("^[0-9a-f]{64}$"))
+                   ' "$tmp/access.body" >/dev/null 2>&1; then
+                  printf 'ACCESS_403_ORIGIN_CLASS=WORKER_AUDIENCE_DIAGNOSTIC\n'
+                  printf 'ACCESS_403_AUDIENCE_SHAPE=%s\n' "$(jq -r '.audience.shape' "$tmp/access.body")"
+                  printf 'ACCESS_403_AUDIENCE_COUNT=%s\n' "$(jq -r '.audience.count' "$tmp/access.body")"
+                  printf 'OBSERVED_ACCESS_AUD_SHA256=%s\n' "$(jq -r '.audience.sha256 | join(",")' "$tmp/access.body")"
+                  classified_stop=MERGE_ACCESS_CLASSIFIED_WORKER_AUDIENCE_INVALID
+                elif [ "$access_error" = ACCESS_AUTHENTICATION_FAILED ] && [ -n "$access_diagnostic" ]; then
+                  printf 'ACCESS_403_ORIGIN_CLASS=WORKER_AUTH_DIAGNOSTIC\n'
+                  classified_stop=MERGE_ACCESS_CLASSIFIED_WORKER_AUTH_OTHER
+                elif [ "$access_error" = ACCESS_AUTHENTICATION_FAILED ]; then
+                  printf 'ACCESS_403_ORIGIN_CLASS=WORKER_AUTH_GENERIC\n'
+                  classified_stop=MERGE_ACCESS_CLASSIFIED_WORKER_AUTH_GENERIC
+                else
+                  printf 'ACCESS_403_ORIGIN_CLASS=JSON_OTHER\n'
+                  classified_stop=MERGE_ACCESS_CLASSIFIED_JSON_403_OTHER
+                fi
+              elif [ "$body_class" = HTML ]; then
+                printf 'ACCESS_403_ORIGIN_CLASS=EDGE_OR_HTML\n'
+                classified_stop=MERGE_ACCESS_CLASSIFIED_EDGE_OR_HTML_403
+              else
+                printf 'ACCESS_403_ORIGIN_CLASS=NON_JSON_OTHER\n'
+                classified_stop=MERGE_ACCESS_CLASSIFIED_NON_JSON_403_OTHER
+              fi
+              ;;
+            *)
+              printf 'ACCESS_RESPONSE_HTTP_STATUS=%s\n' "$access_http"
+              printf 'ACCESS_RESPONSE_BODY_BYTES=%s\n' "$body_bytes"
+              printf 'ACCESS_RESPONSE_BODY_SHA256=%s\n' "$body_sha256"
+              printf 'ACCESS_RESPONSE_BODY_CLASS=%s\n' "$body_class"
+              classified_stop="MERGE_ACCESS_CLASSIFIED_HTTP_${access_http}"
+              ;;
+          esac
+
+          printf '%s\n' STAGE=FINAL_ANTI_DRIFT
+          gh_control_get '/branches/main' "$tmp/main-final.json"
+          jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main-final.json" >/dev/null || stop MAIN_SHA_FINAL_DRIFT
+
+          cf_workers_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-final.json"
+          jq -e --arg deployment "$deployment_id" --arg version "$worker_version" '
+            (.result.deployments | type == "array") and
+            (.result.deployments | length >= 1) and
+            .result.deployments[0].id == $deployment and
+            (.result.deployments[0].versions | type == "array") and
+            (.result.deployments[0].versions | length == 1) and
+            .result.deployments[0].versions[0].version_id == $version and
+            .result.deployments[0].versions[0].percentage == 100
+          ' "$tmp/deployments-final.json" >/dev/null || stop PRODUCTION_WORKER_FINAL_DRIFT
+
+          if [ -n "$classified_stop" ]; then
+            stop "$classified_stop"
+          fi
+
+          printf 'MERGE_ACCESS_CLASSIFIER=PASS\n'
+          printf 'SOURCE_SHA=%s\n' "$run_sha"
+          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+          printf 'DEPLOYMENT_ID=%s\n' "$deployment_id"
+          printf 'WORKER_VERSION=%s\n' "$worker_version"
+          printf 'TRAFFIC_PERCENT=100\n'
+          printf 'ACCESS_REQUEST_METHOD=GET\n'
+          printf 'ACCESS_MUTATION=NO\n'
+          printf 'MERGE_POST_SENT=NO\n'
+          printf 'WORKER_MUTATION=NO\n'
+          printf 'CLOUDFLARE_CONFIG_MUTATION=NO\n'
+          printf 'GITHUB_DECISION_MUTATION=NO\n'
+          printf 'GITHUB_APP_PERMISSION_MUTATION=NO\n'
