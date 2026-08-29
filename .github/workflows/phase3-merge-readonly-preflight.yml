@@ -36,14 +36,18 @@ jobs:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
       CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
       WORKER_NAME: rozkalns-control
+      HOSTNAME: control.rozkalns.net
       DB_NAME: rozkalns-control-production
       DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
+      EXPECTED_ACCESS_AUD_SHA256: e6e8acda0850d8c5fa41c5de8b7a0e4dd71e2fcb8f3f9e0654bc05d3499905c9
       GITHUB_TOKEN: ${{ github.token }}
       CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+      CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+      CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
 
     steps:
-      - name: Verify Merge D1 schema and clean pre-canary state without mutation
+      - name: Verify Merge D1 schema, Access audience and clean pre-canary state without mutation
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +57,8 @@ jobs:
             {
               printf 'MERGE_READONLY_PREFLIGHT=STOP\n'
               printf 'STOP=%s\n' "$1"
+              printf 'ACCESS_REQUEST_METHOD=GET\n'
+              printf 'ACCESS_MUTATION=NO\n'
               printf 'MERGE_POST_SENT=NO\n'
               printf 'REMOTE_D1_MUTATION=NO\n'
               printf 'WORKER_MUTATION=NO\n'
@@ -88,9 +94,13 @@ jobs:
           [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
           [ -n "${CLOUDFLARE_WORKERS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_WORKERS_READ_TOKEN
           [ -n "${CLOUDFLARE_D1_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_D1_READ_TOKEN
+          [ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ] || stop MISSING_CONTROL_ACCESS_CLIENT_ID
+          [ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ] || stop MISSING_CONTROL_ACCESS_CLIENT_SECRET
+          [[ "${EXPECTED_ACCESS_AUD_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || stop EXPECTED_ACCESS_AUD_SHA256_INVALID
 
           printf 'WORKERS_READ_SECRET_NAME=CLOUDFLARE_API_TOKEN\n'
           printf 'D1_READ_SECRET_NAME=CLOUDFLARE_D1_READ_TOKEN\n'
+          printf 'ACCESS_CREDENTIALS_SOURCE=ENVIRONMENT_SECRET_BINDINGS\n'
 
           tmp="${RUNNER_TEMP}/phase3-merge-readonly-preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           mkdir -p "$tmp"
@@ -140,6 +150,17 @@ jobs:
               (((.result[0].meta.rows_written // 0) | tonumber) == 0) and
               (((.result[0].meta.changes // 0) | tonumber) == 0)
             ' "$out" >/dev/null || stop D1_READ_QUERY_REPORTED_MUTATION_OR_FAILURE
+          }
+
+          access_get() {
+            local out="$1"
+            curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -o "$out" \
+              -w '%{http_code}' \
+              -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}" \
+              -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}" \
+              -H 'Accept: application/json' \
+              "https://${HOSTNAME}/api/github/merge" || stop ACCESS_GET_FAILED
           }
 
           printf '%s\n' STAGE=GITHUB_EXACT_MAIN_CI
@@ -266,6 +287,44 @@ jobs:
           ' "$tmp/row-count.json" >/dev/null || stop MERGE_DECISIONS_NOT_EMPTY
           printf 'MERGE_DECISIONS_ROW_COUNT=0\n'
 
+          printf '%s\n' STAGE=MERGE_ACCESS_AUDIENCE_PREFLIGHT
+          access_audience_mismatch=NO
+          access_http="$(access_get "$tmp/access.json")"
+          case "$access_http" in
+            200)
+              jq -e '
+                type == "object" and
+                .status == "AUTHENTICATED" and
+                (keys | sort) == ["status"]
+              ' "$tmp/access.json" >/dev/null || stop MERGE_ACCESS_AUTH_SUCCESS_BODY_INVALID
+              printf 'MERGE_ACCESS_AUTH=PASS\n'
+              printf 'MERGE_ACCESS_AUDIENCE_DIAGNOSTIC=NOT_REQUIRED\n'
+              ;;
+            403)
+              jq -e --arg expected "$EXPECTED_ACCESS_AUD_SHA256" '
+                type == "object" and
+                .error == "ACCESS_AUTHENTICATION_FAILED" and
+                .diagnostic == "ACCESS_JWT_AUDIENCE_INVALID" and
+                (.audience | type == "object") and
+                .audience.shape == "ARRAY" and
+                (.audience.count | type == "number") and
+                .audience.count >= 1 and
+                .audience.count <= 32 and
+                (.audience.sha256 | type == "array") and
+                (.audience.sha256 | length >= 1 and length <= 4) and
+                all(.audience.sha256[]; type == "string" and test("^[0-9a-f]{64}$")) and
+                any(.audience.sha256[]; . == $expected)
+              ' "$tmp/access.json" >/dev/null || stop MERGE_ACCESS_AUDIENCE_DIAGNOSTIC_UNEXPECTED
+              access_audience_mismatch=YES
+              printf 'MERGE_ACCESS_AUTH=FAIL_AUDIENCE_MISMATCH\n'
+              printf 'MERGE_ACCESS_AUDIENCE_DIAGNOSTIC=MATCHED_KNOWN_ACCESS_APPLICATION_FINGERPRINT\n'
+              printf 'EXPECTED_ACCESS_AUD_SHA256=%s\n' "$EXPECTED_ACCESS_AUD_SHA256"
+              ;;
+            *)
+              stop "MERGE_ACCESS_HTTP_UNEXPECTED_${access_http}"
+              ;;
+          esac
+
           printf '%s\n' STAGE=FINAL_ANTI_DRIFT
           gh_control_get '/branches/main' "$tmp/main-final.json"
           jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main-final.json" >/dev/null || stop MAIN_SHA_FINAL_DRIFT
@@ -281,6 +340,10 @@ jobs:
             .result.deployments[0].versions[0].percentage == 100
           ' "$tmp/deployments-final.json" >/dev/null || stop PRODUCTION_WORKER_FINAL_DRIFT
 
+          if [ "$access_audience_mismatch" = YES ]; then
+            stop MERGE_ACCESS_AUDIENCE_CONFIG_MISMATCH
+          fi
+
           printf 'MERGE_READONLY_PREFLIGHT=PASS\n'
           printf 'SOURCE_SHA=%s\n' "$run_sha"
           printf 'CI_RUN_ID=%s\n' "$ci_run_id"
@@ -292,6 +355,8 @@ jobs:
           printf 'MERGE_DECISIONS_SCHEMA=PASS\n'
           printf 'MERGE_DECISIONS_INDEXES=PASS\n'
           printf 'MERGE_DECISIONS_ROW_COUNT=0\n'
+          printf 'ACCESS_REQUEST_METHOD=GET\n'
+          printf 'ACCESS_MUTATION=NO\n'
           printf 'MERGE_POST_SENT=NO\n'
           printf 'REMOTE_D1_MUTATION=NO\n'
           printf 'WORKER_MUTATION=NO\n'

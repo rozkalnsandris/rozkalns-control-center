@@ -28,7 +28,10 @@ test("Merge D1 preflight supports only manual or exact owner-comment execution w
 
   assert.match(source, /secrets\.CLOUDFLARE_API_TOKEN/);
   assert.match(source, /secrets\.CLOUDFLARE_D1_READ_TOKEN/);
-  assert.doesNotMatch(source, /CONTROL_ACCESS_CLIENT_ID|CONTROL_ACCESS_CLIENT_SECRET/);
+  assert.match(source, /CONTROL_ACCESS_CLIENT_ID: \$\{\{ secrets\.CONTROL_ACCESS_CLIENT_ID \}\}/);
+  assert.match(source, /CONTROL_ACCESS_CLIENT_SECRET: \$\{\{ secrets\.CONTROL_ACCESS_CLIENT_SECRET \}\}/);
+  assert.match(source, /ACCESS_CREDENTIALS_SOURCE=ENVIRONMENT_SECRET_BINDINGS/);
+  assert.doesNotMatch(source, /printf[^\n]*(CONTROL_ACCESS_CLIENT_ID|CONTROL_ACCESS_CLIENT_SECRET)/);
   assert.doesNotMatch(source, /GITHUB_APP_PRIVATE_KEY|WEBHOOK_SECRET/);
 });
 
@@ -97,8 +100,34 @@ test("Merge D1 preflight pins migration 0008 schema, indexes and a zero-row pre-
   assert.doesNotMatch(source, /\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|REPLACE)\b/i);
 });
 
+test("Merge Access audience preflight is one bounded GET-only diagnostic", () => {
+  assert.match(source, /HOSTNAME: control\.rozkalns\.net/);
+  assert.match(
+    source,
+    /EXPECTED_ACCESS_AUD_SHA256: e6e8acda0850d8c5fa41c5de8b7a0e4dd71e2fcb8f3f9e0654bc05d3499905c9/,
+  );
+
+  const accessGetBlock = source.match(/access_get\(\) \{[\s\S]*?\n {10}\}/)?.[0];
+  assert.ok(accessGetBlock);
+  assert.match(accessGetBlock, /https:\/\/\$\{HOSTNAME\}\/api\/github\/merge/);
+  assert.match(accessGetBlock, /CF-Access-Client-Id/);
+  assert.match(accessGetBlock, /CF-Access-Client-Secret/);
+  assert.doesNotMatch(accessGetBlock, /-X\s+POST|--request\s+POST/i);
+  assert.equal((source.match(/\/api\/github\/merge/g) ?? []).length, 1);
+
+  assert.match(source, /STAGE=MERGE_ACCESS_AUDIENCE_PREFLIGHT/);
+  assert.match(source, /200\)/);
+  assert.match(source, /\.status == "AUTHENTICATED"/);
+  assert.match(source, /403\)/);
+  assert.match(source, /\.diagnostic == "ACCESS_JWT_AUDIENCE_INVALID"/);
+  assert.match(source, /\.audience\.shape == "ARRAY"/);
+  assert.match(source, /any\(\.audience\.sha256\[\]; \. == \$expected\)/);
+  assert.match(source, /MERGE_ACCESS_AUDIENCE_CONFIG_MISMATCH/);
+  assert.match(source, /ACCESS_REQUEST_METHOD=GET/);
+  assert.match(source, /ACCESS_MUTATION=NO/);
+});
+
 test("Merge D1 preflight has no Merge, permission, Cloudflare config or decision mutation path", () => {
-  assert.doesNotMatch(source, /\/api\/github\/merge/i);
   assert.doesNotMatch(source, /contents:\s*write/i);
   assert.doesNotMatch(source, /permissions?\/|installation.*permissions?|repositories\/.*installation/i);
 
