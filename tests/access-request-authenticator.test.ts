@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import test from "node:test";
 import type { CloudflareAccessJwksFetch } from "../src/integrations/cloudflare/access-jwks-resolver.js";
 import {
@@ -60,6 +60,10 @@ function makeToken(options: {
   return `${input}.${signature}`;
 }
 
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 function requestWithToken(token: string): Request {
   return new Request("https://control.rozkalns.net/api/future-action", {
     headers: { "Cf-Access-Jwt-Assertion": token },
@@ -101,22 +105,33 @@ function authenticator(fetch: CloudflareAccessJwksFetch): CloudflareAccessReques
   );
 }
 
+async function captureAuthentication(
+  promise: Promise<unknown>,
+  expectedReason: CloudflareAccessAuthenticationFailureReason,
+): Promise<CloudflareAccessAuthenticationError> {
+  let caught: unknown;
+  try {
+    await promise;
+  } catch (error) {
+    caught = error;
+  }
+  assert.ok(caught instanceof CloudflareAccessAuthenticationError);
+  assert.equal(caught.code, "ACCESS_AUTHENTICATION_FAILED");
+  assert.equal(caught.message, "ACCESS_AUTHENTICATION_FAILED");
+  assert.equal(caught.reason, expectedReason);
+  return caught;
+}
+
 async function rejectsAuthentication(
   promise: Promise<unknown>,
   expectedReason: CloudflareAccessAuthenticationFailureReason,
   secretNeedle?: string,
 ): Promise<void> {
-  await assert.rejects(promise, (error: unknown) => {
-    assert.ok(error instanceof CloudflareAccessAuthenticationError);
-    assert.equal(error.code, "ACCESS_AUTHENTICATION_FAILED");
-    assert.equal(error.message, "ACCESS_AUTHENTICATION_FAILED");
-    assert.equal(error.reason, expectedReason);
-    if (secretNeedle) {
-      assert.equal(error.message.includes(secretNeedle), false);
-      assert.equal(error.reason.includes(secretNeedle), false);
-    }
-    return true;
-  });
+  const error = await captureAuthentication(promise, expectedReason);
+  if (secretNeedle) {
+    assert.equal(error.message.includes(secretNeedle), false);
+    assert.equal(error.reason.includes(secretNeedle), false);
+  }
 }
 
 test("composes fixed team-domain JWKS resolution with exact JWT verification", async () => {
@@ -201,33 +216,42 @@ test("classifies missing header, cookie-only and forged signatures without expos
   );
   assert.equal(seen.length, 0);
 
-  const forged = makeToken({ signingKey: attacker.privateKey });
-  await rejectsAuthentication(
+  const forged = makeToken({ signingKey: attacker.privateKey, claims: claims({ aud: ["forged-audience"] }) });
+  const forgedError = await captureAuthentication(
     auth.authenticateRequest(requestWithToken(forged)),
     "ACCESS_JWT_SIGNATURE_INVALID",
-    forged,
   );
+  assert.equal(forgedError.audienceDiagnostic, null);
+  assert.equal(forgedError.message.includes(forged), false);
   assert.equal(seen.length, 1);
 });
 
-test("classifies wrong issuer and audience after valid signature verification", async () => {
+test("classifies wrong issuer and propagates only signed bounded audience diagnostics", async () => {
   const issuerSeen: Array<{ input: string; init: RequestInit }> = [];
   const issuerAuth = authenticator(
     sequenceFetch([() => jwksResponse([signingJwk(CURRENT_KID, current.publicKey)])], issuerSeen),
   );
-  await rejectsAuthentication(
+  const issuerError = await captureAuthentication(
     issuerAuth.authenticateRequest(requestWithToken(makeToken({ claims: claims({ iss: "https://other.cloudflareaccess.com" }) }))),
     "ACCESS_JWT_ISSUER_INVALID",
   );
+  assert.equal(issuerError.audienceDiagnostic, null);
 
   const audienceSeen: Array<{ input: string; init: RequestInit }> = [];
   const audienceAuth = authenticator(
     sequenceFetch([() => jwksResponse([signingJwk(CURRENT_KID, current.publicKey)])], audienceSeen),
   );
-  await rejectsAuthentication(
-    audienceAuth.authenticateRequest(requestWithToken(makeToken({ claims: claims({ aud: ["wrong-audience"] }) }))),
+  const wrongAudience = "wrong-audience";
+  const audienceError = await captureAuthentication(
+    audienceAuth.authenticateRequest(requestWithToken(makeToken({ claims: claims({ aud: [wrongAudience] }) }))),
     "ACCESS_JWT_AUDIENCE_INVALID",
   );
+  assert.deepEqual(audienceError.audienceDiagnostic, {
+    shape: "ARRAY",
+    count: 1,
+    sha256: [sha256(wrongAudience)],
+  });
+  assert.equal(JSON.stringify(audienceError.audienceDiagnostic).includes(wrongAudience), false);
 
   assert.equal(issuerSeen[0]?.input, CERTS_URL);
   assert.equal(audienceSeen[0]?.input, CERTS_URL);

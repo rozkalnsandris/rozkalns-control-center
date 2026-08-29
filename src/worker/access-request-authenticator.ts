@@ -7,6 +7,7 @@ import {
 import {
   CloudflareAccessJwtError,
   CloudflareAccessJwtVerifier,
+  type CloudflareAccessAudienceDiagnostic,
   type CloudflareAccessJwtErrorCode,
   type CloudflareAccessPrincipal,
 } from "../integrations/cloudflare/access-jwt-verifier.js";
@@ -20,12 +21,17 @@ export type CloudflareAccessAuthenticationFailureReason =
 export class CloudflareAccessAuthenticationError extends Error {
   readonly code: CloudflareAccessAuthenticationErrorCode;
   readonly reason: CloudflareAccessAuthenticationFailureReason;
+  readonly audienceDiagnostic: CloudflareAccessAudienceDiagnostic | null;
 
-  constructor(reason: CloudflareAccessAuthenticationFailureReason) {
+  constructor(
+    reason: CloudflareAccessAuthenticationFailureReason,
+    audienceDiagnostic: CloudflareAccessAudienceDiagnostic | null = null,
+  ) {
     super("ACCESS_AUTHENTICATION_FAILED");
     this.name = "CloudflareAccessAuthenticationError";
     this.code = "ACCESS_AUTHENTICATION_FAILED";
     this.reason = reason;
+    this.audienceDiagnostic = audienceDiagnostic;
   }
 }
 
@@ -46,7 +52,10 @@ function authenticationFailed(error: unknown): never {
     error instanceof CloudflareAccessJwtError || error instanceof CloudflareAccessJwksError
       ? error.code
       : "ACCESS_AUTHENTICATION_INTERNAL";
-  throw new CloudflareAccessAuthenticationError(reason);
+  const audienceDiagnostic = error instanceof CloudflareAccessJwtError
+    ? error.audienceDiagnostic
+    : null;
+  throw new CloudflareAccessAuthenticationError(reason, audienceDiagnostic);
 }
 
 export class CloudflareAccessRequestAuthenticator {
