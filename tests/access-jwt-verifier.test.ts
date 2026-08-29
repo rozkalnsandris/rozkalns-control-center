@@ -143,6 +143,18 @@ test("rejects forged signatures and proves claims are not trusted before signatu
   );
   assert.equal(forgedAudience.audienceDiagnostic, null);
 
+  const forgedStringAudience = await captureJwtError(
+    verifier().verifyToken(
+      makeToken({
+        claims: baseClaims({ aud: "forged-audience" }),
+        signingKey: secondary.privateKey,
+      }),
+      NOW,
+    ),
+    "ACCESS_JWT_SIGNATURE_INVALID",
+  );
+  assert.equal(forgedStringAudience.audienceDiagnostic, null);
+
   await rejectsCode(
     verifier().verifyToken(
       makeToken({
@@ -191,8 +203,16 @@ test("binds application type, issuer and audience exactly", async () => {
     verifier().verifyToken(makeToken({ claims: baseClaims({ aud: ["other-audience"] }) }), NOW),
     "ACCESS_JWT_AUDIENCE_INVALID",
   );
+  assert.deepEqual(
+    await verifier().verifyToken(makeToken({ claims: baseClaims({ aud: AUDIENCE }) }), NOW),
+    { subject: "user-123", email: "andris@example.test" },
+  );
   await rejectsCode(
-    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: AUDIENCE }) }), NOW),
+    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: [] }) }), NOW),
+    "ACCESS_JWT_AUDIENCE_INVALID",
+  );
+  await rejectsCode(
+    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: [AUDIENCE, ""] }) }), NOW),
     "ACCESS_JWT_AUDIENCE_INVALID",
   );
 });
@@ -211,15 +231,15 @@ test("audience mismatch exposes only bounded signed shape and fingerprints", asy
   assert.equal(JSON.stringify(arrayError.audienceDiagnostic).includes(wrongAudience), false);
 
   const stringError = await captureJwtError(
-    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: AUDIENCE }) }), NOW),
+    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: wrongAudience }) }), NOW),
     "ACCESS_JWT_AUDIENCE_INVALID",
   );
   assert.deepEqual(stringError.audienceDiagnostic, {
     shape: "STRING",
     count: 1,
-    sha256: [sha256(AUDIENCE)],
+    sha256: [sha256(wrongAudience)],
   });
-  assert.equal(JSON.stringify(stringError.audienceDiagnostic).includes(AUDIENCE), false);
+  assert.equal(JSON.stringify(stringError.audienceDiagnostic).includes(wrongAudience), false);
 
   const otherError = await captureJwtError(
     verifier().verifyToken(makeToken({ claims: baseClaims({ aud: 42 }) }), NOW),
