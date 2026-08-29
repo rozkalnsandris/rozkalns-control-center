@@ -12,12 +12,14 @@ import {
   type MergeDecisionResult,
 } from "../src/shared/merge-decision.js";
 import type { ManagedProjectPolicy } from "../src/shared/project-policy.js";
+import { CloudflareAccessAuthenticationError } from "../src/worker/access-request-authenticator.js";
 
 const REPOSITORY = "rozkalnsandris/hermes-tech";
 const HEAD = "1111111111111111111111111111111111111111";
 const MAIN = "2222222222222222222222222222222222222222";
 const MERGE_SHA = "3333333333333333333333333333333333333333";
 const REQUEST_ID = "request_395_00001";
+const AUDIENCE_FINGERPRINT = "a".repeat(64);
 
 const enabledPolicy: ManagedProjectPolicy = {
   id: "hermes-tech",
@@ -48,10 +50,11 @@ function request(
   body: Record<string, unknown> = payload(),
   options: { method?: string; path?: string; contentType?: string } = {},
 ): Request {
+  const method = options.method ?? "POST";
   return new Request(`https://control.rozkalns.net${options.path ?? GITHUB_MERGE_ROUTE_PATH}`, {
-    method: options.method ?? "POST",
+    method,
     headers: { "Content-Type": options.contentType ?? "application/json" },
-    body: options.method === "GET" ? undefined : JSON.stringify(body),
+    body: method === "GET" || method === "HEAD" ? undefined : JSON.stringify(body),
   });
 }
 
@@ -103,12 +106,12 @@ async function json(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
-test("detached Merge route rejects non-POST, query and wrong media type before authentication", async () => {
+test("detached Merge route rejects unsupported method, query and wrong media type before authentication", async () => {
   const { runtime, state } = createRuntime();
 
-  const getResponse = await handleGitHubMergeRequest(request(payload(), { method: "GET" }), runtime);
-  assert.equal(getResponse.status, 405);
-  assert.equal(getResponse.headers.get("allow"), "POST");
+  const patchResponse = await handleGitHubMergeRequest(request(payload(), { method: "PATCH" }), runtime);
+  assert.equal(patchResponse.status, 405);
+  assert.equal(patchResponse.headers.get("allow"), "GET, POST");
 
   const queryResponse = await handleGitHubMergeRequest(
     request(payload(), { path: `${GITHUB_MERGE_ROUTE_PATH}?extra=1` }),
@@ -125,9 +128,62 @@ test("detached Merge route rejects non-POST, query and wrong media type before a
   assert.equal(state.executeCalls, 0);
 });
 
-test("Access authentication failure is bounded and prevents Merge execution", async () => {
-  const secret = "secret-jwt-material-must-not-escape";
+test("GET authenticates only and can never execute a Merge decision", async () => {
+  const { runtime, state } = createRuntime();
+  const response = await handleGitHubMergeRequest(request(payload(), { method: "GET" }), runtime);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await json(response), { status: "AUTHENTICATED" });
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(state.authCalls, 1);
+  assert.equal(state.executeCalls, 0);
+  assert.equal(state.executed, null);
+});
+
+test("GET projects only bounded typed audience diagnostics and no raw audience", async () => {
+  const rawAudience = "must-never-escape";
+  const authError = new CloudflareAccessAuthenticationError(
+    "ACCESS_JWT_AUDIENCE_INVALID",
+    { shape: "ARRAY", count: 1, sha256: [AUDIENCE_FINGERPRINT] },
+  );
+  const { runtime, state } = createRuntime({ authError });
+  const response = await handleGitHubMergeRequest(request(payload(), { method: "GET" }), runtime);
+
+  assert.equal(response.status, 403);
+  const body = await json(response);
+  assert.deepEqual(body, {
+    error: "ACCESS_AUTHENTICATION_FAILED",
+    diagnostic: "ACCESS_JWT_AUDIENCE_INVALID",
+    audience: {
+      shape: "ARRAY",
+      count: 1,
+      sha256: [AUDIENCE_FINGERPRINT],
+    },
+  });
+  assert.equal(JSON.stringify(body).includes(rawAudience), false);
+  assert.equal(state.authCalls, 1);
+  assert.equal(state.executeCalls, 0);
+});
+
+test("GET unknown authentication failure remains generic and non-mutating", async () => {
+  const secret = "unknown-auth-secret";
   const { runtime, state } = createRuntime({ authError: new Error(secret) });
+  const response = await handleGitHubMergeRequest(request(payload(), { method: "GET" }), runtime);
+
+  assert.equal(response.status, 403);
+  const body = await json(response);
+  assert.deepEqual(body, { error: "ACCESS_AUTHENTICATION_FAILED" });
+  assert.equal(JSON.stringify(body).includes(secret), false);
+  assert.equal(state.authCalls, 1);
+  assert.equal(state.executeCalls, 0);
+});
+
+test("POST Access authentication failure stays generic and prevents Merge execution", async () => {
+  const authError = new CloudflareAccessAuthenticationError(
+    "ACCESS_JWT_AUDIENCE_INVALID",
+    { shape: "STRING", count: 1, sha256: [AUDIENCE_FINGERPRINT] },
+  );
+  const { runtime, state } = createRuntime({ authError });
   const response = await handleGitHubMergeRequest(request(), runtime);
 
   assert.equal(response.status, 403);
@@ -136,7 +192,8 @@ test("Access authentication failure is bounded and prevents Merge execution", as
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(state.authCalls, 1);
   assert.equal(state.executeCalls, 0);
-  assert.equal(JSON.stringify(body).includes(secret), false);
+  assert.equal(JSON.stringify(body).includes(AUDIENCE_FINGERPRINT), false);
+  assert.equal(JSON.stringify(body).includes("ACCESS_JWT_AUDIENCE_INVALID"), false);
 });
 
 test("current capability-false managed project is denied before Merge executor", async () => {

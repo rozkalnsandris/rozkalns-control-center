@@ -14,6 +14,7 @@ import {
   GITHUB_MERGE_METHODS,
   type GitHubMergeMethod,
 } from "../integrations/github/pull-request-merge-write.js";
+import { CloudflareAccessAuthenticationError } from "./access-request-authenticator.js";
 
 export const GITHUB_MERGE_ROUTE_PATH = "/api/github/merge" as const;
 export const GITHUB_MERGE_HTTP_BODY_MAX_BYTES = 4096;
@@ -78,10 +79,11 @@ function routeError(code: string, status: number, retryable?: false): Response {
 function assertRouteShape(request: Request): Response | null {
   const url = new URL(request.url);
   if (url.pathname !== GITHUB_MERGE_ROUTE_PATH) return routeError("NOT_FOUND", 404);
-  if (request.method !== "POST") {
-    return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405, { Allow: "POST" });
+  if (request.method !== "GET" && request.method !== "POST") {
+    return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405, { Allow: "GET, POST" });
   }
   if (url.search !== "") return routeError("INVALID_REQUEST", 400);
+  if (request.method === "GET") return null;
 
   const contentType = request.headers.get("content-type");
   const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
@@ -211,6 +213,30 @@ function decisionFailure(error: MergeDecisionError): Response {
   }
 }
 
+async function handleAuthDiagnostic(
+  request: Request,
+  runtime: MergeWorkerRuntime,
+): Promise<Response> {
+  try {
+    await runtime.authenticator.authenticateRequest(request);
+    return jsonResponse({ status: "AUTHENTICATED" });
+  } catch (error) {
+    if (error instanceof CloudflareAccessAuthenticationError) {
+      return jsonResponse(
+        {
+          error: "ACCESS_AUTHENTICATION_FAILED",
+          diagnostic: error.reason,
+          ...(error.reason === "ACCESS_JWT_AUDIENCE_INVALID" && error.audienceDiagnostic
+            ? { audience: error.audienceDiagnostic }
+            : {}),
+        },
+        403,
+      );
+    }
+    return routeError("ACCESS_AUTHENTICATION_FAILED", 403);
+  }
+}
+
 export async function handleGitHubMergeRequest(
   request: Request,
   runtime: MergeWorkerRuntime | null,
@@ -219,6 +245,7 @@ export async function handleGitHubMergeRequest(
   const routeFailure = assertRouteShape(request);
   if (routeFailure) return routeFailure;
   if (runtime === null) return routeError("RUNTIME_UNAVAILABLE", 503);
+  if (request.method === "GET") return handleAuthDiagnostic(request, runtime);
 
   let actor: MergeDecisionActor;
   try {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import test from "node:test";
 import {
   CloudflareAccessJwtError,
@@ -54,6 +54,10 @@ function makeToken(options: {
   return `${input}.${signature}`;
 }
 
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 class StaticResolver implements CloudflareAccessSigningKeyResolver {
   readonly seenKids: string[] = [];
   readonly #keys: ReadonlyMap<string, JsonWebKey>;
@@ -74,12 +78,23 @@ function verifier(resolver: CloudflareAccessSigningKeyResolver = new StaticResol
   return new CloudflareAccessJwtVerifier({ issuer: ISSUER, audience: AUDIENCE }, resolver);
 }
 
+async function captureJwtError(
+  promise: Promise<unknown>,
+  code: string,
+): Promise<CloudflareAccessJwtError> {
+  let caught: unknown;
+  try {
+    await promise;
+  } catch (error) {
+    caught = error;
+  }
+  assert.ok(caught instanceof CloudflareAccessJwtError);
+  assert.equal(caught.code, code);
+  return caught;
+}
+
 async function rejectsCode(promise: Promise<unknown>, code: string): Promise<void> {
-  await assert.rejects(promise, (error: unknown) => {
-    assert.ok(error instanceof CloudflareAccessJwtError);
-    assert.equal(error.code, code);
-    return true;
-  });
+  await captureJwtError(promise, code);
 }
 
 test("verifies an exact RS256 Access application JWT and returns bounded principal evidence", async () => {
@@ -110,10 +125,23 @@ test("request verification trusts only Cf-Access-Jwt-Assertion and never a cooki
 });
 
 test("rejects forged signatures and proves claims are not trusted before signature verification", async () => {
-  await rejectsCode(
+  const forged = await captureJwtError(
     verifier().verifyToken(makeToken({ signingKey: secondary.privateKey }), NOW),
     "ACCESS_JWT_SIGNATURE_INVALID",
   );
+  assert.equal(forged.audienceDiagnostic, null);
+
+  const forgedAudience = await captureJwtError(
+    verifier().verifyToken(
+      makeToken({
+        claims: baseClaims({ aud: ["forged-audience"] }),
+        signingKey: secondary.privateKey,
+      }),
+      NOW,
+    ),
+    "ACCESS_JWT_SIGNATURE_INVALID",
+  );
+  assert.equal(forgedAudience.audienceDiagnostic, null);
 
   await rejectsCode(
     verifier().verifyToken(
@@ -166,6 +194,55 @@ test("binds application type, issuer and audience exactly", async () => {
   await rejectsCode(
     verifier().verifyToken(makeToken({ claims: baseClaims({ aud: AUDIENCE }) }), NOW),
     "ACCESS_JWT_AUDIENCE_INVALID",
+  );
+});
+
+test("audience mismatch exposes only bounded signed shape and fingerprints", async () => {
+  const wrongAudience = "other-audience";
+  const arrayError = await captureJwtError(
+    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: [wrongAudience] }) }), NOW),
+    "ACCESS_JWT_AUDIENCE_INVALID",
+  );
+  assert.deepEqual(arrayError.audienceDiagnostic, {
+    shape: "ARRAY",
+    count: 1,
+    sha256: [sha256(wrongAudience)],
+  });
+  assert.equal(JSON.stringify(arrayError.audienceDiagnostic).includes(wrongAudience), false);
+
+  const stringError = await captureJwtError(
+    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: AUDIENCE }) }), NOW),
+    "ACCESS_JWT_AUDIENCE_INVALID",
+  );
+  assert.deepEqual(stringError.audienceDiagnostic, {
+    shape: "STRING",
+    count: 1,
+    sha256: [sha256(AUDIENCE)],
+  });
+  assert.equal(JSON.stringify(stringError.audienceDiagnostic).includes(AUDIENCE), false);
+
+  const otherError = await captureJwtError(
+    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: 42 }) }), NOW),
+    "ACCESS_JWT_AUDIENCE_INVALID",
+  );
+  assert.deepEqual(otherError.audienceDiagnostic, {
+    shape: "OTHER",
+    count: 0,
+    sha256: [],
+  });
+});
+
+test("audience diagnostics bound count and fingerprint cardinality", async () => {
+  const audiences = Array.from({ length: 40 }, (_, index) => `audience-${index}`);
+  const error = await captureJwtError(
+    verifier().verifyToken(makeToken({ claims: baseClaims({ aud: audiences }) }), NOW),
+    "ACCESS_JWT_AUDIENCE_INVALID",
+  );
+  assert.equal(error.audienceDiagnostic?.shape, "ARRAY");
+  assert.equal(error.audienceDiagnostic?.count, 32);
+  assert.deepEqual(
+    error.audienceDiagnostic?.sha256,
+    audiences.slice(0, 4).map(sha256),
   );
 });
 

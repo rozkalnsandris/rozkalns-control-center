@@ -4,6 +4,8 @@ const MAX_SEGMENT_BYTES = 4096;
 const MAX_KID_LENGTH = 200;
 const MAX_PRINCIPAL_LENGTH = 320;
 const MAX_AUDIENCE_LENGTH = 200;
+const MAX_AUDIENCE_DIAGNOSTIC_COUNT = 32;
+const MAX_AUDIENCE_DIAGNOSTIC_FINGERPRINTS = 4;
 const SERVICE_TOKEN_PRINCIPAL_PREFIX = "service-token:";
 const MAX_SERVICE_TOKEN_COMMON_NAME_LENGTH = MAX_PRINCIPAL_LENGTH - SERVICE_TOKEN_PRINCIPAL_PREFIX.length;
 const KID_PATTERN = /^[A-Za-z0-9._:+/-]+$/;
@@ -23,13 +25,26 @@ export type CloudflareAccessJwtErrorCode =
   | "ACCESS_JWT_NOT_YET_VALID"
   | "ACCESS_JWT_ISSUED_IN_FUTURE";
 
+export type CloudflareAccessAudienceShape = "ARRAY" | "STRING" | "OTHER";
+
+export interface CloudflareAccessAudienceDiagnostic {
+  readonly shape: CloudflareAccessAudienceShape;
+  readonly count: number;
+  readonly sha256: readonly string[];
+}
+
 export class CloudflareAccessJwtError extends Error {
   readonly code: CloudflareAccessJwtErrorCode;
+  readonly audienceDiagnostic: CloudflareAccessAudienceDiagnostic | null;
 
-  constructor(code: CloudflareAccessJwtErrorCode) {
+  constructor(
+    code: CloudflareAccessJwtErrorCode,
+    audienceDiagnostic: CloudflareAccessAudienceDiagnostic | null = null,
+  ) {
     super(code);
     this.name = "CloudflareAccessJwtError";
     this.code = code;
+    this.audienceDiagnostic = audienceDiagnostic;
   }
 }
 
@@ -70,8 +85,11 @@ interface JwtClaims {
   readonly email: string | null;
 }
 
-function fail(code: CloudflareAccessJwtErrorCode): never {
-  throw new CloudflareAccessJwtError(code);
+function fail(
+  code: CloudflareAccessJwtErrorCode,
+  audienceDiagnostic: CloudflareAccessAudienceDiagnostic | null = null,
+): never {
+  throw new CloudflareAccessJwtError(code, audienceDiagnostic);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -91,6 +109,38 @@ function boundedOpaqueString(value: unknown, maxLength: number): string | null {
     return null;
   }
   return value;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function audienceDiagnostic(value: unknown): Promise<CloudflareAccessAudienceDiagnostic> {
+  if (typeof value === "string") {
+    const bounded = boundedOpaqueString(value, MAX_AUDIENCE_LENGTH);
+    return {
+      shape: "STRING",
+      count: 1,
+      sha256: bounded ? [await sha256Hex(bounded)] : [],
+    };
+  }
+
+  if (Array.isArray(value)) {
+    const fingerprints: string[] = [];
+    for (const entry of value) {
+      if (fingerprints.length >= MAX_AUDIENCE_DIAGNOSTIC_FINGERPRINTS) break;
+      const bounded = boundedOpaqueString(entry, MAX_AUDIENCE_LENGTH);
+      if (bounded) fingerprints.push(await sha256Hex(bounded));
+    }
+    return {
+      shape: "ARRAY",
+      count: Math.min(value.length, MAX_AUDIENCE_DIAGNOSTIC_COUNT),
+      sha256: fingerprints,
+    };
+  }
+
+  return { shape: "OTHER", count: 0, sha256: [] };
 }
 
 function decodeBase64Url(segment: string, code: CloudflareAccessJwtErrorCode): Uint8Array {
@@ -210,7 +260,12 @@ function requireSafeInteger(value: unknown): number {
   return value as number;
 }
 
-function parseClaims(encodedPayload: string, expectedIssuer: string, expectedAudience: string, nowSeconds: number): JwtClaims {
+async function parseClaims(
+  encodedPayload: string,
+  expectedIssuer: string,
+  expectedAudience: string,
+  nowSeconds: number,
+): Promise<JwtClaims> {
   const raw = parseJsonSegment(encodedPayload, "ACCESS_JWT_CLAIMS_INVALID");
   if (!isRecord(raw) || raw.type !== "app") fail("ACCESS_JWT_CLAIMS_INVALID");
 
@@ -221,7 +276,7 @@ function parseClaims(encodedPayload: string, expectedIssuer: string, expectedAud
     raw.aud.some((value) => typeof value !== "string" || value.length === 0) ||
     !raw.aud.includes(expectedAudience)
   ) {
-    fail("ACCESS_JWT_AUDIENCE_INVALID");
+    fail("ACCESS_JWT_AUDIENCE_INVALID", await audienceDiagnostic(raw.aud));
   }
 
   const exp = requireSafeInteger(raw.exp);
@@ -327,7 +382,7 @@ export class CloudflareAccessJwtVerifier {
 
     const nowMs = now.getTime();
     if (!Number.isFinite(nowMs)) fail("ACCESS_JWT_CLAIMS_INVALID");
-    const claims = parseClaims(encodedPayload, this.#issuer, this.#audience, Math.floor(nowMs / 1000));
+    const claims = await parseClaims(encodedPayload, this.#issuer, this.#audience, Math.floor(nowMs / 1000));
 
     return { subject: claims.subject, email: claims.email };
   }
