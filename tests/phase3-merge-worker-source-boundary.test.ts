@@ -10,7 +10,7 @@ const policySource = readFileSync(resolve(process.cwd(), "src/shared/project-pol
 const routeSource = readFileSync(resolve(process.cwd(), "src/worker/github-merge-route.ts"), "utf8");
 const runtimeSource = readFileSync(resolve(process.cwd(), "src/worker/github-merge-runtime.ts"), "utf8");
 
-test("Phase 3 Merge route is Worker-reachable while UI and capability remain disabled", () => {
+test("Phase 3 Merge route is Worker-reachable while capability is source-bounded to ops-workflows", () => {
   assert.match(workerIndex, /GITHUB_MERGE_ROUTE_PATH/);
   assert.match(workerIndex, /handleGitHubMergeRequest/);
   assert.match(workerIndex, /resolveCloudflareMergeRuntime/);
@@ -28,6 +28,13 @@ test("Phase 3 Merge route is Worker-reachable while UI and capability remain dis
   assert.match(wranglerConfig, /"CONTROL_MERGE_ACCESS_AUDIENCE"\s*:/);
   assert.equal(wranglerConfig.includes("GITHUB_CONTENTS_WRITE_PERMISSION"), false);
   assert.equal(wranglerConfig.includes("contents:write"), false);
+
+  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 5);
+  assert.equal((policySource.match(/canMerge:\s*true/g) ?? []).length, 1);
+  assert.match(
+    policySource,
+    /repository: "rozkalnsandris\/ops-workflows"[^\n]+canMerge: true/,
+  );
 });
 
 test("reachable Merge handler and runtime retain independent fail-closed capability gates", () => {
@@ -43,7 +50,4 @@ test("reachable Merge handler and runtime retain independent fail-closed capabil
   assert.match(runtimeSource, /createGitHubAppMergeSessionProvider/);
   assert.match(runtimeSource, /createGitHubPullRequestMergeWriter/);
   assert.match(runtimeSource, /executeMergeDecision/);
-
-  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 6);
-  assert.equal((policySource.match(/canMerge:\s*true/g) ?? []).length, 0);
 });
