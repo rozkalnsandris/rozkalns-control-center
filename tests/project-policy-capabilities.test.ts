@@ -3,17 +3,17 @@ import test from "node:test";
 import { RepositoryLaterNotAllowedError, RepositoryMergeNotAllowedError, RepositoryNeedsChangesNotAllowedError, explicitlyExcludedRepositories, managedProjectPolicies, requireLaterProjectPolicy, requireManagedProjectPolicy, requireMergeProjectPolicy, requireNeedsChangesProjectPolicy, resolveLaterProjectPolicy, resolveManagedProjectPolicy, resolveMergeProjectPolicy, resolveNeedsChangesProjectPolicy } from "../src/shared/project-policy.js";
 const CANARY_REPOSITORY = "rozkalnsandris/ops-workflows";
 
-test("ops-workflows is the only Needs changes and Later canary while Merge remains disabled everywhere", () => {
+test("ops-workflows is the only Needs changes, Merge and Later canary", () => {
   assert.equal(managedProjectPolicies.length, 6);
   assert.deepEqual(managedProjectPolicies.filter((policy) => policy.canRequestChanges).map((policy) => policy.repository), [CANARY_REPOSITORY]);
+  assert.deepEqual(managedProjectPolicies.filter((policy) => policy.canMerge).map((policy) => policy.repository), [CANARY_REPOSITORY]);
   assert.deepEqual(managedProjectPolicies.filter((policy) => policy.canLater).map((policy) => policy.repository), [CANARY_REPOSITORY]);
-  assert.equal(managedProjectPolicies.filter((policy) => policy.canMerge).length, 0);
   for (const policy of managedProjectPolicies) {
-    assert.equal(policy.enabled, true); assert.equal(policy.githubReadEnabled, true); assert.equal(policy.canMerge, false); assert.equal(resolveManagedProjectPolicy(policy.repository)?.id, policy.id); assert.equal(requireManagedProjectPolicy(policy.repository).id, policy.id); assert.equal(resolveMergeProjectPolicy(policy.repository), null); assert.throws(() => requireMergeProjectPolicy(policy.repository), RepositoryMergeNotAllowedError);
+    assert.equal(policy.enabled, true); assert.equal(policy.githubReadEnabled, true); assert.equal(resolveManagedProjectPolicy(policy.repository)?.id, policy.id); assert.equal(requireManagedProjectPolicy(policy.repository).id, policy.id);
     if (policy.repository === CANARY_REPOSITORY) {
-      assert.equal(policy.canRequestChanges, true); assert.equal(policy.canLater, true); assert.equal(policy.productionAdapter, "none"); assert.equal(resolveNeedsChangesProjectPolicy(policy.repository)?.id, policy.id); assert.equal(requireNeedsChangesProjectPolicy(policy.repository).id, policy.id); assert.equal(resolveLaterProjectPolicy(policy.repository)?.id, policy.id); assert.equal(resolveLaterProjectPolicy(policy.repository.toUpperCase())?.id, policy.id); assert.equal(requireLaterProjectPolicy(policy.repository).id, policy.id); continue;
+      assert.equal(policy.canRequestChanges, true); assert.equal(policy.canMerge, true); assert.equal(policy.canLater, true); assert.equal(policy.productionAdapter, "none"); assert.equal(resolveNeedsChangesProjectPolicy(policy.repository)?.id, policy.id); assert.equal(requireNeedsChangesProjectPolicy(policy.repository).id, policy.id); assert.equal(resolveMergeProjectPolicy(policy.repository)?.id, policy.id); assert.equal(resolveMergeProjectPolicy(policy.repository.toUpperCase())?.id, policy.id); assert.equal(requireMergeProjectPolicy(policy.repository).id, policy.id); assert.equal(resolveLaterProjectPolicy(policy.repository)?.id, policy.id); assert.equal(resolveLaterProjectPolicy(policy.repository.toUpperCase())?.id, policy.id); assert.equal(requireLaterProjectPolicy(policy.repository).id, policy.id); continue;
     }
-    assert.equal(policy.canRequestChanges, false); assert.equal(policy.canLater, false); assert.equal(resolveNeedsChangesProjectPolicy(policy.repository), null); assert.equal(resolveLaterProjectPolicy(policy.repository), null); assert.throws(() => requireNeedsChangesProjectPolicy(policy.repository), RepositoryNeedsChangesNotAllowedError); assert.throws(() => requireLaterProjectPolicy(policy.repository), RepositoryLaterNotAllowedError);
+    assert.equal(policy.canRequestChanges, false); assert.equal(policy.canMerge, false); assert.equal(policy.canLater, false); assert.equal(resolveNeedsChangesProjectPolicy(policy.repository), null); assert.equal(resolveMergeProjectPolicy(policy.repository), null); assert.equal(resolveLaterProjectPolicy(policy.repository), null); assert.throws(() => requireNeedsChangesProjectPolicy(policy.repository), RepositoryNeedsChangesNotAllowedError); assert.throws(() => requireMergeProjectPolicy(policy.repository), RepositoryMergeNotAllowedError); assert.throws(() => requireLaterProjectPolicy(policy.repository), RepositoryLaterNotAllowedError);
   }
 });
 
