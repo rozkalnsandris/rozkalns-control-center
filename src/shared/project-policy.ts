@@ -17,7 +17,7 @@ export const managedProjectPolicies = [
   { id: "hermes-deals", displayName: "Hermes Deals", repository: "rozkalnsandris/hermes-deals", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
   { id: "rozkalns-cv", displayName: "Rozkalns CV", repository: "rozkalnsandris/rozkalns-cv", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
   { id: "rpi5-main", displayName: "RPi5 Main", repository: "rozkalnsandris/RPi5_main", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
-  { id: "ops-workflows", displayName: "Ops Workflows", repository: "rozkalnsandris/ops-workflows", enabled: true, githubReadEnabled: true, canRequestChanges: true, canMerge: false, canLater: true, productionAdapter: "none" },
+  { id: "ops-workflows", displayName: "Ops Workflows", repository: "rozkalnsandris/ops-workflows", enabled: true, githubReadEnabled: true, canRequestChanges: true, canMerge: true, canLater: true, productionAdapter: "none" },
   { id: "profile", displayName: "GitHub Profile", repository: "rozkalnsandris/rozkalnsandris", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "none" },
 ] as const satisfies readonly ManagedProjectPolicy[];
 
