@@ -247,18 +247,38 @@ jobs:
                    [ "$access_diagnostic" = ACCESS_JWT_AUDIENCE_INVALID ] &&
                    jq -e '
                      (.audience | type == "object") and
-                     .audience.shape == "ARRAY" and
+                     ((.audience | keys | sort) == ["count", "sha256", "shape"]) and
+                     (.audience.shape | type == "string") and
                      (.audience.count | type == "number") and
-                     .audience.count >= 1 and
-                     .audience.count <= 32 and
+                     (.audience.count == (.audience.count | floor)) and
                      (.audience.sha256 | type == "array") and
-                     (.audience.sha256 | length >= 1 and length <= 4) and
-                     all(.audience.sha256[]; type == "string" and test("^[0-9a-f]{64}$"))
+                     all(.audience.sha256[]; type == "string" and test("^[0-9a-f]{64}$")) and
+                     (
+                       (
+                         .audience.shape == "STRING" and
+                         .audience.count == 1 and
+                         (.audience.sha256 | length <= 1)
+                       ) or
+                       (
+                         .audience.shape == "ARRAY" and
+                         .audience.count >= 0 and
+                         .audience.count <= 32 and
+                         (.audience.sha256 | length <= 4)
+                       ) or
+                       (
+                         .audience.shape == "OTHER" and
+                         .audience.count == 0 and
+                         (.audience.sha256 | length == 0)
+                       )
+                     )
                    ' "$tmp/access.body" >/dev/null 2>&1; then
                   printf 'ACCESS_403_ORIGIN_CLASS=WORKER_AUDIENCE_DIAGNOSTIC\n'
                   printf 'ACCESS_403_AUDIENCE_SHAPE=%s\n' "$(jq -r '.audience.shape' "$tmp/access.body")"
                   printf 'ACCESS_403_AUDIENCE_COUNT=%s\n' "$(jq -r '.audience.count' "$tmp/access.body")"
-                  printf 'OBSERVED_ACCESS_AUD_SHA256=%s\n' "$(jq -r '.audience.sha256 | join(",")' "$tmp/access.body")"
+                  audience_fingerprints="$(jq -r '.audience.sha256 | join(",")' "$tmp/access.body")"
+                  if [ -n "$audience_fingerprints" ]; then
+                    printf 'OBSERVED_ACCESS_AUD_SHA256=%s\n' "$audience_fingerprints"
+                  fi
                   classified_stop=MERGE_ACCESS_CLASSIFIED_WORKER_AUDIENCE_INVALID
                 elif [ "$access_error" = ACCESS_AUTHENTICATION_FAILED ] && [ -n "$access_diagnostic" ]; then
                   printf 'ACCESS_403_ORIGIN_CLASS=WORKER_AUTH_DIAGNOSTIC\n'

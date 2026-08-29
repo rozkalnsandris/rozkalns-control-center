@@ -82,12 +82,28 @@ test("Merge Access classifier emits only bounded response metadata and whitelist
   assert.doesNotMatch(source, /printf[^\n]*(CONTROL_ACCESS_CLIENT_ID|CONTROL_ACCESS_CLIENT_SECRET)/);
 });
 
-test("Merge Access classifier separates edge-like and Worker auth 403 classes", () => {
+test("Merge Access classifier recognizes the deployed bounded audience envelope", () => {
   assert.match(source, /ACCESS_AUTHENTICATION_FAILED/);
   assert.match(source, /ACCESS_JWT_AUDIENCE_INVALID/);
+  assert.match(source, /\["count", "sha256", "shape"\]/);
+  assert.match(source, /\.audience\.count == \(\.audience\.count \| floor\)/);
+
+  assert.match(source, /\.audience\.shape == "STRING"/);
+  assert.match(source, /\.audience\.count == 1/);
+  assert.match(source, /\.audience\.sha256 \| length <= 1/);
+
   assert.match(source, /\.audience\.shape == "ARRAY"/);
+  assert.match(source, /\.audience\.count >= 0/);
   assert.match(source, /\.audience\.count <= 32/);
-  assert.match(source, /\.audience\.sha256 \| length >= 1 and length <= 4/);
+  assert.match(source, /\.audience\.sha256 \| length <= 4/);
+
+  assert.match(source, /\.audience\.shape == "OTHER"/);
+  assert.match(source, /\.audience\.count == 0/);
+  assert.match(source, /\.audience\.sha256 \| length == 0/);
+
+  assert.match(source, /all\(\.audience\.sha256\[\]; type == "string" and test\("\^\[0-9a-f\]\{64\}\$"\)\)/);
+  assert.match(source, /audience_fingerprints=/);
+  assert.match(source, /if \[ -n "\$audience_fingerprints" \]; then/);
   assert.match(source, /OBSERVED_ACCESS_AUD_SHA256=/);
 
   assert.match(source, /ACCESS_403_ORIGIN_CLASS=WORKER_AUDIENCE_DIAGNOSTIC/);
