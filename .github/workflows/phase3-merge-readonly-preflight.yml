@@ -289,6 +289,7 @@ jobs:
 
           printf '%s\n' STAGE=MERGE_ACCESS_AUDIENCE_PREFLIGHT
           access_audience_mismatch=NO
+          access_audience_fingerprint_unknown=NO
           access_http="$(access_get "$tmp/access.json")"
           case "$access_http" in
             200)
@@ -301,7 +302,7 @@ jobs:
               printf 'MERGE_ACCESS_AUDIENCE_DIAGNOSTIC=NOT_REQUIRED\n'
               ;;
             403)
-              jq -e --arg expected "$EXPECTED_ACCESS_AUD_SHA256" '
+              jq -e '
                 type == "object" and
                 .error == "ACCESS_AUTHENTICATION_FAILED" and
                 .diagnostic == "ACCESS_JWT_AUDIENCE_INVALID" and
@@ -312,13 +313,21 @@ jobs:
                 .audience.count <= 32 and
                 (.audience.sha256 | type == "array") and
                 (.audience.sha256 | length >= 1 and length <= 4) and
-                all(.audience.sha256[]; type == "string" and test("^[0-9a-f]{64}$")) and
-                any(.audience.sha256[]; . == $expected)
+                all(.audience.sha256[]; type == "string" and test("^[0-9a-f]{64}$"))
               ' "$tmp/access.json" >/dev/null || stop MERGE_ACCESS_AUDIENCE_DIAGNOSTIC_UNEXPECTED
-              access_audience_mismatch=YES
-              printf 'MERGE_ACCESS_AUTH=FAIL_AUDIENCE_MISMATCH\n'
-              printf 'MERGE_ACCESS_AUDIENCE_DIAGNOSTIC=MATCHED_KNOWN_ACCESS_APPLICATION_FINGERPRINT\n'
+              observed_access_aud_sha256="$(jq -r '.audience.sha256 | join(",")' "$tmp/access.json")"
+              printf 'OBSERVED_ACCESS_AUD_SHA256=%s\n' "$observed_access_aud_sha256"
               printf 'EXPECTED_ACCESS_AUD_SHA256=%s\n' "$EXPECTED_ACCESS_AUD_SHA256"
+              printf 'MERGE_ACCESS_AUTH=FAIL_AUDIENCE_MISMATCH\n'
+              if jq -e --arg expected "$EXPECTED_ACCESS_AUD_SHA256" '
+                any(.audience.sha256[]; . == $expected)
+              ' "$tmp/access.json" >/dev/null; then
+                access_audience_mismatch=YES
+                printf 'MERGE_ACCESS_AUDIENCE_DIAGNOSTIC=MATCHED_KNOWN_ACCESS_APPLICATION_FINGERPRINT\n'
+              else
+                access_audience_fingerprint_unknown=YES
+                printf 'MERGE_ACCESS_AUDIENCE_DIAGNOSTIC=UNKNOWN_ACCESS_APPLICATION_FINGERPRINT\n'
+              fi
               ;;
             *)
               stop "MERGE_ACCESS_HTTP_UNEXPECTED_${access_http}"
@@ -340,6 +349,9 @@ jobs:
             .result.deployments[0].versions[0].percentage == 100
           ' "$tmp/deployments-final.json" >/dev/null || stop PRODUCTION_WORKER_FINAL_DRIFT
 
+          if [ "$access_audience_fingerprint_unknown" = YES ]; then
+            stop MERGE_ACCESS_AUDIENCE_FINGERPRINT_UNKNOWN
+          fi
           if [ "$access_audience_mismatch" = YES ]; then
             stop MERGE_ACCESS_AUDIENCE_CONFIG_MISMATCH
           fi
