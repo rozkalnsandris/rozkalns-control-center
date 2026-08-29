@@ -1,0 +1,478 @@
+name: Phase 3 Merge one-shot canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact approved Control main SHA
+        required: true
+        type: string
+      expected_ci_run_id:
+        description: Exact successful push CI run ID for approved_sha
+        required: true
+        type: string
+      expected_preflight_run_id:
+        description: Exact successful Merge read-only preflight run ID
+        required: true
+        type: string
+      expected_deployment:
+        description: Exact currently active Worker deployment ID
+        required: true
+        type: string
+      expected_version:
+        description: Exact currently active Worker version ID
+        required: true
+        type: string
+      issue_number:
+        description: Exact disposable ops-workflows canary issue number
+        required: true
+        type: string
+      pr_number:
+        description: Exact disposable ops-workflows canary PR number
+        required: true
+        type: string
+      expected_pr_head:
+        description: Exact disposable canary PR head SHA
+        required: true
+        type: string
+      expected_target_main:
+        description: Exact ops-workflows main SHA before Merge
+        required: true
+        type: string
+      merge_method:
+        description: Exact approved Merge method; only squash is accepted
+        required: true
+        default: squash
+        type: string
+      owner_authorization:
+        description: Exact one-shot owner authorization string
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase3-merge-one-shot-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: execute exact authorized one-shot Merge canary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      DB_NAME: rozkalns-control-production
+      DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
+      CONTROL_ORIGIN: https://control.rozkalns.net
+      TARGET_REPOSITORY: rozkalnsandris/ops-workflows
+      TARGET_PROJECT_ID: ops-workflows
+      APPROVED_SHA: ${{ inputs.approved_sha }}
+      EXPECTED_CI_RUN_ID: ${{ inputs.expected_ci_run_id }}
+      EXPECTED_PREFLIGHT_RUN_ID: ${{ inputs.expected_preflight_run_id }}
+      EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      EXPECTED_PR_HEAD: ${{ inputs.expected_pr_head }}
+      EXPECTED_TARGET_MAIN: ${{ inputs.expected_target_main }}
+      MERGE_METHOD: ${{ inputs.merge_method }}
+      OWNER_AUTHORIZATION: ${{ inputs.owner_authorization }}
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+      CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+      CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
+
+    steps:
+      - name: Revalidate and execute one authorized Merge POST
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop_pre() {
+            {
+              printf 'MERGE_CANARY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=NO\n'
+              printf 'MERGE_POST_STARTED=NO\n'
+              printf 'MERGE_POST_SENT=NO\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          stop_post() {
+            {
+              printf 'MERGE_CANARY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=YES\n'
+              printf 'MERGE_POST_STARTED=YES\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          for cmd in curl jq node; do
+            command -v "$cmd" >/dev/null 2>&1 || stop_pre "MISSING_${cmd^^}"
+          done
+
+          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop_pre WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop_pre WORKFLOW_REF_NOT_MAIN
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop_pre WORKFLOW_ATTEMPT_NOT_ONE
+          [ "${GITHUB_SHA:-}" = "${APPROVED_SHA:-}" ] || stop_pre WORKFLOW_SHA_NOT_APPROVED
+
+          [[ "${APPROVED_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || stop_pre APPROVED_SHA_INVALID
+          [[ "${EXPECTED_CI_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre CI_RUN_ID_INVALID
+          [[ "${EXPECTED_PREFLIGHT_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre PREFLIGHT_RUN_ID_INVALID
+          [[ "${EXPECTED_DEPLOYMENT:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop_pre EXPECTED_DEPLOYMENT_INVALID
+          [[ "${EXPECTED_VERSION:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop_pre EXPECTED_VERSION_INVALID
+          [[ "${ISSUE_NUMBER:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre ISSUE_NUMBER_INVALID
+          [[ "${PR_NUMBER:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre PR_NUMBER_INVALID
+          [ "${PR_NUMBER}" != "3" ] || stop_pre FORBIDDEN_PR_3
+          [ "${ISSUE_NUMBER}" != "4" ] || stop_pre FORBIDDEN_ISSUE_4
+          [[ "${EXPECTED_PR_HEAD:-}" =~ ^[0-9a-f]{40}$ ]] || stop_pre EXPECTED_PR_HEAD_INVALID
+          [[ "${EXPECTED_TARGET_MAIN:-}" =~ ^[0-9a-f]{40}$ ]] || stop_pre EXPECTED_TARGET_MAIN_INVALID
+          [ "${MERGE_METHOD:-}" = "squash" ] || stop_pre MERGE_METHOD_NOT_SQUASH
+
+          expected_authorization="AUTHORIZE_MERGE_CANARY:${APPROVED_SHA}:${EXPECTED_CI_RUN_ID}:${EXPECTED_PREFLIGHT_RUN_ID}:${EXPECTED_DEPLOYMENT}:${EXPECTED_VERSION}:${ISSUE_NUMBER}:${PR_NUMBER}:${EXPECTED_PR_HEAD}:${EXPECTED_TARGET_MAIN}:${MERGE_METHOD}:POST1"
+          [ "${OWNER_AUTHORIZATION:-}" = "$expected_authorization" ] || stop_pre OWNER_AUTHORIZATION_INVALID
+
+          [ -n "${GITHUB_TOKEN:-}" ] || stop_pre MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_WORKERS_READ_TOKEN:-}" ] || stop_pre MISSING_CLOUDFLARE_API_TOKEN
+          [ -n "${CLOUDFLARE_D1_READ_TOKEN:-}" ] || stop_pre MISSING_CLOUDFLARE_D1_READ_TOKEN
+          [ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ] || stop_pre MISSING_CONTROL_ACCESS_CLIENT_ID
+          [ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ] || stop_pre MISSING_CONTROL_ACCESS_CLIENT_SECRET
+
+          request_id="$(node -e 'const { randomUUID } = require("node:crypto"); process.stdout.write(`rcmerge_${randomUUID().replaceAll("-", "_")}`)')"
+          [[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$ ]] || stop_pre GENERATED_REQUEST_ID_INVALID
+
+          tmp="$(mktemp -d)"
+
+          gh_control_get_pre() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop_pre GITHUB_CONTROL_GET_FAILED
+          }
+
+          gh_target_get_pre() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${TARGET_REPOSITORY}${path}" > "$out" || stop_pre GITHUB_TARGET_GET_FAILED
+          }
+
+          gh_control_get_post() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop_post POSTVERIFY_GITHUB_CONTROL_GET_FAILED
+          }
+
+          gh_target_get_post() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${TARGET_REPOSITORY}${path}" > "$out" || stop_post POSTVERIFY_GITHUB_TARGET_GET_FAILED
+          }
+
+          cf_workers_get_pre() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_WORKERS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop_pre CLOUDFLARE_WORKERS_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop_pre CLOUDFLARE_WORKERS_RESPONSE_INVALID
+          }
+
+          cf_workers_get_post() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_WORKERS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop_post POSTVERIFY_CLOUDFLARE_WORKERS_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop_post POSTVERIFY_CLOUDFLARE_WORKERS_RESPONSE_INVALID
+          }
+
+          cf_d1_get_pre() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop_pre CLOUDFLARE_D1_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop_pre CLOUDFLARE_D1_RESPONSE_INVALID
+          }
+
+          d1_read_query_pre() {
+            local sql="$1" params="$2" out="$3"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X POST \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$(jq -cn --arg sql "$sql" --argjson params "$params" '{sql:$sql,params:$params}')" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${DB_ID}/query" > "$out" || stop_pre D1_SELECT_FAILED
+            jq -e '.success == true and (.result|type == "array") and (.result|length == 1) and .result[0].success == true and ((.result[0].meta.changed_db // false) == false) and (((.result[0].meta.rows_written // 0)|tonumber) == 0) and (((.result[0].meta.changes // 0)|tonumber) == 0)' "$out" >/dev/null || stop_pre D1_SELECT_REPORTED_MUTATION_OR_FAILURE
+          }
+
+          d1_read_query_post() {
+            local sql="$1" params="$2" out="$3"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X POST \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$(jq -cn --arg sql "$sql" --argjson params "$params" '{sql:$sql,params:$params}')" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${DB_ID}/query" > "$out" || stop_post POSTVERIFY_D1_SELECT_FAILED
+            jq -e '.success == true and (.result|type == "array") and (.result|length == 1) and .result[0].success == true and ((.result[0].meta.changed_db // false) == false) and (((.result[0].meta.rows_written // 0)|tonumber) == 0) and (((.result[0].meta.changes // 0)|tonumber) == 0)' "$out" >/dev/null || stop_post POSTVERIFY_D1_SELECT_REPORTED_MUTATION_OR_FAILURE
+          }
+
+          access_post_merge() {
+            local body="$1" out="$2" code_file="$3"
+            local code
+            printf 'MERGE_POST_STARTED=YES\n'
+            printf 'AUTHORIZATION_CONSUMED=YES\n'
+            if ! code="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 45 \
+              -X POST \
+              -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}" \
+              -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}" \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              --data "$body" \
+              -o "$out" -w '%{http_code}' "${CONTROL_ORIGIN}/api/github/merge")"; then
+              printf 'MERGE_POST_SENT=UNKNOWN\n' >&2
+              stop_post MERGE_POST_TRANSPORT_FAILED
+            fi
+            printf 'MERGE_POST_SENT=YES\n'
+            printf '%s' "$code" > "$code_file"
+          }
+
+          revalidate_bound_state() {
+            local phase="$1"
+            printf 'STAGE=BOUND_STATE_%s\n' "$phase"
+
+            gh_control_get_pre '/branches/main' "$tmp/control-main-${phase}.json"
+            jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/control-main-${phase}.json" >/dev/null || stop_pre CONTROL_MAIN_DRIFT
+
+            gh_control_get_pre "/actions/runs/${EXPECTED_CI_RUN_ID}" "$tmp/ci-${phase}.json"
+            jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_CI_RUN_ID" '
+              .id == $id and
+              .name == "CI" and
+              .path == ".github/workflows/ci.yml" and
+              .head_branch == "main" and
+              .head_sha == $sha and
+              .event == "push" and
+              .status == "completed" and
+              .conclusion == "success" and
+              .run_attempt == 1
+            ' "$tmp/ci-${phase}.json" >/dev/null || stop_pre EXACT_MAIN_CI_NOT_BOUND
+
+            gh_control_get_pre "/actions/runs/${EXPECTED_PREFLIGHT_RUN_ID}" "$tmp/preflight-${phase}.json"
+            jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_PREFLIGHT_RUN_ID" '
+              .id == $id and
+              .name == "Phase 3 Merge read-only D1 preflight" and
+              .path == ".github/workflows/phase3-merge-readonly-preflight.yml" and
+              .head_branch == "main" and
+              .head_sha == $sha and
+              (.event == "workflow_dispatch" or .event == "issue_comment") and
+              .status == "completed" and
+              .conclusion == "success" and
+              .run_attempt == 1
+            ' "$tmp/preflight-${phase}.json" >/dev/null || stop_pre READONLY_PREFLIGHT_NOT_BOUND
+
+            cf_workers_get_pre "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-${phase}.json"
+            jq -e --arg deployment "$EXPECTED_DEPLOYMENT" --arg version "$EXPECTED_VERSION" '
+              (.result.deployments|type == "array") and
+              (.result.deployments|length >= 1) and
+              .result.deployments[0].id == $deployment and
+              (.result.deployments[0].versions|type == "array") and
+              (.result.deployments[0].versions|length == 1) and
+              .result.deployments[0].versions[0].version_id == $version and
+              .result.deployments[0].versions[0].percentage == 100
+            ' "$tmp/deployments-${phase}.json" >/dev/null || stop_pre PRODUCTION_WORKER_BASELINE_DRIFT
+
+            cf_d1_get_pre "/d1/database/${DB_ID}" "$tmp/database-${phase}.json"
+            jq -e --arg id "$DB_ID" --arg name "$DB_NAME" '.result.uuid == $id and .result.name == $name' "$tmp/database-${phase}.json" >/dev/null || stop_pre D1_DATABASE_IDENTITY_MISMATCH
+
+            gh_target_get_pre "/issues/${ISSUE_NUMBER}" "$tmp/issue-${phase}.json"
+            jq -e --argjson number "$ISSUE_NUMBER" '
+              .number == $number and .state == "open" and (has("pull_request")|not)
+            ' "$tmp/issue-${phase}.json" >/dev/null || stop_pre TARGET_ISSUE_DRIFT
+
+            gh_target_get_pre "/pulls/${PR_NUMBER}" "$tmp/pr-${phase}.json"
+            jq -e --argjson number "$PR_NUMBER" --arg head "$EXPECTED_PR_HEAD" --arg main "$EXPECTED_TARGET_MAIN" --arg repo "$TARGET_REPOSITORY" '
+              .number == $number and
+              .state == "open" and
+              .merged == false and
+              .draft == false and
+              .head.sha == $head and
+              .head.repo.full_name == $repo and
+              .base.ref == "main" and
+              .base.sha == $main and
+              .base.repo.full_name == $repo
+            ' "$tmp/pr-${phase}.json" >/dev/null || stop_pre TARGET_PR_DRIFT
+
+            gh_target_get_pre '/branches/main' "$tmp/target-main-${phase}.json"
+            jq -e --arg sha "$EXPECTED_TARGET_MAIN" '.commit.sha == $sha' "$tmp/target-main-${phase}.json" >/dev/null || stop_pre TARGET_MAIN_DRIFT
+
+            gh_target_get_pre "/commits/${EXPECTED_PR_HEAD}/check-runs?per_page=100" "$tmp/checks-${phase}.json"
+            jq -e '
+              .total_count >= 1 and
+              ([.check_runs[] | select(.status != "completed")] | length) == 0 and
+              ([.check_runs[] | select((.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped") | not)] | length) == 0
+            ' "$tmp/checks-${phase}.json" >/dev/null || stop_pre TARGET_CHECKS_NOT_READY
+
+            gh_target_get_pre "/pulls/${PR_NUMBER}/reviews?per_page=100" "$tmp/reviews-${phase}.json"
+            jq -e 'type == "array" and ([.[] | select(.state == "CHANGES_REQUESTED")] | length) == 0' "$tmp/reviews-${phase}.json" >/dev/null || stop_pre TARGET_REVIEWS_NOT_READY
+
+            gh_target_get_pre "/pulls/${PR_NUMBER}/comments?per_page=100" "$tmp/review-comments-${phase}.json"
+            jq -e 'type == "array" and length == 0' "$tmp/review-comments-${phase}.json" >/dev/null || stop_pre TARGET_REVIEW_THREADS_NOT_CLEAN
+          }
+
+          revalidate_bound_state initial
+
+          target_rows_sql='SELECT request_id, state, mutation_attempted, merge_sha FROM merge_decisions WHERE repository = ? AND pull_number = ? ORDER BY requested_at DESC LIMIT 2'
+          target_rows_params="$(jq -cn --arg repo "$TARGET_REPOSITORY" --argjson pr "$PR_NUMBER" '[$repo,$pr]')"
+          d1_read_query_pre "$target_rows_sql" "$target_rows_params" "$tmp/target-prestate.json"
+          jq -e '.result[0].results == []' "$tmp/target-prestate.json" >/dev/null || stop_pre MERGE_TARGET_AUDIT_PRESTATE_NOT_EMPTY
+
+          request_sql='SELECT request_id, state FROM merge_decisions WHERE request_id = ? LIMIT 2'
+          request_params="$(jq -cn --arg request_id "$request_id" '[$request_id]')"
+          d1_read_query_pre "$request_sql" "$request_params" "$tmp/request-prestate.json"
+          jq -e '.result[0].results == []' "$tmp/request-prestate.json" >/dev/null || stop_pre GENERATED_REQUEST_ID_ALREADY_PRESENT
+
+          revalidate_bound_state prewrite
+          printf 'PREWRITE_GATE=PASS\n'
+          printf 'REQUEST_ID=%s\n' "$request_id"
+
+          request_body="$(jq -cn \
+            --arg requestId "$request_id" \
+            --arg repository "$TARGET_REPOSITORY" \
+            --argjson issueNumber "$ISSUE_NUMBER" \
+            --argjson pullNumber "$PR_NUMBER" \
+            --arg expectedHeadSha "$EXPECTED_PR_HEAD" \
+            --arg expectedMainSha "$EXPECTED_TARGET_MAIN" \
+            --arg mergeMethod "$MERGE_METHOD" \
+            '{requestId:$requestId,repository:$repository,issueNumber:$issueNumber,pullNumber:$pullNumber,expectedHeadSha:$expectedHeadSha,expectedMainSha:$expectedMainSha,mergeMethod:$mergeMethod}')"
+
+          access_post_merge "$request_body" "$tmp/merge-response.json" "$tmp/merge-status.txt"
+
+          [ "$(cat "$tmp/merge-status.txt")" = "200" ] || stop_post MERGE_POST_HTTP_STATUS_UNEXPECTED
+          jq -e \
+            --arg request_id "$request_id" \
+            --arg repository "$TARGET_REPOSITORY" \
+            --argjson issue_number "$ISSUE_NUMBER" \
+            --argjson pr_number "$PR_NUMBER" \
+            --arg method "$MERGE_METHOD" \
+            --arg head "$EXPECTED_PR_HEAD" \
+            --arg main "$EXPECTED_TARGET_MAIN" '
+              type == "object" and
+              .status == "MERGED" and
+              .requestId == $request_id and
+              .repository == $repository and
+              .issueNumber == $issue_number and
+              .pullNumber == $pr_number and
+              .mergeMethod == $method and
+              .expectedHeadSha == $head and
+              .observedHeadSha == $head and
+              .expectedMainSha == $main and
+              .observedMainSha == $main and
+              (.observedAt|type == "string") and
+              (.mergeSha|type == "string" and test("^[0-9a-f]{40}$"))
+            ' "$tmp/merge-response.json" >/dev/null || stop_post MERGE_RESPONSE_INVALID
+
+          merge_sha="$(jq -r '.mergeSha' "$tmp/merge-response.json")"
+
+          gh_target_get_post "/pulls/${PR_NUMBER}" "$tmp/post-pr.json"
+          jq -e --argjson number "$PR_NUMBER" --arg head "$EXPECTED_PR_HEAD" --arg merge "$merge_sha" --arg repo "$TARGET_REPOSITORY" '
+            .number == $number and
+            .state == "closed" and
+            .merged == true and
+            .draft == false and
+            .head.sha == $head and
+            .head.repo.full_name == $repo and
+            .base.ref == "main" and
+            .base.repo.full_name == $repo and
+            .merge_commit_sha == $merge
+          ' "$tmp/post-pr.json" >/dev/null || stop_post POSTVERIFY_TARGET_PR_NOT_EXACTLY_MERGED
+
+          gh_target_get_post '/branches/main' "$tmp/post-target-main.json"
+          jq -e --arg sha "$merge_sha" '.commit.sha == $sha' "$tmp/post-target-main.json" >/dev/null || stop_post POSTVERIFY_TARGET_MAIN_NOT_MERGE_SHA
+
+          gh_target_get_post "/issues/${ISSUE_NUMBER}" "$tmp/post-issue.json"
+          jq -e --argjson number "$ISSUE_NUMBER" '.number == $number and .state == "open" and (has("pull_request")|not)' "$tmp/post-issue.json" >/dev/null || stop_post POSTVERIFY_TARGET_ISSUE_DRIFT
+
+          audit_sql='SELECT request_id, repository, project_id, issue_number, pull_number, merge_method, expected_head_sha, expected_main_sha, requested_at, state, outcome_code, mutation_attempted, observed_head_sha, observed_main_sha, observed_at, merge_sha, completed_at FROM merge_decisions WHERE request_id = ? LIMIT 2'
+          d1_read_query_post "$audit_sql" "$request_params" "$tmp/post-audit.json"
+          jq -e \
+            --arg request_id "$request_id" \
+            --arg repository "$TARGET_REPOSITORY" \
+            --arg project "$TARGET_PROJECT_ID" \
+            --argjson issue_number "$ISSUE_NUMBER" \
+            --argjson pr_number "$PR_NUMBER" \
+            --arg method "$MERGE_METHOD" \
+            --arg head "$EXPECTED_PR_HEAD" \
+            --arg main "$EXPECTED_TARGET_MAIN" \
+            --arg merge "$merge_sha" '
+              (.result[0].results|length) == 1 and
+              .result[0].results[0] as $row |
+              $row.request_id == $request_id and
+              $row.repository == $repository and
+              $row.project_id == $project and
+              $row.issue_number == $issue_number and
+              $row.pull_number == $pr_number and
+              $row.merge_method == $method and
+              $row.expected_head_sha == $head and
+              $row.expected_main_sha == $main and
+              ($row.requested_at|type == "string") and
+              $row.state == "SUCCEEDED" and
+              $row.outcome_code == null and
+              $row.mutation_attempted == 1 and
+              $row.observed_head_sha == $head and
+              $row.observed_main_sha == $main and
+              ($row.observed_at|type == "string") and
+              $row.merge_sha == $merge and
+              ($row.completed_at|type == "string")
+            ' "$tmp/post-audit.json" >/dev/null || stop_post POSTVERIFY_MERGE_AUDIT_ROW_INVALID
+
+          gh_control_get_post '/branches/main' "$tmp/post-control-main.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/post-control-main.json" >/dev/null || stop_post POSTVERIFY_CONTROL_MAIN_DRIFT
+
+          cf_workers_get_post "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/post-deployments.json"
+          jq -e --arg deployment "$EXPECTED_DEPLOYMENT" --arg version "$EXPECTED_VERSION" '
+            (.result.deployments|type == "array") and
+            (.result.deployments|length >= 1) and
+            .result.deployments[0].id == $deployment and
+            (.result.deployments[0].versions|type == "array") and
+            (.result.deployments[0].versions|length == 1) and
+            .result.deployments[0].versions[0].version_id == $version and
+            .result.deployments[0].versions[0].percentage == 100
+          ' "$tmp/post-deployments.json" >/dev/null || stop_post POSTVERIFY_PRODUCTION_WORKER_DRIFT
+
+          printf 'MERGE_CANARY=PASS\n'
+          printf 'REQUEST_ID=%s\n' "$request_id"
+          printf 'MERGE_SHA=%s\n' "$merge_sha"
+          printf 'AUTHORIZATION_CONSUMED=YES\n'
+          printf 'MERGE_POST_STARTED=YES\n'
+          printf 'MERGE_POST_SENT=YES\n'
+          printf 'REMOTE_D1_MUTATION=ONE_MERGE_AUDIT_LIFECYCLE_THROUGH_WORKER\n'
+          printf 'GITHUB_DECISION_MUTATION=ONE_EXACT_PR_MERGE_THROUGH_WORKER\n'
+          printf 'WORKER_MUTATION=NO\n'
+          printf 'CLOUDFLARE_CONFIG_MUTATION=NO\n'
+          printf 'GITHUB_APP_PERMISSION_MUTATION=NO\n'
+          printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
