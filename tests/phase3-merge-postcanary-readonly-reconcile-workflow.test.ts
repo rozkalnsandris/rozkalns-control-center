@@ -45,6 +45,10 @@ test("trigger fields and canary evidence are tightly bound", async () => {
   }
   assert.match(text, /TARGET_REPOSITORY: rozkalnsandris\/ops-workflows/);
   assert.match(text, /\.conclusion == "failure"/);
+  assert.match(text, /\.state == "closed"/);
+  assert.match(text, /\(\.merged_at \| type\) == "string"/);
+  assert.match(text, /\(\.merged_at \| length\) > 0/);
+  assert.doesNotMatch(text, /\.merged == true/);
   assert.match(text, /\.merge_commit_sha == \$merge/);
   assert.match(text, /\.parents\[0\]\.sha == \$old_main/);
   assert.match(text, /\.merge_base_commit\.sha == \$merge/);
