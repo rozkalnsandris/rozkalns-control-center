@@ -97,7 +97,7 @@ test("exactly one Merge route call consumes authorization before the external PO
   assert.equal(mergeRoutes.length, 1);
 
   const functionStart = text.indexOf("access_post_merge() {");
-  const functionEnd = text.indexOf("revalidate_bound_state() {", functionStart);
+  const functionEnd = text.indexOf("wait_for_target_merge_convergence() {", functionStart);
   assert.ok(functionStart >= 0 && functionEnd > functionStart);
   const accessPostMerge = text.slice(functionStart, functionEnd);
 
@@ -111,9 +111,35 @@ test("exactly one Merge route call consumes authorization before the external PO
   assert.match(accessPostMerge, /MERGE_POST_SENT=YES/);
 
   assert.match(text, /NO_RETRY_ROLLBACK_CLEANUP=YES/);
-  assert.doesNotMatch(text, /--retry|retry-delay|sleep\s+[0-9]+/);
+  assert.doesNotMatch(text, /--retry|retry-delay/);
   assert.doesNotMatch(text, /\/pulls\/\$\{PR_NUMBER\}\/merge/);
   assert.doesNotMatch(text, /merge_pull_request|gh\s+pr\s+merge|gh\s+api/);
+});
+
+test("post-write target convergence is bounded GET-only polling after MERGED response validation", async () => {
+  const text = await source();
+  const functionStart = text.indexOf("wait_for_target_merge_convergence() {");
+  const functionEnd = text.indexOf("revalidate_bound_state() {", functionStart);
+  assert.ok(functionStart >= 0 && functionEnd > functionStart);
+  const convergence = text.slice(functionStart, functionEnd);
+
+  assert.match(convergence, /for attempt in 1 2 3 4 5; do/);
+  assert.match(convergence, /gh_target_get_post "\/pulls\/\$\{PR_NUMBER\}"/);
+  assert.match(convergence, /gh_target_get_post '\/branches\/main'/);
+  assert.match(convergence, /POSTVERIFY_TARGET_PR_UNEXPECTED_DRIFT/);
+  assert.match(convergence, /POSTVERIFY_TARGET_MAIN_UNEXPECTED_DRIFT/);
+  assert.match(convergence, /POSTVERIFY_TARGET_MERGE_NOT_CONVERGED/);
+  assert.match(convergence, /POSTVERIFY_TARGET_MERGE_CONVERGED_ATTEMPT/);
+  assert.match(convergence, /sleep 2/);
+  assert.doesNotMatch(convergence, /curl|-X POST|--data|api\/github\/merge/);
+  assert.doesNotMatch(convergence, /while\s+/);
+
+  const sleeps = text.match(/\bsleep\s+\d+\b/g) ?? [];
+  assert.deepEqual(sleeps, ["sleep 2"]);
+
+  const mergedResponseValidation = text.indexOf('.status == "MERGED"');
+  const convergenceCall = text.indexOf('wait_for_target_merge_convergence "$merge_sha"');
+  assert.ok(mergedResponseValidation >= 0 && convergenceCall > mergedResponseValidation);
 });
 
 test("success path proves exact Merge result and one terminal D1 audit row", async () => {
