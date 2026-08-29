@@ -100,7 +100,7 @@ test("Merge D1 preflight pins migration 0008 schema, indexes and a zero-row pre-
   assert.doesNotMatch(source, /\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|REPLACE)\b/i);
 });
 
-test("Merge Access audience preflight is one bounded GET-only diagnostic", () => {
+test("Merge Access audience preflight separates bounded response shape from fingerprint classification", () => {
   assert.match(source, /HOSTNAME: control\.rozkalns\.net/);
   assert.match(
     source,
@@ -121,10 +121,21 @@ test("Merge Access audience preflight is one bounded GET-only diagnostic", () =>
   assert.match(source, /403\)/);
   assert.match(source, /\.diagnostic == "ACCESS_JWT_AUDIENCE_INVALID"/);
   assert.match(source, /\.audience\.shape == "ARRAY"/);
+  assert.match(source, /all\(\.audience\.sha256\[\]; type == "string" and test\("\^\[0-9a-f\]\{64\}\$"\)\)/);
+  assert.match(source, /OBSERVED_ACCESS_AUD_SHA256=%s/);
   assert.match(source, /any\(\.audience\.sha256\[\]; \. == \$expected\)/);
+  assert.match(source, /UNKNOWN_ACCESS_APPLICATION_FINGERPRINT/);
+  assert.match(source, /MERGE_ACCESS_AUDIENCE_FINGERPRINT_UNKNOWN/);
   assert.match(source, /MERGE_ACCESS_AUDIENCE_CONFIG_MISMATCH/);
   assert.match(source, /ACCESS_REQUEST_METHOD=GET/);
   assert.match(source, /ACCESS_MUTATION=NO/);
+
+  const shapeStop = source.indexOf("MERGE_ACCESS_AUDIENCE_DIAGNOSTIC_UNEXPECTED");
+  const knownFingerprintCheck = source.indexOf('if jq -e --arg expected "$EXPECTED_ACCESS_AUD_SHA256"');
+  const antiDrift = source.indexOf("STAGE=FINAL_ANTI_DRIFT");
+  const unknownStop = source.indexOf("stop MERGE_ACCESS_AUDIENCE_FINGERPRINT_UNKNOWN");
+  assert.ok(shapeStop >= 0 && knownFingerprintCheck > shapeStop);
+  assert.ok(antiDrift >= 0 && unknownStop > antiDrift);
 });
 
 test("Merge D1 preflight has no Merge, permission, Cloudflare config or decision mutation path", () => {
