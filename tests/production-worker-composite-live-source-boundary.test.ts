@@ -49,16 +49,34 @@ test("production Worker Composite Live workflow is manual, exact-bound and bound
   assert.match(workflow, /DEPLOYMENT_WRITE_COUNT=/);
 
   const attachmentVerified = workflow.indexOf("ATTACHED_DEPLOYMENT_IDENTITY_MISMATCH");
-  const propagationWaitStage = workflow.indexOf("STAGE=CANDIDATE_OVERRIDE_PROPAGATION_WAIT");
-  const propagationWait = workflow.indexOf("sleep 5");
+  const candidatePropagationWaitStage = workflow.indexOf(
+    "STAGE=CANDIDATE_OVERRIDE_PROPAGATION_WAIT",
+  );
+  const candidatePropagationWait = workflow.indexOf("sleep 5", candidatePropagationWaitStage);
   const candidateSmokeStage = workflow.indexOf("STAGE=EXACT_CANDIDATE_SMOKE");
+  const promotionStage = workflow.indexOf("STAGE=PROMOTE_EXACT_VERIFIED_CANDIDATE");
+  const finalDeploymentVerified = workflow.indexOf("FINAL_DEPLOYMENT_IDENTITY_MISMATCH");
+  const finalPropagationWaitStage = workflow.indexOf("STAGE=FINAL_DEPLOYMENT_PROPAGATION_WAIT");
+  const finalPropagationWait = workflow.indexOf("sleep 5", finalPropagationWaitStage);
+  const finalHealth = workflow.indexOf(
+    'access_health_get "" "$tmp/health-after.json" "$tmp/health-after.code"',
+  );
   assert.ok(attachmentVerified >= 0);
-  assert.ok(propagationWaitStage > attachmentVerified);
-  assert.ok(propagationWait > propagationWaitStage);
-  assert.ok(candidateSmokeStage > propagationWait);
-  assert.equal((workflow.match(/\bsleep 5\b/g) ?? []).length, 1);
+  assert.ok(candidatePropagationWaitStage > attachmentVerified);
+  assert.ok(candidatePropagationWait > candidatePropagationWaitStage);
+  assert.ok(candidateSmokeStage > candidatePropagationWait);
+  assert.ok(promotionStage > candidateSmokeStage);
+  assert.ok(finalDeploymentVerified > promotionStage);
+  assert.ok(finalPropagationWaitStage > finalDeploymentVerified);
+  assert.ok(finalPropagationWait > finalPropagationWaitStage);
+  assert.ok(finalHealth > finalPropagationWait);
+  assert.equal((workflow.match(/\bsleep 5\b/g) ?? []).length, 2);
   assert.equal(
     (workflow.match(/access_health_get "\$candidate_version"/g) ?? []).length,
+    1,
+  );
+  assert.equal(
+    (workflow.match(/access_health_get "" "\$tmp\/health-after\.json"/g) ?? []).length,
     1,
   );
 

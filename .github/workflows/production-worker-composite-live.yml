@@ -314,6 +314,9 @@ jobs:
             .result.deployments[0].versions[0].percentage == 100
           ' "$tmp/deployments-after.json" >/dev/null || stop FINAL_DEPLOYMENT_IDENTITY_MISMATCH
 
+          printf '%s\n' STAGE=FINAL_DEPLOYMENT_PROPAGATION_WAIT
+          sleep 5
+
           access_health_get "" "$tmp/health-after.json" "$tmp/health-after.code" || stop FINAL_HEALTH_GET_FAILED
           [[ "$(cat "$tmp/health-after.code")" == 200 ]] || stop FINAL_HEALTH_HTTP_NOT_200
           jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '
