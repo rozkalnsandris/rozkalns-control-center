@@ -260,6 +260,30 @@ function requireSafeInteger(value: unknown): number {
   return value as number;
 }
 
+async function requireExpectedAudience(
+  value: unknown,
+  expectedAudience: string,
+): Promise<readonly string[]> {
+  if (typeof value === "string") {
+    const audience = boundedOpaqueString(value, MAX_AUDIENCE_LENGTH);
+    if (audience === expectedAudience) return [audience];
+    fail("ACCESS_JWT_AUDIENCE_INVALID", await audienceDiagnostic(value));
+  }
+
+  if (Array.isArray(value)) {
+    const audiences: string[] = [];
+    for (const entry of value) {
+      const audience = boundedOpaqueString(entry, MAX_AUDIENCE_LENGTH);
+      if (!audience) fail("ACCESS_JWT_AUDIENCE_INVALID", await audienceDiagnostic(value));
+      audiences.push(audience);
+    }
+    if (audiences.length > 0 && audiences.includes(expectedAudience)) return audiences;
+    fail("ACCESS_JWT_AUDIENCE_INVALID", await audienceDiagnostic(value));
+  }
+
+  fail("ACCESS_JWT_AUDIENCE_INVALID", await audienceDiagnostic(value));
+}
+
 async function parseClaims(
   encodedPayload: string,
   expectedIssuer: string,
@@ -270,14 +294,7 @@ async function parseClaims(
   if (!isRecord(raw) || raw.type !== "app") fail("ACCESS_JWT_CLAIMS_INVALID");
 
   if (raw.iss !== expectedIssuer) fail("ACCESS_JWT_ISSUER_INVALID");
-  if (
-    !Array.isArray(raw.aud) ||
-    raw.aud.length === 0 ||
-    raw.aud.some((value) => typeof value !== "string" || value.length === 0) ||
-    !raw.aud.includes(expectedAudience)
-  ) {
-    fail("ACCESS_JWT_AUDIENCE_INVALID", await audienceDiagnostic(raw.aud));
-  }
+  const audiences = await requireExpectedAudience(raw.aud, expectedAudience);
 
   const exp = requireSafeInteger(raw.exp);
   const iat = requireSafeInteger(raw.iat);
@@ -319,7 +336,7 @@ async function parseClaims(
   return {
     type: "app",
     iss: expectedIssuer,
-    aud: raw.aud as string[],
+    aud: audiences,
     exp,
     iat,
     nbf,
