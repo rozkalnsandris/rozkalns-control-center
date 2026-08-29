@@ -7,7 +7,7 @@ async function source(path: string): Promise<string> {
   return readFile(resolve(process.cwd(), path), "utf8");
 }
 
-test("guarded Merge decision is Worker-reachable but capability-disabled and UI-unwired", async () => {
+test("guarded Merge decision is Worker-reachable and source-bounded to ops-workflows while production activation remains separate", async () => {
   const [decisionSource, workerIndex, workerRuntime, appSource, policySource, wranglerSource] = await Promise.all([
     source("src/shared/merge-decision.ts"),
     source("src/worker/index.ts"),
@@ -39,8 +39,12 @@ test("guarded Merge decision is Worker-reachable but capability-disabled and UI-
     assert.doesNotMatch(runtimeSource, /\/api\/github\/merge/i);
   }
 
-  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 6);
-  assert.doesNotMatch(policySource, /canMerge:\s*true/);
+  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 5);
+  assert.equal((policySource.match(/canMerge:\s*true/g) ?? []).length, 1);
+  assert.match(
+    policySource,
+    /repository: "rozkalnsandris\/ops-workflows"[^\n]+canMerge: true/,
+  );
   assert.match(wranglerSource, /CONTROL_MERGE_ACCESS_ISSUER/);
   assert.match(wranglerSource, /CONTROL_MERGE_ACCESS_AUDIENCE/);
   assert.doesNotMatch(wranglerSource, /contents:write|GITHUB_CONTENTS_WRITE_PERMISSION/i);

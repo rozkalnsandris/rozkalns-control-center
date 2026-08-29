@@ -7,7 +7,7 @@ async function source(path: string): Promise<string> {
   return readFile(resolve(process.cwd(), path), "utf8");
 }
 
-test("Phase 3 Merge write primitive remains dormant with no runtime, UI or capability activation", async () => {
+test("Phase 3 Merge write primitive remains live-inactive while capability is source-prepared only for ops-workflows", async () => {
   const [mergeSession, mergeWriter, workerIndex, workerRuntime, appSource, policySource, wranglerSource] = await Promise.all([
     source("src/integrations/github/app-installation-merge-session.ts"),
     source("src/integrations/github/pull-request-merge-write.ts"),
@@ -38,8 +38,12 @@ test("Phase 3 Merge write primitive remains dormant with no runtime, UI or capab
     assert.doesNotMatch(runtimeSource, /\/api\/github\/merge/i);
   }
 
-  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 6);
-  assert.doesNotMatch(policySource, /canMerge:\s*true/);
+  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 5);
+  assert.equal((policySource.match(/canMerge:\s*true/g) ?? []).length, 1);
+  assert.match(
+    policySource,
+    /repository: "rozkalnsandris\/ops-workflows"[^\n]+canMerge: true/,
+  );
   assert.equal((policySource.match(/canRequestChanges:\s*true/g) ?? []).length, 1);
   assert.equal((policySource.match(/canRequestChanges:\s*false/g) ?? []).length, 5);
 });

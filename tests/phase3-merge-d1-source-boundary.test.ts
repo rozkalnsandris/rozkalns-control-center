@@ -7,7 +7,7 @@ async function source(path: string): Promise<string> {
   return readFile(join(process.cwd(), path), "utf8");
 }
 
-test("Phase 3 Merge D1 audit persistence remains detached from Worker runtime, UI and production activation", async () => {
+test("Phase 3 Merge D1 audit persistence stays detached from live production activation while ops-workflows capability is source-prepared", async () => {
   const [
     storeSource,
     migrationSource,
@@ -51,8 +51,12 @@ test("Phase 3 Merge D1 audit persistence remains detached from Worker runtime, U
     assert.doesNotMatch(runtimeSource, /\/api\/github\/merge/i);
   }
 
-  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 6);
-  assert.doesNotMatch(policySource, /canMerge:\s*true/);
+  assert.equal((policySource.match(/canMerge:\s*false/g) ?? []).length, 5);
+  assert.equal((policySource.match(/canMerge:\s*true/g) ?? []).length, 1);
+  assert.match(
+    policySource,
+    /repository: "rozkalnsandris\/ops-workflows"[^\n]+canMerge: true/,
+  );
 });
 
 test("Merge D1 source persistence contains no live apply command or credential material", async () => {

@@ -1,14 +1,14 @@
 # Phase 3 guarded Merge decision contract
 
-Status: source-wired / capability disabled.
+Status: source-wired / `ops-workflows` capability prepared in source / production live Merge inactive.
 
-Issues: #391, #393, #395, #436. Prerequisite: #388 / PR #389. Decision contract: PR #392. React confirmed-action source wiring: PR #448.
+Issues: #391, #393, #395, #436, #458. Prerequisite: #388 / PR #389. Decision contract: PR #392. React confirmed-action source wiring: PR #448.
 
 ## Purpose
 
-This layer composes the exact-head GitHub Merge writer, authoritative decision coordinator, durable audit store and authenticated Worker handler/runtime boundary. Issue #436 wired the existing Merge route/runtime into the Worker source while deliberately keeping every managed repository `canMerge=false` and, at that time, keeping the UI demo-only. PR #448 later source-wired the typed same-origin React Merge caller with a second explicit confirmation and exact decision evidence binding; every managed repository still remains `canMerge=false`, so source caller reachability is not live Merge authority.
+This layer composes the exact-head GitHub Merge writer, authoritative decision coordinator, durable audit store and authenticated Worker handler/runtime boundary. Issue #436 wired the existing Merge route/runtime into the Worker source. PR #448 later source-wired the typed same-origin React Merge caller with a second explicit confirmation and exact decision evidence binding. Issue #458 deliberately prepares `canMerge=true` for exactly `rozkalnsandris/ops-workflows` in source while keeping the other five managed repositories disabled.
 
-Route reachability is not Merge authority. A future deployment of this source can expose the authenticated route, but the current project-policy gate denies every managed repository before decision execution, D1 audit work, GitHub credential creation or a Merge writer call.
+Source policy preparation is not live Merge authority. The #458 source change must still be explicitly merged, the production GitHub App must separately receive the minimum approved Merge permission, and a later production Worker rollout must be separately authorized before the prepared policy can exist in production runtime.
 
 The decision service remains dependency-injected:
 
@@ -17,7 +17,7 @@ The decision service remains dependency-injected:
 - exact-head Merge writer;
 - `MergeDecisionAuditStore`.
 
-Issue #393 added the concrete D1 audit-store implementation plus source-controlled migration `0008_merge_decision_audit.sql`. Issue #395 composed that store and the one-repository Merge writer/session behind an authenticated runtime. Migration `0008` remains unapplied to remote production D1 under #436.
+Issue #393 added the concrete D1 audit-store implementation plus source-controlled migration `0008_merge_decision_audit.sql`. Current canonical continuity records production D1 through migration `0009`; nevertheless, immediately before any future Merge live activation, fresh read-only evidence must still prove the expected `merge_decisions` schema/identity and a safe pre-state rather than relying on historical migration state.
 
 ## Request binding
 
@@ -46,11 +46,11 @@ The exact route is `POST /api/github/merge`. The handler:
 
 Issue #436 registers that existing handler in `src/worker/index.ts` and supplies the non-secret Merge Access issuer/audience bindings required by the existing runtime resolver. Missing or malformed issuer/audience configuration resolves to no runtime and fails closed.
 
-`ManagedProjectPolicy` contains explicit `canMerge: boolean`. **All six currently managed repositories remain `canMerge=false`.** Therefore every current managed repository is denied with `ACTION_NOT_ALLOWED` before the handler calls `executeDecision`.
+`ManagedProjectPolicy` contains explicit `canMerge: boolean`. Under #458 source preparation, exactly one managed repository is enabled: `rozkalnsandris/ops-workflows`. The other five remain `canMerge=false`. Excluded and unknown repositories remain denied.
 
 The runtime repeats the same trust-boundary check with `requireMergeProjectPolicy()` before it creates an authoritative repository decision context or invokes `executeMergeDecision`. Only after that inner gate could the authoritative read context, `D1MergeDecisionAuditStore`, one-repository `contents:write` installation session and exact-head Merge writer become reachable.
 
-This double gate is intentional: Worker route reachability, configuration presence or a future caller mistake must not make the runtime write-capable while project policy remains false.
+This double gate is intentional: Worker route reachability, configuration presence or caller mistakes must not grant Merge authority to any repository outside the exact project policy.
 
 ## Authoritative pre-write gate
 
@@ -66,7 +66,7 @@ After a successful audit claim, `executeMergeDecision` performs a fresh authorit
 
 Only then is the low-level writer called once with the exact approved head SHA and explicit merge method. The writer's own expected-head PUT guard remains the final GitHub concurrency check. There is no automatic refresh-and-retry on head conflict.
 
-The lightweight `/api/github/dashboard` snapshot is intentionally observational: it never emits `MERGE_READY`, and its current PR projection does not supply the complete issue identity required by the Merge client. Therefore the #448 React source wiring does not make a lightweight live card Merge-capable; authoritative reconciliation and project capability remain mandatory fail-closed gates.
+The lightweight `/api/github/dashboard` snapshot is intentionally observational: it never emits `MERGE_READY`, and its current PR projection does not supply the complete issue identity required by the Merge client. Therefore React caller reachability does not make a lightweight live card authoritative for Merge; authoritative reconciliation and project capability remain mandatory fail-closed gates.
 
 ## Durable D1 audit and replay model
 
@@ -111,60 +111,63 @@ A matching successful replay returns the stored result without rereading GitHub 
 
 Any future activated runtime must reconcile GitHub and durable audit state before any new authorization following an unknown or audit-finalization outcome.
 
-## Source-wired fail-closed boundary after #436 and #448
+## Source-prepared fail-closed boundary after #448 and #458
 
-Issue #436 changed Worker route/runtime reachability:
+The merged source before #458 already provides:
 
-- `/api/github/merge` is registered in the Worker entrypoint;
-- the existing Merge runtime resolver is connected to the Worker environment;
-- non-secret `CONTROL_MERGE_ACCESS_ISSUER` and `CONTROL_MERGE_ACCESS_AUDIENCE` configuration is present in source;
-- source tests prove route reachability, runtime fail-closed configuration behavior and six `canMerge=false` policies.
+- `/api/github/merge` registered in the Worker entrypoint;
+- the existing Merge runtime resolver connected to the Worker environment;
+- non-secret `CONTROL_MERGE_ACCESS_ISSUER` and `CONTROL_MERGE_ACCESS_AUDIENCE` configuration in source;
+- the typed same-origin React `/api/github/merge` client;
+- second-click confirmation with explicit `squash` and exact issue/PR/head/main binding;
+- duplicate-submit suppression and canonical dashboard refresh after terminal results;
+- fixture/loading/refreshing/error/stale dashboard suppression of mutating actions.
 
-PR #448 later changed caller source only:
+Issue #458 changes only the project-policy capability and its focused tests/documentation:
 
-- React uses the typed same-origin `/api/github/merge` client;
-- the first Merge click only opens an explicit confirmation;
-- confirmation explicitly selects `squash` and binds exact issue/PR/head/main evidence with a fresh bounded request id;
-- duplicate submission is blocked while an action is in flight;
-- terminal success or failure triggers a canonical dashboard refresh;
-- fixture/loading/refreshing/error/stale dashboard states suppress mutating actions.
+- `rozkalnsandris/ops-workflows`: `canMerge=true` in source;
+- the other five managed repositories: `canMerge=false`;
+- excluded/unknown repositories: fail closed;
+- existing `canRequestChanges` and `canLater` values are unchanged.
 
-The combined source still does **not** introduce or activate:
+The #458 source work does **not** perform or authorize:
 
-- `canMerge=true` for any repository;
-- remote D1 migration application or production D1 writes;
 - GitHub App `Contents: write` permission or repository-selection change;
-- Cloudflare Access policy, secret or credential mutation;
 - production Worker deployment;
+- Cloudflare Access policy, secret or credential mutation;
+- production D1 mutation or migration apply;
+- creation of a new `ops-workflows` Merge-canary PR;
+- any mutation or merge of `ops-workflows#3` (which remains MUST NEVER MERGE);
 - backend live Merge canary;
 - production/live GitHub Merge.
 
-Source UI wiring is not production UI activation and does not grant later mutation authority.
-
 ## Remaining activation gates
 
-Before live Merge can exist, separate owner-gated steps still include:
+Before live Merge can exist, the independent gates are:
 
-1. fresh review of then-current GitHub/canonical state and exact-main CI;
-2. separately owner-authorized remote D1 application of source-reviewed migration `0008` if fresh production evidence shows it is still pending;
-3. explicit owner authorization for the minimum GitHub App `Contents: write` permission and exact repository selection;
-4. a separately reviewed deliberate project-policy activation changing only an intended repository to `canMerge=true`;
-5. separately authorized production Worker rollout with a fresh production baseline;
-6. one bounded backend canary on a disposable target with fresh exact-head/main/CI/review evidence;
-7. production reliance on the already source-wired Merge UI only after backend canary evidence and a fresh production UI verification;
-8. any later real Merge remains separately authorized and freshly revalidated.
+1. explicit owner merge authorization for the #458 source PR after exact-head CI/review is Ready; source merge is not deploy or GitHub App permission authorization;
+2. fresh production D1 read-only verification of the `merge_decisions` schema/identity and clean canary pre-state; apply nothing unless fresh evidence proves a migration is genuinely missing and a separate DB authorization is granted;
+3. explicit owner authorization for the minimum production GitHub App `Contents: write` permission while preserving the exact reviewed repository selection; permission growth is a separate trust-boundary mutation;
+4. prepare a dedicated mergeable disposable canary target under its own reviewed gate; existing `ops-workflows#3` must never be used because it is explicitly forbidden to merge;
+5. separately authorized production Worker rollout of an exact reviewed source SHA with a fresh production baseline; this is the step that can make the source-prepared `canMerge=true` policy reachable in production;
+6. fresh read-only Merge preflight proving exact target issue/PR/head/main, required CI/checks, reviews, policy evidence, App permission and zero conflicting audit state;
+7. one separately owner-authorized bounded backend Merge canary on that disposable target, with no retry after mutation starts;
+8. production reliance on the already source-wired Merge UI only after backend canary evidence and a fresh production UI verification;
+9. every later real Merge remains separately authorized and freshly revalidated.
 
-Each gate is independent. Source merge authorization is not deploy, migration, permission, capability activation or live Merge authorization.
+Each gate is independent. Merge authorization is never deploy, DB, permission, Cloudflare or later live-action authorization.
 
 ## Deployment / migration classification
 
-For the current source after #448:
+For the #458 source preparation:
 
-- `Production deploy: NO / not performed by source merge`; a separate later Worker rollout is required for current source to exist in production;
-- `Remote D1 migration apply: historical #436 state was deferred; fresh production evidence is required before any future Merge activation`;
-- `GitHub App permission expansion: NO`;
-- `canMerge capability activation: NO`;
-- `Merge UI source wiring: YES`; production UI activation/use remains **NO**;
+- `Production deploy now: NO`;
+- `Production deploy required later: YES` before the prepared `canMerge=true` policy can be active in production runtime;
+- `Remote D1 migration/apply now: NO`; current continuity records production through `0009`, but fresh Merge-specific schema/pre-state verification remains required before live use;
+- `GitHub App permission expansion now: NO`; future `Contents: write` remains separately owner-gated;
+- `canMerge source preparation: YES` for `ops-workflows` only;
+- `canMerge production activation: NO`;
+- `Merge UI source wiring: YES`; production live use remains **NO**;
 - `Live GitHub Merge: NO`.
 
-The merged source does not mutate production Cloudflare state, production D1, GitHub App permissions, repository selection or any managed repository.
+The source preparation does not mutate production Cloudflare state, production D1, GitHub App permissions, repository selection or any managed repository.
