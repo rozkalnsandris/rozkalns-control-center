@@ -107,7 +107,7 @@ test("Merge Access audience preflight is one bounded GET-only diagnostic", () =>
     /EXPECTED_ACCESS_AUD_SHA256: e6e8acda0850d8c5fa41c5de8b7a0e4dd71e2fcb8f3f9e0654bc05d3499905c9/,
   );
 
-  const accessGetBlock = source.match(/access_get\(\) \{[\s\S]*?\n          \}/)?.[0];
+  const accessGetBlock = source.match(/access_get\(\) \{[\s\S]*?\n {10}\}/)?.[0];
   assert.ok(accessGetBlock);
   assert.match(accessGetBlock, /https:\/\/\$\{HOSTNAME\}\/api\/github\/merge/);
   assert.match(accessGetBlock, /CF-Access-Client-Id/);
