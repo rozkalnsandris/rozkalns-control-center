@@ -1,0 +1,286 @@
+name: Phase 3 Merge post-canary read-only reconciliation
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase3-merge-postcanary-readonly-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.action == 'created' &&
+      github.event.issue.number == 278 &&
+      github.event.issue.pull_request == null &&
+      github.event.comment.user.id == 277435981 &&
+      github.event.comment.user.type == 'User' &&
+      startsWith(github.event.comment.body, '/phase3-merge-postcanary-reconcile:')
+    name: reconcile consumed Merge canary audit evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      TARGET_REPOSITORY: rozkalnsandris/ops-workflows
+      TARGET_PROJECT_ID: ops-workflows
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+
+    steps:
+      - name: Reconcile exact consumed Merge canary without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop() {
+            {
+              printf 'MERGE_POSTCANARY_RECONCILE=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'MERGE_POST_SENT=NO\n'
+              printf 'REMOTE_D1_MUTATION=NO\n'
+              printf 'WORKER_MUTATION=NO\n'
+              printf 'CLOUDFLARE_CONFIG_MUTATION=NO\n'
+              printf 'GITHUB_DECISION_MUTATION=NO\n'
+              printf 'GITHUB_APP_PERMISSION_MUTATION=NO\n'
+            } >&2
+            exit 1
+          }
+
+          for cmd in curl jq; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [ "${GITHUB_EVENT_NAME:-}" = "issue_comment" ] || stop WORKFLOW_EVENT_NOT_ISSUE_COMMENT
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
+          [ -n "${GITHUB_EVENT_PATH:-}" ] || stop MISSING_GITHUB_EVENT_PATH
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_D1_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_D1_READ_TOKEN
+
+          jq -e '
+            .action == "created" and
+            .issue.number == 278 and
+            (.issue | has("pull_request") | not) and
+            .comment.user.id == 277435981 and
+            .comment.user.type == "User" and
+            (.comment.body | startswith("/phase3-merge-postcanary-reconcile:"))
+          ' "$GITHUB_EVENT_PATH" >/dev/null || stop OWNER_COMMENT_TRIGGER_INVALID
+
+          comment_body="$(jq -r '.comment.body' "$GITHUB_EVENT_PATH")"
+          IFS=':' read -r trigger canary_run_id request_id canary_source_sha issue_number pr_number expected_pr_head expected_old_main expected_merge_sha extra <<< "$comment_body"
+
+          [ "$trigger" = "/phase3-merge-postcanary-reconcile" ] || stop TRIGGER_INVALID
+          [ -z "${extra:-}" ] || stop TRIGGER_FIELD_COUNT_INVALID
+          [[ "$canary_run_id" =~ ^[1-9][0-9]*$ ]] || stop CANARY_RUN_ID_INVALID
+          [[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$ ]] || stop REQUEST_ID_INVALID
+          [[ "$canary_source_sha" =~ ^[0-9a-f]{40}$ ]] || stop CANARY_SOURCE_SHA_INVALID
+          [[ "$issue_number" =~ ^[1-9][0-9]*$ ]] || stop ISSUE_NUMBER_INVALID
+          [[ "$pr_number" =~ ^[1-9][0-9]*$ ]] || stop PR_NUMBER_INVALID
+          [ "$pr_number" != "3" ] || stop FORBIDDEN_PR_3
+          [ "$issue_number" != "4" ] || stop FORBIDDEN_ISSUE_4
+          [[ "$expected_pr_head" =~ ^[0-9a-f]{40}$ ]] || stop EXPECTED_PR_HEAD_INVALID
+          [[ "$expected_old_main" =~ ^[0-9a-f]{40}$ ]] || stop EXPECTED_OLD_MAIN_INVALID
+          [[ "$expected_merge_sha" =~ ^[0-9a-f]{40}$ ]] || stop EXPECTED_MERGE_SHA_INVALID
+
+          tmp="${RUNNER_TEMP}/phase3-merge-postcanary-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$tmp"
+
+          gh_control_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_CONTROL_GET_FAILED
+          }
+
+          gh_target_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${TARGET_REPOSITORY}${path}" > "$out" || stop GITHUB_TARGET_GET_FAILED
+          }
+
+          d1_select() {
+            local sql="$1" params="$2" out="$3"
+            [[ "$sql" == SELECT\ * ]] || stop D1_QUERY_NOT_SELECT
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X POST \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$(jq -cn --arg sql "$sql" --argjson params "$params" '{sql:$sql,params:$params}')" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${DB_ID}/query" > "$out" || stop D1_SELECT_FAILED
+            jq -e '
+              .success == true and
+              (.result|type == "array") and
+              (.result|length == 1) and
+              .result[0].success == true and
+              ((.result[0].meta.changed_db // false) == false) and
+              (((.result[0].meta.rows_written // 0)|tonumber) == 0) and
+              (((.result[0].meta.changes // 0)|tonumber) == 0)
+            ' "$out" >/dev/null || stop D1_SELECT_REPORTED_MUTATION_OR_FAILURE
+          }
+
+          printf 'STAGE=CURRENT_CONTROL_MAIN\n'
+          gh_control_get '/branches/main' "$tmp/control-main.json"
+          current_control_main="$(jq -r '.commit.sha // empty' "$tmp/control-main.json")"
+          [ "$current_control_main" = "${GITHUB_SHA:-}" ] || stop CONTROL_MAIN_DRIFT
+
+          gh_control_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${current_control_main}&per_page=10" "$tmp/ci-runs.json"
+          current_ci_run_id="$(
+            jq -r --arg sha "$current_control_main" '
+              [.workflow_runs[]? |
+                select(
+                  .name == "CI" and
+                  .head_branch == "main" and
+                  .head_sha == $sha and
+                  .event == "push" and
+                  .status == "completed" and
+                  .conclusion == "success"
+                )] | sort_by(.run_number) | last | .id // empty
+            ' "$tmp/ci-runs.json"
+          )"
+          [ -n "$current_ci_run_id" ] || stop CURRENT_MAIN_CI_NOT_SUCCESS
+
+          printf 'STAGE=CANARY_RUN\n'
+          gh_control_get "/actions/runs/${canary_run_id}" "$tmp/canary-run.json"
+          jq -e \
+            --argjson id "$canary_run_id" \
+            --arg sha "$canary_source_sha" '
+              .id == $id and
+              .name == "Phase 3 Merge one-shot canary" and
+              .path == ".github/workflows/phase3-merge-one-shot-canary.yml" and
+              .head_branch == "main" and
+              .head_sha == $sha and
+              .event == "workflow_dispatch" and
+              .status == "completed" and
+              .conclusion == "failure" and
+              .run_attempt == 1
+            ' "$tmp/canary-run.json" >/dev/null || stop CANARY_RUN_NOT_BOUND_TERMINAL_FAILURE
+
+          gh_control_get "/actions/runs/${canary_run_id}/jobs?filter=latest&per_page=20" "$tmp/canary-jobs.json"
+          jq -e '
+            (.jobs|type == "array") and
+            ([.jobs[] |
+              select(
+                .name == "execute exact authorized one-shot Merge canary" and
+                .status == "completed" and
+                .conclusion == "failure" and
+                .run_attempt == 1
+              )] | length) == 1
+          ' "$tmp/canary-jobs.json" >/dev/null || stop CANARY_JOB_NOT_BOUND_FAILURE
+
+          printf 'STAGE=TARGET_GITHUB\n'
+          gh_target_get "/issues/${issue_number}" "$tmp/target-issue.json"
+          jq -e --argjson number "$issue_number" '
+            .number == $number and .state == "open" and (has("pull_request")|not)
+          ' "$tmp/target-issue.json" >/dev/null || stop TARGET_ISSUE_DRIFT
+
+          gh_target_get "/pulls/${pr_number}" "$tmp/target-pr.json"
+          jq -e \
+            --argjson number "$pr_number" \
+            --arg head "$expected_pr_head" \
+            --arg merge "$expected_merge_sha" \
+            --arg repo "$TARGET_REPOSITORY" '
+              .number == $number and
+              .state == "closed" and
+              .merged == true and
+              .draft == false and
+              .head.sha == $head and
+              .head.repo.full_name == $repo and
+              .base.ref == "main" and
+              .base.repo.full_name == $repo and
+              .merge_commit_sha == $merge
+            ' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_MERGE_EVIDENCE_MISMATCH
+
+          gh_target_get "/commits/${expected_merge_sha}" "$tmp/target-merge-commit.json"
+          jq -e --arg merge "$expected_merge_sha" --arg old_main "$expected_old_main" '
+            .sha == $merge and
+            (.parents|type == "array") and
+            (.parents|length) == 1 and
+            .parents[0].sha == $old_main
+          ' "$tmp/target-merge-commit.json" >/dev/null || stop TARGET_MERGE_PARENT_MISMATCH
+
+          gh_target_get "/compare/${expected_merge_sha}...main" "$tmp/target-compare.json"
+          jq -e --arg merge "$expected_merge_sha" '
+            (.status == "identical" or .status == "ahead") and
+            .merge_base_commit.sha == $merge
+          ' "$tmp/target-compare.json" >/dev/null || stop TARGET_MAIN_NO_LONGER_DESCENDS_FROM_MERGE
+
+          printf 'STAGE=D1_AUDIT\n'
+          request_params="$(jq -cn --arg request_id "$request_id" '[$request_id]')"
+          audit_sql='SELECT request_id, repository, project_id, issue_number, pull_number, merge_method, expected_head_sha, expected_main_sha, requested_at, state, outcome_code, mutation_attempted, observed_head_sha, observed_main_sha, observed_at, merge_sha, completed_at FROM merge_decisions WHERE request_id = ? LIMIT 2'
+          d1_select "$audit_sql" "$request_params" "$tmp/audit.json"
+          jq -e \
+            --arg request_id "$request_id" \
+            --arg repository "$TARGET_REPOSITORY" \
+            --arg project "$TARGET_PROJECT_ID" \
+            --argjson issue_number "$issue_number" \
+            --argjson pr_number "$pr_number" \
+            --arg head "$expected_pr_head" \
+            --arg old_main "$expected_old_main" \
+            --arg merge "$expected_merge_sha" '
+              (.result[0].results|length) == 1 and
+              .result[0].results[0] as $row |
+              $row.request_id == $request_id and
+              $row.repository == $repository and
+              $row.project_id == $project and
+              $row.issue_number == $issue_number and
+              $row.pull_number == $pr_number and
+              $row.merge_method == "squash" and
+              $row.expected_head_sha == $head and
+              $row.expected_main_sha == $old_main and
+              ($row.requested_at|type == "string") and
+              $row.state == "SUCCEEDED" and
+              $row.outcome_code == null and
+              $row.mutation_attempted == 1 and
+              $row.observed_head_sha == $head and
+              $row.observed_main_sha == $old_main and
+              ($row.observed_at|type == "string") and
+              $row.merge_sha == $merge and
+              ($row.completed_at|type == "string")
+            ' "$tmp/audit.json" >/dev/null || stop MERGE_AUDIT_ROW_INVALID
+
+          target_params="$(jq -cn --arg repo "$TARGET_REPOSITORY" --argjson pr "$pr_number" '[$repo,$pr]')"
+          target_sql='SELECT request_id, state, merge_sha FROM merge_decisions WHERE repository = ? AND pull_number = ? ORDER BY requested_at ASC LIMIT 3'
+          d1_select "$target_sql" "$target_params" "$tmp/target-rows.json"
+          jq -e \
+            --arg request_id "$request_id" \
+            --arg merge "$expected_merge_sha" '
+              (.result[0].results|length) == 1 and
+              .result[0].results[0].request_id == $request_id and
+              .result[0].results[0].state == "SUCCEEDED" and
+              .result[0].results[0].merge_sha == $merge
+            ' "$tmp/target-rows.json" >/dev/null || stop MERGE_TARGET_AUDIT_NOT_EXACTLY_ONE
+
+          printf 'MERGE_POSTCANARY_RECONCILE=PASS\n'
+          printf 'CURRENT_CONTROL_MAIN=%s\n' "$current_control_main"
+          printf 'CURRENT_MAIN_CI_RUN_ID=%s\n' "$current_ci_run_id"
+          printf 'CANARY_RUN_ID=%s\n' "$canary_run_id"
+          printf 'CANARY_SOURCE_SHA=%s\n' "$canary_source_sha"
+          printf 'REQUEST_ID=%s\n' "$request_id"
+          printf 'TARGET_REPOSITORY=%s\n' "$TARGET_REPOSITORY"
+          printf 'TARGET_ISSUE=%s\n' "$issue_number"
+          printf 'TARGET_PR=%s\n' "$pr_number"
+          printf 'MERGE_SHA=%s\n' "$expected_merge_sha"
+          printf 'D1_AUDIT_STATE=SUCCEEDED\n'
+          printf 'D1_TARGET_ROW_COUNT=1\n'
+          printf 'MERGE_POST_SENT=NO\n'
+          printf 'REMOTE_D1_MUTATION=NO\n'
+          printf 'WORKER_MUTATION=NO\n'
+          printf 'CLOUDFLARE_CONFIG_MUTATION=NO\n'
+          printf 'GITHUB_DECISION_MUTATION=NO\n'
+          printf 'GITHUB_APP_PERMISSION_MUTATION=NO\n'
