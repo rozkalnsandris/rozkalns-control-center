@@ -31,7 +31,9 @@ test("live dashboard remains bounded observation and projects mutation actions o
   assert.match(dashboard, /decision\.workflowState === "MERGE_READY"/);
   assert.match(dashboard, /actions\.push\("LATER"\)/);
   assert.match(dashboard, /actions\.push\("OPEN_PR"\)/);
-  assert.equal((policy.match(/canMerge: false/g) ?? []).length, 6);
+  assert.equal((policy.match(/canMerge: false/g) ?? []).length, 5);
+  assert.equal((policy.match(/canMerge: true/g) ?? []).length, 1);
+  assert.match(policy, /repository: "rozkalnsandris\/ops-workflows"[^\n]+canMerge: true/);
   assert.equal((policy.match(/canLater: true/g) ?? []).length, 1);
   assert.match(runtime, /memoizeGitHubInstallationSessionProvider/);
   assert.doesNotMatch(runtime, /"administration"|"statuses"/);
