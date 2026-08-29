@@ -94,4 +94,4 @@ test("success path proves one terminal exact audit row", async () => {
   ]) {
     assert.ok(text.includes(expected), `missing ${expected}`);
   }
-}
+});
