@@ -190,22 +190,14 @@ jobs:
           ' "$tmp/target-issue.json" >/dev/null || stop TARGET_ISSUE_DRIFT
 
           gh_target_get "/pulls/${pr_number}" "$tmp/target-pr.json"
-          jq -e \
-            --argjson number "$pr_number" \
-            --arg head "$expected_pr_head" \
-            --arg merge "$expected_merge_sha" \
-            --arg repo "$TARGET_REPOSITORY" '
-              .number == $number and
-              .state == "closed" and
-              (.merged_at | type) == "string" and
-              (.merged_at | length) > 0 and
-              .draft == false and
-              .head.sha == $head and
-              .head.repo.full_name == $repo and
-              .base.ref == "main" and
-              .base.repo.full_name == $repo and
-              .merge_commit_sha == $merge
-            ' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_MERGE_EVIDENCE_MISMATCH
+          jq -e --argjson number "$pr_number" '.number == $number' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_NUMBER_MISMATCH
+          jq -e '.state == "closed"' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_NOT_CLOSED
+          jq -e '(.merged_at | type) == "string" and (.merged_at | length) > 0' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_MERGED_AT_INVALID
+          jq -e '.draft == false' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_DRAFT_INVALID
+          jq -e --arg head "$expected_pr_head" '.head.sha == $head' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_HEAD_MISMATCH
+          jq -e --arg repo "$TARGET_REPOSITORY" '.head.repo.full_name == $repo' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_HEAD_REPO_MISMATCH
+          jq -e --arg repo "$TARGET_REPOSITORY" '.base.ref == "main" and .base.repo.full_name == $repo' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_BASE_MISMATCH
+          jq -e --arg merge "$expected_merge_sha" '.merge_commit_sha == $merge' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_MERGE_SHA_MISMATCH
 
           gh_target_get "/commits/${expected_merge_sha}" "$tmp/target-merge-commit.json"
           jq -e --arg merge "$expected_merge_sha" --arg old_main "$expected_old_main" '
