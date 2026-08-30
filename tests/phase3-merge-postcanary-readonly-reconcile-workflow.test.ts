@@ -37,7 +37,14 @@ test("trigger fields and canary evidence are tightly bound", async () => {
     "execute exact authorized one-shot Merge canary",
     "CANARY_RUN_NOT_BOUND_TERMINAL_FAILURE",
     "CANARY_JOB_NOT_BOUND_FAILURE",
-    "TARGET_PR_MERGE_EVIDENCE_MISMATCH",
+    "TARGET_PR_NUMBER_MISMATCH",
+    "TARGET_PR_NOT_CLOSED",
+    "TARGET_PR_MERGED_AT_INVALID",
+    "TARGET_PR_DRAFT_INVALID",
+    "TARGET_PR_HEAD_MISMATCH",
+    "TARGET_PR_HEAD_REPO_MISMATCH",
+    "TARGET_PR_BASE_MISMATCH",
+    "TARGET_PR_MERGE_SHA_MISMATCH",
     "TARGET_MERGE_PARENT_MISMATCH",
     "TARGET_MAIN_NO_LONGER_DESCENDS_FROM_MERGE",
   ]) {
@@ -52,6 +59,23 @@ test("trigger fields and canary evidence are tightly bound", async () => {
   assert.match(text, /\.merge_commit_sha == \$merge/);
   assert.match(text, /\.parents\[0\]\.sha == \$old_main/);
   assert.match(text, /\.merge_base_commit\.sha == \$merge/);
+});
+
+test("target PR diagnostics preserve every merge-evidence predicate", async () => {
+  const text = await source();
+  for (const predicate of [
+    '.number == $number',
+    '.state == "closed"',
+    '(.merged_at | type) == "string" and (.merged_at | length) > 0',
+    '.draft == false',
+    '.head.sha == $head',
+    '.head.repo.full_name == $repo',
+    '.base.ref == "main" and .base.repo.full_name == $repo',
+    '.merge_commit_sha == $merge',
+  ]) {
+    assert.ok(text.includes(predicate), `missing predicate ${predicate}`);
+  }
+  assert.doesNotMatch(text, /TARGET_PR_MERGE_EVIDENCE_MISMATCH/);
 });
 
 test("D1 evidence is SELECT-only and every query proves zero writes", async () => {
