@@ -197,7 +197,8 @@ jobs:
             --arg repo "$TARGET_REPOSITORY" '
               .number == $number and
               .state == "closed" and
-              .merged == true and
+              (.merged_at | type) == "string" and
+              (.merged_at | length) > 0 and
               .draft == false and
               .head.sha == $head and
               .head.repo.full_name == $repo and
