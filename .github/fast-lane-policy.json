@@ -21,6 +21,7 @@
     "automatic_rollback": false,
     "automatic_cleanup": false,
     "alternate_mutation_path": false,
+    "merge_explicit_owner_decision": true,
     "merge_explicit_owner_decision_in_fast_lane": true,
     "merge_may_be_pre_authorized_only_by_fresh_explicit_auto_run_full_activation": true,
     "merge_authorizes_live_mutation": false,
