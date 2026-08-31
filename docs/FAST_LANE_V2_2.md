@@ -8,23 +8,29 @@ This is the active local FAST-LANE v2.2 startup and operating contract. The olde
 
 STRICT describes mutation risk, not the number of human interactions. Read-only checkpoints MUST NOT create owner gates.
 
-The Control Center target interaction is:
+FAST-LANE v2.2 is the **safe discovery, audit and non-FULL continuation lane**. For a concrete issue that should be implemented end-to-end at source level, prefer the explicit `AUTO-RUN FULL rozkalns-control-center #<issue>` contract in `docs/AUTO_RUN_FULL_V2.md`.
+
+Bare `START`, `START rozkalns-control-center` and `turpini` remain FAST. FULL is never inferred from issue #278, issue #497, controller #499, prior chat/memory, a prior receipt or a previous mode.
+
+The Control Center FAST target interaction is:
 
 `one explicit human decision -> deterministic technical work continues -> next genuine human gate`
 
 ## FAST source envelope
 
-`START`, `turpini`, or equivalent continuation may proceed from fresh canonical GitHub state through Ready for source/UI/tests/docs/deterministic orchestration work that does not expand permissions or execute a live mutation:
+`START`, `turpini`, or equivalent bare continuation may proceed from fresh canonical GitHub state through Ready for source/UI/tests/docs/deterministic orchestration work that does not expand permissions or execute a live mutation:
 
 `fresh state -> issue/scope -> branch -> implementation -> focused tests -> commit/push -> Draft PR -> CI/review -> <=2 scope-preserving corrections -> Ready receipt -> STOP MERGE`
 
-Batch 2-5 tightly related same-risk items inside one phase/subsystem when they form one acceptance story. Merge remains explicit and never authorizes live work.
+Batch 2-5 tightly related same-risk items inside one phase/subsystem when they form one acceptance story. **Within FAST**, merge remains explicit and never authorizes live work.
+
+A fresh explicit AUTO-RUN FULL activation is a different lane: it may freeze source+merge authority for exactly one issue under `.github/auto-run-full-v2.json`, while still never authorizing Control production/live work.
 
 Three failed technical attempts for one objective — initial attempt plus at most two scope-preserving corrections — require STOP before a fourth attempt.
 
 ## Human gate budget
 
-Normal source-to-production delivery has at most two owner gates:
+Normal FAST source-to-production delivery has at most two owner gates:
 
 1. **MERGE** — exact Ready PR/head.
 2. **COMPOSITE LIVE** — only when deploy/host/DB/permission/other live mutation is actually required.
@@ -33,10 +39,28 @@ Do not STOP for CI polling, GET preflight, GitHub evidence refresh, diff inspect
 
 Additional STOP is justified only when:
 
-- merge authorization is required;
+- merge authorization is required by the active lane;
 - one Composite Live authorization is required;
 - an authorized mutation has started and an error/ambiguous result occurs;
 - a new target/SHA/scope/trust-boundary/risk class appears.
+
+A valid FULL run resumes from GitHub state through its controller/event/watchdog model; bare `turpini` does not create or widen FULL authority.
+
+## Relationship to AUTO-RUN FULL v2
+
+AUTO-RUN FULL v2 reuses the same fail-closed safety philosophy but changes the source orchestration contract for one explicitly named issue:
+
+- source and merge authority are frozen in a durable target-issue receipt before source mutation;
+- GitHub remains canonical across sessions;
+- GitHub event-triggered ChatGPT Work is the preferred low-latency resume mechanism when configured, with an hourly Scheduled Task as optional watchdog/fallback;
+- merge uses the Control-specific `HYBRID_EXACT_HEAD_V2` strategy;
+- a clean/immediately mergeable PR uses direct squash merge with `expected_head_sha` rather than attempting to newly enable native auto-merge;
+- a frozen PR still waiting only on required checks/reviews may use native GitHub auto-merge when repository-level capability is enabled;
+- no source push is allowed after native auto-merge is armed; correction first requires safe disable, otherwise STOP_ERROR;
+- any changed head invalidates merge readiness;
+- Worker deploy, D1/Queue writes, live Control decisions/canaries, GitHub App/repository settings, Cloudflare mutation, secrets and RPi5/host mutations remain separate live gates.
+
+Thus FAST stays simple and conservative for discovery/analysis, while FULL is the normal implementation controller for explicit issues.
 
 ## Composite Live authorization envelope
 
@@ -101,7 +125,7 @@ The production deployment workflow instead names a distinct environment `product
 - `CONTROL_ACCESS_CLIENT_ID`;
 - `CONTROL_ACCESS_CLIENT_SECRET`.
 
-Creating that environment, adding/rotating those secrets, changing token permissions, or changing Access policy is a separate trust-boundary mutation. Merging the workflow source does not authorize or perform that setup.
+Creating that environment, adding/rotating those secrets, changing token permissions, or changing Access policy is a separate trust-boundary mutation. Merging source — whether from FAST or FULL — does not authorize or perform that setup.
 
 ## Local STRICT boundaries
 
@@ -115,7 +139,7 @@ Default behavior is no automatic retry, rollback, cleanup, reset, rebase or alte
 
 ## State model
 
-Use these coarse states instead of inventing micro-states:
+FAST uses these coarse states instead of inventing micro-states:
 
 `SOURCE_FAST -> READY_MERGE -> WAITING_MERGE_AUTH -> POST_MERGE_READONLY -> WAITING_COMPOSITE_LIVE_AUTH -> LIVE_EXECUTING -> DONE`
 
@@ -123,9 +147,11 @@ Failure path after first mutation:
 
 `LIVE_EXECUTING -> STOP_ERROR`
 
+AUTO-RUN FULL has its own state machine in `.github/auto-run-full-v2.json` and must not be inferred from the FAST state model.
+
 ## Evidence and operator UX
 
-Source work produces one Ready receipt. Live execution produces one final receipt containing approved/observed SHA, target, before/after production version/baseline, actual mutation counts, candidate verification, reconciliation, whether first mutation started/authorization was consumed, whether production changed and the exact next decision.
+FAST source work produces one Ready receipt. Live execution produces one final receipt containing approved/observed SHA, target, before/after production version/baseline, actual mutation counts, candidate verification, reconciliation, whether first mutation started/authorization was consumed, whether production changed and the exact next decision.
 
 Do not make the owner shuttle intermediate output while automation can continue safely.
 
@@ -133,4 +159,4 @@ Any owner decision must be placed visibly at the **very end** of the response un
 
 ## Merge invariant
 
-Merge is always a separate owner decision and never authorizes deploy, DB, host, credential, permission or another live mutation.
+Within FAST, merge is always a separate owner decision. A fresh explicit AUTO-RUN FULL v2 activation may instead pre-authorize merge for its frozen issue. In all lanes, merge never authorizes deploy, DB, host, credential, permission or another live mutation.
