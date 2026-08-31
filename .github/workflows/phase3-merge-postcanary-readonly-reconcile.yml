@@ -197,16 +197,31 @@ jobs:
           jq -e --arg head "$expected_pr_head" '.head.sha == $head' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_HEAD_MISMATCH
           jq -e --arg repo "$TARGET_REPOSITORY" '.head.repo.full_name == $repo' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_HEAD_REPO_MISMATCH
           jq -e --arg repo "$TARGET_REPOSITORY" '.base.ref == "main" and .base.repo.full_name == $repo' "$tmp/target-pr.json" >/dev/null || stop TARGET_PR_BASE_MISMATCH
-          if ! jq -e --arg merge "$expected_merge_sha" '.merge_commit_sha == $merge' "$tmp/target-pr.json" >/dev/null; then
-            observed_merge_sha="$(jq -r '.merge_commit_sha // empty' "$tmp/target-pr.json")"
-            if [[ ! "$observed_merge_sha" =~ ^[0-9a-f]{40}$ ]]; then
-              observed_merge_sha="INVALID_OR_MISSING"
+
+          observed_merge_sha="$(jq -r '.merge_commit_sha // empty' "$tmp/target-pr.json")"
+          if [[ "$observed_merge_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            if ! jq -e --arg merge "$expected_merge_sha" '.merge_commit_sha == $merge' "$tmp/target-pr.json" >/dev/null; then
+              {
+                printf 'TARGET_PR_MERGE_SHA_EXPECTED=%s\n' "$expected_merge_sha"
+                printf 'TARGET_PR_MERGE_SHA_OBSERVED=%s\n' "$observed_merge_sha"
+              } >&2
+              stop TARGET_PR_MERGE_SHA_MISMATCH
             fi
+          else
+            merged_at="$(jq -r '.merged_at' "$tmp/target-pr.json")"
             {
               printf 'TARGET_PR_MERGE_SHA_EXPECTED=%s\n' "$expected_merge_sha"
-              printf 'TARGET_PR_MERGE_SHA_OBSERVED=%s\n' "$observed_merge_sha"
+              printf 'TARGET_PR_MERGE_SHA_OBSERVED=INVALID_OR_MISSING\n'
+              printf 'TARGET_PR_MERGE_SHA_EVIDENCE=TIMELINE_FALLBACK\n'
             } >&2
-            stop TARGET_PR_MERGE_SHA_MISMATCH
+            gh_target_get "/issues/${pr_number}/timeline?per_page=100" "$tmp/target-pr-timeline.json"
+            jq -e --arg merge "$expected_merge_sha" --arg merged_at "$merged_at" '
+              (type == "array") and
+              ([.[]? | select(.event == "merged")] | length) == 1 and
+              ([.[]? | select(.event == "merged")][0] |
+                .commit_id == $merge and
+                .created_at == $merged_at)
+            ' "$tmp/target-pr-timeline.json" >/dev/null || stop TARGET_PR_MERGED_EVENT_MISMATCH
           fi
 
           gh_target_get "/commits/${expected_merge_sha}" "$tmp/target-merge-commit.json"
