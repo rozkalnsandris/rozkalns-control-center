@@ -78,6 +78,19 @@ test("target PR diagnostics preserve every merge-evidence predicate", async () =
   assert.doesNotMatch(text, /TARGET_PR_MERGE_EVIDENCE_MISMATCH/);
 });
 
+test("merge SHA mismatch diagnostics are bounded and preserve fail-closed equality", async () => {
+  const text = await source();
+  const mismatchBlock = /if ! jq -e --arg merge "\$expected_merge_sha" '\.merge_commit_sha == \$merge' "\$tmp\/target-pr\.json" >\/dev\/null; then[\s\S]*?TARGET_PR_MERGE_SHA_EXPECTED=%s\\n[\s\S]*?TARGET_PR_MERGE_SHA_OBSERVED=%s\\n[\s\S]*?stop TARGET_PR_MERGE_SHA_MISMATCH[\s\S]*?\n          fi/;
+
+  assert.match(text, mismatchBlock);
+  assert.ok(text.includes('observed_merge_sha="$(jq -r \'\.merge_commit_sha // empty\' "$tmp/target-pr.json")"'));
+  assert.ok(text.includes('[[ ! "$observed_merge_sha" =~ ^[0-9a-f]{40}$ ]]'));
+  assert.ok(text.includes('observed_merge_sha="INVALID_OR_MISSING"'));
+  assert.ok(text.includes("printf 'TARGET_PR_MERGE_SHA_EXPECTED=%s\\n' \"$expected_merge_sha\""));
+  assert.ok(text.includes("printf 'TARGET_PR_MERGE_SHA_OBSERVED=%s\\n' \"$observed_merge_sha\""));
+  assert.doesNotMatch(text, /cat\s+"?\$tmp\/target-pr\.json|jq\s+'?\.'?\s+"?\$tmp\/target-pr\.json/);
+});
+
 test("D1 evidence is SELECT-only and every query proves zero writes", async () => {
   const text = await source();
   assert.match(text, /CLOUDFLARE_D1_READ_TOKEN: \$\{\{ secrets\.CLOUDFLARE_D1_READ_TOKEN \}\}/);
