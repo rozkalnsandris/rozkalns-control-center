@@ -45,6 +45,7 @@ test("trigger fields and canary evidence are tightly bound", async () => {
     "TARGET_PR_HEAD_REPO_MISMATCH",
     "TARGET_PR_BASE_MISMATCH",
     "TARGET_PR_MERGE_SHA_MISMATCH",
+    "TARGET_PR_MERGED_EVENT_MISMATCH",
     "TARGET_MERGE_PARENT_MISMATCH",
     "TARGET_MAIN_NO_LONGER_DESCENDS_FROM_MERGE",
   ]) {
@@ -78,17 +79,34 @@ test("target PR diagnostics preserve every merge-evidence predicate", async () =
   assert.doesNotMatch(text, /TARGET_PR_MERGE_EVIDENCE_MISMATCH/);
 });
 
-test("merge SHA mismatch diagnostics are bounded and preserve fail-closed equality", async () => {
+test("merge SHA proof uses exact PR evidence or bounded merged-event fallback", async () => {
   const text = await source();
-  const mismatchBlock = /if ! jq -e --arg merge "\$expected_merge_sha" '\.merge_commit_sha == \$merge' "\$tmp\/target-pr\.json" >\/dev\/null; then[\s\S]*?TARGET_PR_MERGE_SHA_EXPECTED=%s\\n[\s\S]*?TARGET_PR_MERGE_SHA_OBSERVED=%s\\n[\s\S]*?stop TARGET_PR_MERGE_SHA_MISMATCH[\s\S]*?\n\s+fi/;
+  const validObservedBranch = 'if [[ "$observed_merge_sha" =~ ^[0-9a-f]{40}$ ]]; then';
+  const exactEquality = 'if ! jq -e --arg merge "$expected_merge_sha" \'\.merge_commit_sha == $merge\' "$tmp/target-pr.json" >/dev/null; then';
+  const mismatchStop = "stop TARGET_PR_MERGE_SHA_MISMATCH";
+  const fallbackMarker = "TARGET_PR_MERGE_SHA_EVIDENCE=TIMELINE_FALLBACK";
 
-  assert.match(text, mismatchBlock);
-  assert.ok(text.includes('observed_merge_sha="$(jq -r \'.merge_commit_sha // empty\' "$tmp/target-pr.json")"'));
-  assert.ok(text.includes('[[ ! "$observed_merge_sha" =~ ^[0-9a-f]{40}$ ]]'));
-  assert.ok(text.includes('observed_merge_sha="INVALID_OR_MISSING"'));
+  assert.ok(text.includes('observed_merge_sha="$(jq -r \'\.merge_commit_sha // empty\' "$tmp/target-pr.json")"'));
+  assert.ok(text.includes(validObservedBranch));
+  assert.ok(text.includes(exactEquality));
   assert.ok(text.includes("printf 'TARGET_PR_MERGE_SHA_EXPECTED=%s\\n' \"$expected_merge_sha\""));
   assert.ok(text.includes("printf 'TARGET_PR_MERGE_SHA_OBSERVED=%s\\n' \"$observed_merge_sha\""));
-  assert.doesNotMatch(text, /cat\s+"?\$tmp\/target-pr\.json|jq\s+'?\.'?\s+"?\$tmp\/target-pr\.json/);
+
+  const validBranchIndex = text.indexOf(validObservedBranch);
+  const mismatchStopIndex = text.indexOf(mismatchStop, validBranchIndex);
+  const fallbackIndex = text.indexOf(fallbackMarker);
+  assert.ok(validBranchIndex >= 0);
+  assert.ok(mismatchStopIndex > validBranchIndex);
+  assert.ok(fallbackIndex > mismatchStopIndex, "valid but different merge SHA must stop before timeline fallback");
+
+  assert.ok(text.includes("printf 'TARGET_PR_MERGE_SHA_OBSERVED=INVALID_OR_MISSING\\n'"));
+  assert.ok(text.includes("merged_at=\"$(jq -r '.merged_at' \"$tmp/target-pr.json\")\""));
+  assert.ok(text.includes('gh_target_get "/issues/${pr_number}/timeline?per_page=100" "$tmp/target-pr-timeline.json"'));
+  assert.ok(text.includes('([.[]? | select(.event == "merged")] | length) == 1'));
+  assert.ok(text.includes('.commit_id == $merge'));
+  assert.ok(text.includes('.created_at == $merged_at'));
+  assert.ok(text.includes("stop TARGET_PR_MERGED_EVENT_MISMATCH"));
+  assert.doesNotMatch(text, /cat\s+"?\$tmp\/target-pr(?:-timeline)?\.json/);
 });
 
 test("D1 evidence is SELECT-only and every query proves zero writes", async () => {
