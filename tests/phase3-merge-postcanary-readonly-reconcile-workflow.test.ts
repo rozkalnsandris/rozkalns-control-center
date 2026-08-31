@@ -82,11 +82,11 @@ test("target PR diagnostics preserve every merge-evidence predicate", async () =
 test("merge SHA proof uses exact PR evidence or bounded merged-event fallback", async () => {
   const text = await source();
   const validObservedBranch = 'if [[ "$observed_merge_sha" =~ ^[0-9a-f]{40}$ ]]; then';
-  const exactEquality = 'if ! jq -e --arg merge "$expected_merge_sha" \'\.merge_commit_sha == $merge\' "$tmp/target-pr.json" >/dev/null; then';
+  const exactEquality = 'if ! jq -e --arg merge "$expected_merge_sha" \'.merge_commit_sha == $merge\' "$tmp/target-pr.json" >/dev/null; then';
   const mismatchStop = "stop TARGET_PR_MERGE_SHA_MISMATCH";
   const fallbackMarker = "TARGET_PR_MERGE_SHA_EVIDENCE=TIMELINE_FALLBACK";
 
-  assert.ok(text.includes('observed_merge_sha="$(jq -r \'\.merge_commit_sha // empty\' "$tmp/target-pr.json")"'));
+  assert.ok(text.includes('observed_merge_sha="$(jq -r \'.merge_commit_sha // empty\' "$tmp/target-pr.json")"'));
   assert.ok(text.includes(validObservedBranch));
   assert.ok(text.includes(exactEquality));
   assert.ok(text.includes("printf 'TARGET_PR_MERGE_SHA_EXPECTED=%s\\n' \"$expected_merge_sha\""));
