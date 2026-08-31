@@ -1,8 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "policy": "FAST-LANE v2.2 Composite",
   "canonical_repository": "rozkalnsandris/ops-workflows",
   "principle": "HUMAN_APPROVES_RISK_OR_DECISION_AUTOMATION_EXECUTES_TECHNICAL_STEPS",
+  "lane_role": "SAFE_DISCOVERY_AUDIT_AND_NON_FULL_CONTINUATION",
+  "normal_issue_implementation_lane": "AUTO-RUN FULL",
+  "auto_run_full_policy": ".github/auto-run-full-v2.json",
+  "auto_run_full_may_be_inferred": false,
   "invariants": {
     "normal_max_owner_gates": 2,
     "read_only_checkpoint_creates_owner_gate": false,
@@ -18,6 +22,10 @@
     "automatic_cleanup": false,
     "alternate_mutation_path": false,
     "merge_explicit_owner_decision": true,
-    "merge_authorizes_live_mutation": false
+    "merge_explicit_owner_decision_in_fast_lane": true,
+    "merge_may_be_pre_authorized_only_by_fresh_explicit_auto_run_full_activation": true,
+    "merge_authorizes_live_mutation": false,
+    "bare_start_and_turpini_remain_fast_lane": true,
+    "fast_lane_never_infers_full_from_issue_278_issue_497_or_history": true
   }
 }
