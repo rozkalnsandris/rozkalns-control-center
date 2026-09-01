@@ -6,10 +6,10 @@ Master issue #1 remains the canonical product/architecture contract. `docs/ROADM
 
 ## Evidence boundary
 
-- Canonical source baseline: `main=842041e926c7a6662b4979a1e0463be48837a018`.
-- Exact-main CI: run `33476822724` / CI #687 — **SUCCESS**.
-- Exact-main FAST-LANE policy drift: run `33476823050` / #115 — **SUCCESS**.
-- Exact-main GITHUB-ONLY policy drift: run `33476823074` / #103 — **SUCCESS**.
+- Canonical source baseline: `main=f3fbcd30db23b0347a628fcfdb293778813e1f21`.
+- Exact-main CI: run `33487681494` / CI #698 — **SUCCESS**.
+- Exact-main FAST-LANE policy drift: run `33487682507` / #126 — **SUCCESS**.
+- Exact-main GITHUB-ONLY policy drift: run `33487682515` / #114 — **SUCCESS**.
 - Source/config/docs on `main` prove intended implementation only. They do **not** by themselves prove the current production Worker version, bindings, secrets, D1/Queue state, GitHub App permissions, Cloudflare routes, live authorization state, or host/runtime state.
 - Live/runtime claims below are made only where canonical continuity records an executed and reconciled gate. Any future live action still requires fresh GET-only preflight and its own explicit owner authorization.
 
@@ -20,7 +20,7 @@ Master issue #1 remains the canonical product/architecture contract. `docs/ROADM
 - Phase 2 — read-only GitHub/control-plane foundation: **SOURCE + historical live-read foundation established; not re-certified here as a current production snapshot**.
 - Phase 3 — authenticated human decision actions: **ACTIVE / SUBSTANTIALLY SOURCE-IMPLEMENTED**. Merge, Needs changes and Later all exist in current source; their production/live readiness differs and remains independently gated.
 - Phase 4 — notifications + deterministic continuation: **SUBSTANTIAL SOURCE IMPLEMENTATION; runtime activation/transport still gated**.
-- Phase 5 — production visibility: **EARLY SOURCE MARKERS / GET-only preflight tooling; full production-visibility adapter not yet evidenced**.
+- Phase 5 — production visibility: **SANITIZED SOURCE MODEL + DASHBOARD PROJECTION IMPLEMENTED; production adapter/transport and runtime evidence remain gated**.
 
 ## Phase 3 — authenticated human decision actions
 
@@ -97,17 +97,28 @@ Current `main` includes:
 
 ## Phase 5 — production visibility
 
-Current source has useful read-only production evidence machinery, notably `.github/workflows/daily-mvp-production-preflight.yml`, which uses GET-only GitHub/Cloudflare reads to verify exact-main CI, active Worker deployment/version, 100% traffic, selected bindings and custom-domain identity while explicitly denying deploy authorization.
+Phase 5 now has a concrete sanitized source contract and read-only dashboard projection, but it does not yet have a production evidence transport.
 
-That workflow is an operational preflight marker, not the Phase 5 product adapter. Current source does not yet evidence the complete promised Phase 5 surface:
+Current `main` includes:
 
-- sanitized RPi5 production adapter;
-- normalized GitHub-main-vs-production-SHA projection;
-- deploy-class projection;
-- runtime/health/rollback evidence model in the Control UI;
-- drift/blocker display backed by the production control plane.
+- `.github/workflows/daily-mvp-production-preflight.yml`, which uses GET-only GitHub/Cloudflare reads to verify exact-main CI, active Worker deployment/version, 100% traffic, selected bindings and custom-domain identity while explicitly denying deploy authorization;
+- `src/shared/production-visibility.ts`, a pure bounded normalization contract for managed RPi5-backed projects;
+- normalized main SHA and production SHA evidence with exact drift derivation;
+- deploy-impact, runtime, health, rollback and bounded blocker-code evidence;
+- fail-closed rejection for malformed, stale, contradictory, unsupported or identity-mismatched evidence;
+- dashboard read-model support and fixture-backed project projection;
+- React payload validation and project UI for runtime/health/rollback, main-vs-production SHA, drift and blocker count;
+- explicit live-dashboard `productionVisibility: []`, so current GitHub-only live composition does not invent production evidence when no production adapter is connected.
 
-Treat Phase 5 as **not complete** until those contracts exist and their runtime evidence is separately proven.
+The remaining Phase 5 gap is therefore narrower than the earlier checkpoint stated. Current source still does **not** evidence:
+
+- a sanitized RPi5 production adapter/transport that obtains the normalized evidence from the production trust boundary;
+- live Control-plane composition that supplies that evidence to the dashboard;
+- separately verified current runtime/health/rollback/production-SHA facts for managed projects.
+
+Those remaining items cross the RPi5/production trust boundary and must preserve the canonical production flow and separate owner/live authorization. Repository source, fixtures, or the GET-only preflight workflow do not prove current production state.
+
+Treat Phase 5 as **source-model/dashboard ready but production-adapter/runtime incomplete** until that separately reviewed transport exists and current runtime evidence is independently proven.
 
 ## Current safety boundary
 
