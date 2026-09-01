@@ -55,7 +55,7 @@ export interface ControlDashboardData {
   generatedAt: string;
   projects: ProjectReadModel[];
   decisions: DecisionReadModel[];
-  productionVisibility: ProductionVisibilityReadModel[];
+  productionVisibility?: ProductionVisibilityReadModel[];
 }
 
 export type ControlFixtureSet = ControlDashboardData;
@@ -98,5 +98,5 @@ export function productionVisibilityForProject(
   data: ControlDashboardData,
   projectId: string,
 ): ProductionVisibilityReadModel | null {
-  return data.productionVisibility.find((item) => item.projectId === projectId) ?? null;
+  return data.productionVisibility?.find((item) => item.projectId === projectId) ?? null;
 }
