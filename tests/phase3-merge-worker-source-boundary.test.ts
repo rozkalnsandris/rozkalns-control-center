@@ -51,3 +51,16 @@ test("reachable Merge handler and runtime retain independent fail-closed capabil
   assert.match(runtimeSource, /createGitHubPullRequestMergeWriter/);
   assert.match(runtimeSource, /executeMergeDecision/);
 });
+
+test("Merge UI keeps a synchronous duplicate-submit lock through the terminal canonical refresh", () => {
+  assert.match(appSource, /const actionLockRef=useRef\(false\)/);
+  assert.match(
+    appSource,
+    /function openDecisionAction\([^)]*\)\{if\(liveState!=="LIVE"\|\|actionLockRef\.current\|\|actionInFlight\)return;/,
+  );
+  assert.match(
+    appSource,
+    /async function confirmDecisionAction\([^)]*\)\{const target=pendingAction;if\(!target\|\|liveState!=="LIVE"\|\|actionLockRef\.current\|\|actionInFlight\)return;actionLockRef\.current=true;setActionInFlight\(true\);/,
+  );
+  assert.match(appSource, /finally\{actionLockRef\.current=false;setActionInFlight\(false\);setPendingAction\(null\);refreshLiveDashboard\(true\);\}/);
+});
