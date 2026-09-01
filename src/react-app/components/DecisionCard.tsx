@@ -72,7 +72,6 @@ export function DecisionCard({ item, project, onAction, mutationsLocked }: Decis
     const controller = new AbortController();
     let active = true;
     const requestedIdentity = currentHydrationIdentity;
-    setEligibleHydrationIdentity(null);
     void readAuthoritativeNeedsChangesEligibility(item, project, { signal: controller.signal }).then((eligible) => {
       if (!active || controller.signal.aborted) return;
       setEligibleHydrationIdentity(eligible ? requestedIdentity : null);
