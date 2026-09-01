@@ -2,6 +2,23 @@
 
 This roadmap mirrors master issue #1 but is repository-local so implementation workers can inspect phase gates without depending on chat history. If this file and master issue #1 differ, master issue #1 wins until the repository document is reconciled.
 
+## Current phase reconciliation — 2026-09-01
+
+This block is the current status override for the historical implementation chronology below. It is reconciled to `main=842041e926c7a6662b4979a1e0463be48837a018`, with exact-main CI #687 / run `33476822724`, FAST-LANE policy drift #115 / run `33476823050`, and GITHUB-ONLY policy drift #103 / run `33476823074` all `SUCCESS`.
+
+Repository source proves intended implementation only; it does not by itself prove the current production Worker deployment, bindings, secrets, D1/Queue state, GitHub App permissions, Cloudflare routes, live authorization or host state. Runtime/live claims require separate canonical execution evidence and a fresh gate.
+
+Current phase classification:
+
+- Phase 0: **COMPLETE**.
+- Phase 1: **COMPLETE**.
+- Phase 2: **source + historical live-read/control-plane foundation established; not re-certified here as a current production snapshot**.
+- Phase 3: **ACTIVE / substantially source-implemented**. Merge, Needs changes and Later are all present in current Worker/source/UI contracts. Their live readiness remains independently gated. Canonical #278 continuity records the bounded Merge canary lifecycle as `COMPLETE / PASS`; those authorizations are consumed and create no standing Merge authority.
+- Phase 4: **substantial source implementation**. Notification transition/delivery persistence and deterministic continuation/recovery/reselection exist in source, but notification transport and continuation activation remain dormant/separately gated.
+- Phase 5: **early source markers / GET-only production-preflight tooling**. The full sanitized RPi5/production visibility adapter, main-vs-production SHA projection, deploy class, runtime/health/rollback projection and drift/blocker UI are not yet evidenced as complete.
+
+The older `CURRENT`, `NOT STARTED` and future-looking labels below are retained as implementation chronology and are superseded by this block for present status. `docs/ROADMAP_CURRENT_CHECKPOINT.md` carries the detailed current evidence split between source readiness and runtime/live state.
+
 ## Phase 0 — repository + contracts
 
 Goal: create a safe, understandable codebase before any live integration.
