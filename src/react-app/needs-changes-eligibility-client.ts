@@ -1,5 +1,5 @@
 import type { DecisionReadModel, MockAction, ProjectReadModel } from "../shared/control-model.js";
-import { resolveNeedsChangesProjectPolicy } from "../shared/project-policy.js";
+import { resolveManagedProjectPolicy } from "../shared/project-policy.js";
 
 const GITHUB_WRITE_ACTIONS = new Set<MockAction>(["MERGE", "NEEDS_CHANGES"]);
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
@@ -13,12 +13,24 @@ interface EligibilityCandidate {
   readonly headSha: string;
   readonly mainSha: string;
   readonly projectId: string;
+  readonly canMerge: boolean;
+  readonly canRequestChanges: boolean;
+}
+
+export interface AuthoritativeGitHubWriteEligibility {
+  readonly merge: boolean;
+  readonly needsChanges: boolean;
 }
 
 export interface NeedsChangesEligibilityOptions {
   readonly fetcher?: FetchLike;
   readonly signal?: AbortSignal;
 }
+
+const noGitHubWriteEligibility: AuthoritativeGitHubWriteEligibility = {
+  merge: false,
+  needsChanges: false,
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -44,9 +56,10 @@ function eligibilityCandidate(item: DecisionReadModel, project: ProjectReadModel
   if (!hasLiveDashboardActionSignal(item)) return null;
   if (!project.enabled || item.projectId !== project.id) return null;
 
-  const policy = resolveNeedsChangesProjectPolicy(project.repository);
+  const policy = resolveManagedProjectPolicy(project.repository);
   if (!policy || policy.id !== project.id) return null;
   if (normalizedRepository(policy.repository) !== normalizedRepository(project.repository)) return null;
+  if (!policy.canMerge && !policy.canRequestChanges) return null;
 
   if (!isPositiveInteger(item.issueNumber) || !isPositiveInteger(item.prNumber)) return null;
   if (!isExactSha(item.expectedHeadSha) || !isExactSha(item.currentHeadSha) || !isExactSha(item.mainSha)) return null;
@@ -59,6 +72,8 @@ function eligibilityCandidate(item: DecisionReadModel, project: ProjectReadModel
     headSha: item.currentHeadSha,
     mainSha: item.mainSha,
     projectId: item.projectId,
+    canMerge: policy.canMerge,
+    canRequestChanges: policy.canRequestChanges,
   };
 }
 
@@ -91,25 +106,41 @@ export function suppressUnverifiedGitHubWriteActions(item: DecisionReadModel): D
   };
 }
 
+export function applyAuthoritativeGitHubWriteEligibility(
+  item: DecisionReadModel,
+  eligibility: AuthoritativeGitHubWriteEligibility,
+): DecisionReadModel {
+  const suppressed = suppressUnverifiedGitHubWriteActions(item);
+  if (!hasLiveDashboardActionSignal(item)) return suppressed;
+
+  const verifiedActions: MockAction[] = [];
+  if (eligibility.merge) verifiedActions.push("MERGE");
+  if (eligibility.needsChanges) verifiedActions.push("NEEDS_CHANGES");
+  if (verifiedActions.length === 0) return suppressed;
+
+  return {
+    ...suppressed,
+    allowedActions: [...verifiedActions, ...suppressed.allowedActions],
+  };
+}
+
 export function applyAuthoritativeNeedsChangesEligibility(
   item: DecisionReadModel,
   eligible: boolean,
 ): DecisionReadModel {
-  const suppressed = suppressUnverifiedGitHubWriteActions(item);
-  if (!eligible || !hasLiveDashboardActionSignal(item)) return suppressed;
-  return {
-    ...suppressed,
-    allowedActions: ["NEEDS_CHANGES", ...suppressed.allowedActions],
-  };
+  return applyAuthoritativeGitHubWriteEligibility(item, {
+    merge: false,
+    needsChanges: eligible,
+  });
 }
 
-export async function readAuthoritativeNeedsChangesEligibility(
+export async function readAuthoritativeGitHubWriteEligibility(
   item: DecisionReadModel,
   project: ProjectReadModel,
   options: NeedsChangesEligibilityOptions = {},
-): Promise<boolean> {
+): Promise<AuthoritativeGitHubWriteEligibility> {
   const candidate = eligibilityCandidate(item, project);
-  if (!candidate) return false;
+  if (!candidate) return noGitHubWriteEligibility;
 
   const params = new URLSearchParams({
     repository: candidate.repository,
@@ -126,10 +157,25 @@ export async function readAuthoritativeNeedsChangesEligibility(
       headers: { Accept: "application/json" },
       signal: options.signal,
     });
-    if (!response.ok) return false;
+    if (!response.ok) return noGitHubWriteEligibility;
     const payload: unknown = await response.json();
-    return projectedResultMatches(payload, candidate);
+    if (!projectedResultMatches(payload, candidate)) return noGitHubWriteEligibility;
+    return {
+      merge: candidate.canMerge,
+      needsChanges: candidate.canRequestChanges,
+    };
   } catch {
-    return false;
+    return noGitHubWriteEligibility;
   }
+}
+
+export async function readAuthoritativeNeedsChangesEligibility(
+  item: DecisionReadModel,
+  project: ProjectReadModel,
+  options: NeedsChangesEligibilityOptions = {},
+): Promise<boolean> {
+  const policy = resolveManagedProjectPolicy(project.repository);
+  if (!policy || policy.canRequestChanges !== true) return false;
+  const eligibility = await readAuthoritativeGitHubWriteEligibility(item, project, options);
+  return eligibility.needsChanges;
 }
