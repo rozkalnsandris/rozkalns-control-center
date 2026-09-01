@@ -56,6 +56,11 @@ export const GITHUB_GRAPHQL_DASHBOARD_QUERY = `query ControlDashboardRepositoryS
         url
         mergeable
         mergeStateStatus
+        closingIssuesReferences(first: 2) {
+          totalCount
+          pageInfo { hasNextPage }
+          nodes { number title state url }
+        }
         latestReviews(first: 100) {
           pageInfo { hasNextPage }
           nodes { id state author { login } submittedAt }
@@ -238,6 +243,7 @@ function assertBoundedConnection(value: unknown, requireTotalCount = false): rea
 }
 
 const reviewStates = ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"] as const;
+const issueStates = ["OPEN", "CLOSED"] as const;
 const mergeabilityValues = ["MERGEABLE", "CONFLICTING", "UNKNOWN"] as const;
 const mergeStateValues = [
   "BEHIND",
@@ -346,6 +352,16 @@ function checkEvidenceFromRollup(
   return { checks, workflows: [...workflowsById.values()] };
 }
 
+function closingIssueEvidenceFromConnection(value: unknown): NonNullable<PullRequestRead["closingIssues"]> {
+  const parsed = connection(value);
+  if (parsed.totalCount === null || parsed.nodes.length > 2 || parsed.totalCount < parsed.nodes.length) invalid();
+  if (parsed.hasNextPage !== (parsed.totalCount > parsed.nodes.length)) invalid();
+  return {
+    totalCount: parsed.totalCount,
+    issues: parsed.nodes.map(issueFromNode),
+  };
+}
+
 function pullFromNode(value: unknown): PullEvidence {
   const input = record(value);
   if (input.state !== "OPEN") invalid();
@@ -361,6 +377,7 @@ function pullFromNode(value: unknown): PullEvidence {
     headSha,
     changedFiles: integer(input.changedFiles),
     htmlUrl: nonEmptyString(input.url),
+    closingIssues: closingIssueEvidenceFromConnection(input.closingIssuesReferences),
   };
   const reviews = assertBoundedConnection(input.latestReviews).map(reviewFromNode);
   const evidence = checkEvidenceFromRollup(input.statusCheckRollup, headSha);
@@ -381,11 +398,11 @@ function pullFromNode(value: unknown): PullEvidence {
 
 function issueFromNode(value: unknown): IssueRead {
   const input = record(value);
-  if (input.state !== "OPEN") invalid();
+  const state = enumValue(input.state, issueStates);
   return {
     number: positiveInteger(input.number),
     title: nonEmptyString(input.title),
-    state: "open",
+    state: state.toLowerCase() as IssueRead["state"],
     htmlUrl: nonEmptyString(input.url),
   };
 }
@@ -405,6 +422,7 @@ function repositoryFromEnvelope(value: unknown, expectedRepository: string): Rep
   const target = record(defaultBranchRef.target);
   const mainSha = sha(target.oid);
   const issues = assertBoundedConnection(repository.issues, true).map(issueFromNode);
+  if (issues.some((issue) => issue.state !== "open")) invalid();
   const pulls = assertBoundedConnection(repository.pullRequests, true).map(pullFromNode);
   return { repository: repositoryName, defaultBranch, mainSha, issues, pulls };
 }
