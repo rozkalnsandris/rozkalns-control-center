@@ -36,7 +36,12 @@ function normalizedRepository(value: string): string {
   return value.toLowerCase();
 }
 
+function hasLiveDashboardActionSignal(item: DecisionReadModel): boolean {
+  return item.allowedActions.some((action) => action !== "OPEN_PR");
+}
+
 function eligibilityCandidate(item: DecisionReadModel, project: ProjectReadModel): EligibilityCandidate | null {
+  if (!hasLiveDashboardActionSignal(item)) return null;
   if (!project.enabled || item.projectId !== project.id) return null;
 
   const policy = resolveNeedsChangesProjectPolicy(project.repository);
@@ -91,7 +96,7 @@ export function applyAuthoritativeNeedsChangesEligibility(
   eligible: boolean,
 ): DecisionReadModel {
   const suppressed = suppressUnverifiedGitHubWriteActions(item);
-  if (!eligible) return suppressed;
+  if (!eligible || !hasLiveDashboardActionSignal(item)) return suppressed;
   return {
     ...suppressed,
     allowedActions: ["NEEDS_CHANGES", ...suppressed.allowedActions],
