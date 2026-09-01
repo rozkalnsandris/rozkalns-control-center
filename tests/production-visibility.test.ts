@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -105,7 +106,7 @@ test("rejects identity mismatch, malformed SHAs and unbounded blocker text", () 
 
 test("production visibility source boundary stays pure and read-only", () => {
   const source = readFileSync(
-    new URL("../src/shared/production-visibility.ts", import.meta.url),
+    resolve(process.cwd(), "src/shared/production-visibility.ts"),
     "utf8",
   );
 
