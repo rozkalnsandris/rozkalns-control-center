@@ -42,6 +42,6 @@ test("public UI keeps the 320–430px mobile-first decision contract with confir
   assert.equal(card.includes("api.github.com"), false);
   assert.match(card, /if\s*\(\s*action\s*===\s*"OPEN_PR"\s*\)/);
   assert.equal(card.includes('target="_blank"'), false);
-  assert.match(card, /onAction\(action,\s*item,\s*project\)/);
+  assert.match(card, /onAction\(action,\s*renderedItem,\s*project\)/);
   assert.equal(card.includes('type="button"'), true);
 });
