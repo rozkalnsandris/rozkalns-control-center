@@ -55,7 +55,7 @@ test("live dashboard UI uses one same-origin snapshot request and delegates conf
   assert.match(app, /postDecisionAction/);
   assert.doesNotMatch(app, /api\.github\.com/);
   assert.match(card, /action\s*===\s*"OPEN_PR"/);
-  assert.match(card, /onAction\(action,\s*item,\s*project\)/);
+  assert.match(card, /onAction\(action,\s*renderedItem,\s*project\)/);
   assert.doesNotMatch(card, /fetch\(/);
   assert.match(client, /"\/api\/github\/merge"/);
   assert.match(client, /"\/api\/github\/needs-changes"/);
