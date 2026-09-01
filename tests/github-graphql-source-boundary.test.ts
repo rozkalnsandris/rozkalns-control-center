@@ -24,6 +24,15 @@ test("dedicated GraphQL integration owns the fixed query endpoint and exposes no
   assert.doesNotMatch(sharedProvider, /api\.github\.com\/graphql|Authorization|Bearer/);
 });
 
+test("dashboard GraphQL keeps linked issue evidence bounded and query-only", async () => {
+  const dashboard = await source("src/integrations/github/graphql-dashboard-snapshot.ts");
+  assert.match(dashboard, /query ControlDashboardRepositorySnapshot/);
+  assert.match(dashboard, /closingIssuesReferences\(first: 2\)/);
+  assert.match(dashboard, /totalCount/);
+  assert.doesNotMatch(dashboard, /\bmutation\s+[A-Za-z_]/);
+  assert.doesNotMatch(dashboard, /__schema|__type\s*\(/);
+});
+
 test("REST transport remains GET-only after GraphQL session support is added", async () => {
   const rest = await source("src/integrations/github/rest-read-transport.ts");
   assert.match(rest, /method: "GET"/);
