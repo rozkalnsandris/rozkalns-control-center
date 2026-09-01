@@ -39,6 +39,11 @@ export interface RepositoryRef {
   defaultBranch: string;
 }
 
+export interface PullRequestClosingIssueEvidenceRead {
+  totalCount: number;
+  issues: readonly IssueRead[];
+}
+
 export interface PullRequestRead {
   number: number;
   title: string;
@@ -50,6 +55,7 @@ export interface PullRequestRead {
   headSha: string;
   changedFiles: number;
   htmlUrl: string;
+  closingIssues?: PullRequestClosingIssueEvidenceRead;
 }
 
 export interface PullRequestMergeStateRead {
