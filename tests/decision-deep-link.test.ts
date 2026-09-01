@@ -46,7 +46,7 @@ test("DecisionCard wires native fragment targets and async live-mount recovery w
   assert.match(decisionCardSource, /scrollIntoView\(\{ block: "center" \}\)/);
   assert.match(decisionCardSource, /focus\(\{ preventScroll: true \}\)/);
   assert.match(decisionCardSource, /action\s*===\s*"OPEN_PR"/);
-  assert.match(decisionCardSource, /onAction\(action,\s*item,\s*project\)/);
+  assert.match(decisionCardSource, /onAction\(action,\s*renderedItem,\s*project\)/);
   assert.doesNotMatch(decisionCardSource, /navigator\.clipboard/);
   assert.doesNotMatch(decisionCardSource, /fetch\(/);
 
