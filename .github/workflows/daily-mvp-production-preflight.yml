@@ -21,10 +21,10 @@ jobs:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
       CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
       WORKER_NAME: rozkalns-control
-      # Canonical production receipt: #278 comment 5463945682 after Composite Live run 33266473075;
-      # subsequently revalidated by read-only Merge preflight run 33268731366.
-      EXPECTED_ACTIVE_VERSION: 3a1042d9-0e02-4829-b99c-63a6763809ca
-      EXPECTED_ACTIVE_DEPLOYMENT: 731de33c-ff4a-4af1-abee-35b30ee1b214
+      # Canonical accepted production baseline: #278 comment 5498822052 after the #515 rollout;
+      # post-deploy reconciliation and Needs-changes UI acceptance both PASS.
+      EXPECTED_ACTIVE_VERSION: 3f55cfbe-983e-4298-a17f-19f9edd77229
+      EXPECTED_ACTIVE_DEPLOYMENT: 21704160-1485-4a07-b331-72157f3a7828
       FROZEN_PRE_DEPLOYMENT: 4a1582f5-5f18-423d-b610-ac51c13c5f5a
       HOSTNAME: control.rozkalns.net
       EXPECTED_DOMAIN_ID: ac685929d45e825df5b5f6b803a9814b6dbf5d9d
