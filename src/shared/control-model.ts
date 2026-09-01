@@ -1,3 +1,5 @@
+import type { ProductionVisibilityReadModel } from "./production-visibility.js";
+
 export type WorkflowState =
   | "NEEDS_ANDRIS"
   | "WORKING"
@@ -53,6 +55,7 @@ export interface ControlDashboardData {
   generatedAt: string;
   projects: ProjectReadModel[];
   decisions: DecisionReadModel[];
+  productionVisibility: ProductionVisibilityReadModel[];
 }
 
 export type ControlFixtureSet = ControlDashboardData;
@@ -89,4 +92,11 @@ export function projectById(data: ControlDashboardData, projectId: string): Proj
   const project = data.projects.find((candidate) => candidate.id === projectId);
   if (!project) throw new Error(`Unknown project: ${projectId}`);
   return project;
+}
+
+export function productionVisibilityForProject(
+  data: ControlDashboardData,
+  projectId: string,
+): ProductionVisibilityReadModel | null {
+  return data.productionVisibility.find((item) => item.projectId === projectId) ?? null;
 }
