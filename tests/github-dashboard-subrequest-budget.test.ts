@@ -35,6 +35,12 @@ function json(body: unknown, status = 200): Response {
 }
 
 function repositoryEnvelope(repository: string, withPull: boolean, paginated = false) {
+  const linkedIssue = {
+    number: 101,
+    title: "Open issue",
+    state: "OPEN",
+    url: `https://github.com/${repository}/issues/101`,
+  };
   const pull = {
     number: 7,
     title: "Bound dashboard read",
@@ -48,6 +54,11 @@ function repositoryEnvelope(repository: string, withPull: boolean, paginated = f
     url: `https://github.com/${repository}/pull/7`,
     mergeable: "MERGEABLE",
     mergeStateStatus: "CLEAN",
+    closingIssuesReferences: {
+      totalCount: 1,
+      pageInfo: { hasNextPage: false },
+      nodes: [linkedIssue],
+    },
     latestReviews: {
       pageInfo: { hasNextPage: false },
       nodes: [{ id: "PRR_1", state: "APPROVED", author: { login: "reviewer" }, submittedAt: OBSERVED_AT }],
@@ -95,14 +106,7 @@ function repositoryEnvelope(repository: string, withPull: boolean, paginated = f
         issues: {
           totalCount: 1,
           pageInfo: { hasNextPage: false },
-          nodes: [
-            {
-              number: 101,
-              title: "Open issue",
-              state: "OPEN",
-              url: `https://github.com/${repository}/issues/101`,
-            },
-          ],
+          nodes: [linkedIssue],
         },
         pullRequests: {
           totalCount: withPull ? 1 : 0,
@@ -168,10 +172,14 @@ test("dashboard reuses one exact-six-repository token and stays well below the C
   assert.equal(snapshot.projects.length, 6);
   assert.equal(snapshot.decisions.length, 1);
   assert.equal(snapshot.decisions[0]?.projectId, "hermes-deals");
+  assert.equal(snapshot.decisions[0]?.issueNumber, 101);
+  assert.equal(snapshot.decisions[0]?.issueTitle, "Open issue");
   assert.equal(snapshot.decisions[0]?.ci, "PASS");
   assert.equal(snapshot.decisions[0]?.review, "PENDING");
   assert.deepEqual(snapshot.decisions[0]?.allowedActions, ["OPEN_PR"]);
   assert.equal(snapshot.decisions.some((decision) => decision.workflowState === "MERGE_READY"), false);
+  assert.equal(snapshot.decisions.some((decision) => decision.allowedActions.includes("MERGE")), false);
+  assert.equal(snapshot.decisions.some((decision) => decision.allowedActions.includes("NEEDS_CHANGES")), false);
 });
 
 test("dashboard fails closed instead of paginating beyond the bounded GraphQL snapshot", async () => {
