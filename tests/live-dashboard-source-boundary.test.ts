@@ -40,11 +40,12 @@ test("live dashboard remains bounded observation and projects mutation actions o
   assert.match(wrangler, /"CONTROL_LIVE_READ_ENABLED": "true"/);
 });
 
-test("live dashboard UI uses one same-origin snapshot request and delegates confirmed writes to the typed same-origin client", async () => {
-  const [app, card, client] = await Promise.all([
+test("live dashboard UI uses one same-origin snapshot request and one authoritative hydration before confirmed writes", async () => {
+  const [app, card, client, eligibility] = await Promise.all([
     source("src/react-app/App.tsx"),
     source("src/react-app/components/DecisionCard.tsx"),
     source("src/react-app/decision-action-client.ts"),
+    source("src/react-app/needs-changes-eligibility-client.ts"),
   ]);
 
   assert.equal(app.match(/fetch\("\/api\/github\/dashboard"/g)?.length, 1);
@@ -56,7 +57,15 @@ test("live dashboard UI uses one same-origin snapshot request and delegates conf
   assert.doesNotMatch(app, /api\.github\.com/);
   assert.match(card, /action\s*===\s*"OPEN_PR"/);
   assert.match(card, /onAction\(action,\s*renderedItem,\s*project\)/);
+  assert.match(card, /applyAuthoritativeGitHubWriteEligibility/);
+  assert.equal(card.match(/readAuthoritativeGitHubWriteEligibility\(/g)?.length, 1);
+  assert.doesNotMatch(card, /readAuthoritativeNeedsChangesEligibility/);
   assert.doesNotMatch(card, /fetch\(/);
+  assert.match(eligibility, /resolveManagedProjectPolicy/);
+  assert.match(eligibility, /policy\.canMerge/);
+  assert.match(eligibility, /policy\.canRequestChanges/);
+  assert.match(eligibility, /\/api\/github\/reconcile/);
+  assert.match(eligibility, /method:\s*"GET"/);
   assert.match(client, /"\/api\/github\/merge"/);
   assert.match(client, /"\/api\/github\/needs-changes"/);
   assert.match(client, /"\/api\/github\/later"/);

@@ -4,8 +4,9 @@ import type { DecisionReadModel, MockAction, ProjectReadModel } from "../../shar
 import { decisionDeepLinkHash, decisionTargetId } from "../../shared/decision-deep-link";
 import type { MutatingDecisionAction } from "../decision-action-client";
 import {
-  applyAuthoritativeNeedsChangesEligibility,
-  readAuthoritativeNeedsChangesEligibility,
+  applyAuthoritativeGitHubWriteEligibility,
+  readAuthoritativeGitHubWriteEligibility,
+  type AuthoritativeGitHubWriteEligibility,
 } from "../needs-changes-eligibility-client";
 import { StatusPill } from "./StatusPill";
 
@@ -14,6 +15,10 @@ interface DecisionCardProps {
   project: ProjectReadModel;
   onAction: (action: MutatingDecisionAction, item: DecisionReadModel, project: ProjectReadModel) => void;
   mutationsLocked: boolean;
+}
+
+interface EligibleHydration extends AuthoritativeGitHubWriteEligibility {
+  readonly identity: string;
 }
 
 const actionLabels: Record<MockAction, string> = { MERGE: "Merge", NEEDS_CHANGES: "Needs changes", LATER: "Later", OPEN_PR: "Open PR" };
@@ -51,11 +56,11 @@ export function DecisionCard({ item, project, onAction, mutationsLocked }: Decis
   const head = headEvidence(item);
   const showReason = item.workflowState === "NEEDS_ANDRIS";
   const currentHydrationIdentity = hydrationIdentity(item, project);
-  const [eligibleHydrationIdentity, setEligibleHydrationIdentity] = useState<string | null>(null);
-  const renderedItem = applyAuthoritativeNeedsChangesEligibility(
-    item,
-    eligibleHydrationIdentity === currentHydrationIdentity,
-  );
+  const [eligibleHydration, setEligibleHydration] = useState<EligibleHydration | null>(null);
+  const currentEligibility = eligibleHydration?.identity === currentHydrationIdentity
+    ? eligibleHydration
+    : { merge: false, needsChanges: false };
+  const renderedItem = applyAuthoritativeGitHubWriteEligibility(item, currentEligibility);
 
   useEffect(() => {
     if (window.location.hash !== decisionDeepLinkHash(item.id)) return;
@@ -72,9 +77,13 @@ export function DecisionCard({ item, project, onAction, mutationsLocked }: Decis
     const controller = new AbortController();
     let active = true;
     const requestedIdentity = currentHydrationIdentity;
-    void readAuthoritativeNeedsChangesEligibility(item, project, { signal: controller.signal }).then((eligible) => {
+    void readAuthoritativeGitHubWriteEligibility(item, project, { signal: controller.signal }).then((eligibility) => {
       if (!active || controller.signal.aborted) return;
-      setEligibleHydrationIdentity(eligible ? requestedIdentity : null);
+      if (!eligibility.merge && !eligibility.needsChanges) {
+        setEligibleHydration(null);
+        return;
+      }
+      setEligibleHydration({ identity: requestedIdentity, ...eligibility });
     });
     return () => {
       active = false;

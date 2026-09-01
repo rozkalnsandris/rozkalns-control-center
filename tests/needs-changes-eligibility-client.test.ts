@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyAuthoritativeGitHubWriteEligibility,
   applyAuthoritativeNeedsChangesEligibility,
+  readAuthoritativeGitHubWriteEligibility,
   readAuthoritativeNeedsChangesEligibility,
   suppressUnverifiedGitHubWriteActions,
 } from "../src/react-app/needs-changes-eligibility-client.js";
@@ -61,30 +63,42 @@ function projected(overrides: Record<string, unknown> = {}): Record<string, unkn
   };
 }
 
-test("unverified GitHub writes are stripped while Later and Open PR are preserved", () => {
+test("unverified GitHub writes are stripped while authoritative policy flags compose independently", () => {
   const suppressed = suppressUnverifiedGitHubWriteActions(decision());
   assert.deepEqual(suppressed.allowedActions, ["LATER", "OPEN_PR"]);
 
-  const hydrated = applyAuthoritativeNeedsChangesEligibility(decision(), true);
-  assert.deepEqual(hydrated.allowedActions, ["NEEDS_CHANGES", "LATER", "OPEN_PR"]);
-  assert.equal(hydrated.allowedActions.includes("MERGE"), false);
+  const dual = applyAuthoritativeGitHubWriteEligibility(decision(), { merge: true, needsChanges: true });
+  assert.deepEqual(dual.allowedActions, ["MERGE", "NEEDS_CHANGES", "LATER", "OPEN_PR"]);
 
-  const blocked = applyAuthoritativeNeedsChangesEligibility(decision(), false);
+  const mergeOnly = applyAuthoritativeGitHubWriteEligibility(decision(), { merge: true, needsChanges: false });
+  assert.deepEqual(mergeOnly.allowedActions, ["MERGE", "LATER", "OPEN_PR"]);
+
+  const needsChangesOnly = applyAuthoritativeGitHubWriteEligibility(decision(), { merge: false, needsChanges: true });
+  assert.deepEqual(needsChangesOnly.allowedActions, ["NEEDS_CHANGES", "LATER", "OPEN_PR"]);
+
+  const blocked = applyAuthoritativeGitHubWriteEligibility(decision(), { merge: false, needsChanges: false });
   assert.deepEqual(blocked.allowedActions, ["LATER", "OPEN_PR"]);
+
+  const legacyNeedsChanges = applyAuthoritativeNeedsChangesEligibility(decision(), true);
+  assert.deepEqual(legacyNeedsChanges.allowedActions, ["NEEDS_CHANGES", "LATER", "OPEN_PR"]);
+  assert.equal(legacyNeedsChanges.allowedActions.includes("MERGE"), false);
 });
 
-test("exact authoritative projected evidence enables only Needs changes eligibility", async () => {
+test("one exact authoritative GET returns policy-bounded Merge and Needs changes eligibility", async () => {
   let observedUrl = "";
   let observedInit: RequestInit | undefined;
-  const eligible = await readAuthoritativeNeedsChangesEligibility(decision(), project, {
+  let fetchCalls = 0;
+  const eligibility = await readAuthoritativeGitHubWriteEligibility(decision(), project, {
     fetcher: async (input, init) => {
+      fetchCalls += 1;
       observedUrl = String(input);
       observedInit = init;
       return Response.json(projected());
     },
   });
 
-  assert.equal(eligible, true);
+  assert.deepEqual(eligibility, { merge: true, needsChanges: true });
+  assert.equal(fetchCalls, 1);
   assert.equal(
     observedUrl,
     "/api/github/reconcile?repository=rozkalnsandris%2Fops-workflows&issue=4&pull=5",
@@ -93,6 +107,19 @@ test("exact authoritative projected evidence enables only Needs changes eligibil
   assert.equal(observedInit?.cache, "no-store");
   assert.equal(observedInit?.credentials, "same-origin");
   assert.equal(new Headers(observedInit?.headers).get("Accept"), "application/json");
+});
+
+test("legacy Needs changes reader remains policy-bounded", async () => {
+  let fetchCalls = 0;
+  const eligible = await readAuthoritativeNeedsChangesEligibility(decision(), project, {
+    fetcher: async () => {
+      fetchCalls += 1;
+      return Response.json(projected());
+    },
+  });
+
+  assert.equal(eligible, true);
+  assert.equal(fetchCalls, 1);
 });
 
 test("policy mismatch and incomplete local identity fail closed before any GET", async () => {
@@ -107,26 +134,26 @@ test("policy mismatch and incomplete local identity fail closed before any GET",
     id: "hermes-tech",
     repository: "rozkalnsandris/hermes-tech",
   };
-  assert.equal(
-    await readAuthoritativeNeedsChangesEligibility(decision({ projectId: "hermes-tech" }), readOnlyProject, { fetcher }),
-    false,
+  assert.deepEqual(
+    await readAuthoritativeGitHubWriteEligibility(decision({ projectId: "hermes-tech" }), readOnlyProject, { fetcher }),
+    { merge: false, needsChanges: false },
   );
-  assert.equal(
-    await readAuthoritativeNeedsChangesEligibility(decision({ issueNumber: null }), project, { fetcher }),
-    false,
+  assert.deepEqual(
+    await readAuthoritativeGitHubWriteEligibility(decision({ issueNumber: null }), project, { fetcher }),
+    { merge: false, needsChanges: false },
   );
-  assert.equal(
-    await readAuthoritativeNeedsChangesEligibility(
+  assert.deepEqual(
+    await readAuthoritativeGitHubWriteEligibility(
       decision({ currentHeadSha: "cccccccccccccccccccccccccccccccccccccccc" }),
       project,
       { fetcher },
     ),
-    false,
+    { merge: false, needsChanges: false },
   );
   assert.equal(fetchCalls, 0);
 });
 
-test("blocked, stale, malformed and transport evidence all fail closed", async () => {
+test("blocked, stale, malformed and transport evidence all fail closed for both GitHub writes", async () => {
   const cases: Array<() => Promise<Response>> = [
     async () => Response.json({ ...projected(), kind: "BLOCKED" }),
     async () => Response.json(projected({ repository: "rozkalnsandris/hermes-tech" })),
@@ -139,9 +166,9 @@ test("blocked, stale, malformed and transport evidence all fail closed", async (
   ];
 
   for (const responseFactory of cases) {
-    const eligible = await readAuthoritativeNeedsChangesEligibility(decision(), project, {
+    const eligibility = await readAuthoritativeGitHubWriteEligibility(decision(), project, {
       fetcher: async () => responseFactory(),
     });
-    assert.equal(eligible, false);
+    assert.deepEqual(eligibility, { merge: false, needsChanges: false });
   }
 });
