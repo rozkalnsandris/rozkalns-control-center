@@ -1,8 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import type { DecisionReadModel, MockAction, ProjectReadModel } from "../../shared/control-model";
 import { decisionDeepLinkHash, decisionTargetId } from "../../shared/decision-deep-link";
 import type { MutatingDecisionAction } from "../decision-action-client";
+import {
+  applyAuthoritativeNeedsChangesEligibility,
+  readAuthoritativeNeedsChangesEligibility,
+} from "../needs-changes-eligibility-client";
 import { StatusPill } from "./StatusPill";
 
 interface DecisionCardProps {
@@ -21,6 +25,21 @@ function reconciledLabel(timestamp: string) { return new Intl.DateTimeFormat("en
 function headEvidence(item: DecisionReadModel) { if (!item.expectedHeadSha && !item.currentHeadSha) return { label: "Head pending", tone: "warning" as const }; if (item.expectedHeadSha && item.expectedHeadSha === item.currentHeadSha) return { label: "Head match", tone: "good" as const }; return { label: "Head mismatch", tone: "danger" as const }; }
 function actionClass(action: MockAction) { if (action === "MERGE") return "action-button action-button--primary"; if (action === "OPEN_PR") return "action-button action-button--tertiary"; return "action-button action-button--secondary"; }
 function referenceLabel(item: DecisionReadModel) { const parts: string[] = []; if (item.issueNumber !== null) parts.push(`Issue #${item.issueNumber}`); if (item.prNumber !== null) parts.push(`PR #${item.prNumber}`); return parts.join(" · "); }
+function hydrationIdentity(item: DecisionReadModel, project: ProjectReadModel): string {
+  return JSON.stringify([
+    project.id,
+    project.repository,
+    project.enabled,
+    item.projectId,
+    item.issueNumber,
+    item.prNumber,
+    item.expectedHeadSha,
+    item.currentHeadSha,
+    item.mainSha,
+    item.lastReconciledAt,
+    item.allowedActions,
+  ]);
+}
 
 export function DecisionCard({ item, project, onAction, mutationsLocked }: DecisionCardProps) {
   const targetId = decisionTargetId(item.id);
@@ -31,6 +50,12 @@ export function DecisionCard({ item, project, onAction, mutationsLocked }: Decis
   const title = item.prTitle ?? item.issueTitle ?? "Untitled change";
   const head = headEvidence(item);
   const showReason = item.workflowState === "NEEDS_ANDRIS";
+  const currentHydrationIdentity = hydrationIdentity(item, project);
+  const [eligibleHydrationIdentity, setEligibleHydrationIdentity] = useState<string | null>(null);
+  const renderedItem = applyAuthoritativeNeedsChangesEligibility(
+    item,
+    eligibleHydrationIdentity === currentHydrationIdentity,
+  );
 
   useEffect(() => {
     if (window.location.hash !== decisionDeepLinkHash(item.id)) return;
@@ -42,6 +67,21 @@ export function DecisionCard({ item, project, onAction, mutationsLocked }: Decis
     });
     return () => window.cancelAnimationFrame(frame);
   }, [item.id, targetId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    const requestedIdentity = currentHydrationIdentity;
+    setEligibleHydrationIdentity(null);
+    void readAuthoritativeNeedsChangesEligibility(item, project, { signal: controller.signal }).then((eligible) => {
+      if (!active || controller.signal.aborted) return;
+      setEligibleHydrationIdentity(eligible ? requestedIdentity : null);
+    });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [currentHydrationIdentity, item, project]);
 
   return (
     <article className="decision-card" id={targetId} tabIndex={-1} aria-labelledby={titleId} aria-describedby={showReason ? reasonId : undefined}>
@@ -63,11 +103,11 @@ export function DecisionCard({ item, project, onAction, mutationsLocked }: Decis
           <div><dt>Reconciled</dt><dd>{reconciledLabel(item.lastReconciledAt)} UTC</dd></div>
         </dl>
       </details>
-      {item.allowedActions.length > 0 ? (
+      {renderedItem.allowedActions.length > 0 ? (
         <div className="action-row" aria-label={`Available actions for ${project.displayName}`}>
-          {item.allowedActions.map((action) => {
-            if (action === "OPEN_PR") return item.prUrl ? <a className={actionClass(action)} href={item.prUrl} key={action}>{actionLabels[action]}</a> : null;
-            return <button className={actionClass(action)} key={action} type="button" onClick={() => onAction(action, item, project)} disabled={mutationsLocked} data-decision-action={action}>{actionLabels[action]}</button>;
+          {renderedItem.allowedActions.map((action) => {
+            if (action === "OPEN_PR") return renderedItem.prUrl ? <a className={actionClass(action)} href={renderedItem.prUrl} key={action}>{actionLabels[action]}</a> : null;
+            return <button className={actionClass(action)} key={action} type="button" onClick={() => onAction(action, renderedItem, project)} disabled={mutationsLocked} data-decision-action={action}>{actionLabels[action]}</button>;
           })}
         </div>
       ) : null}
