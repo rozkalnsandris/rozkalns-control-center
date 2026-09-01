@@ -86,6 +86,18 @@ export function suppressUnverifiedGitHubWriteActions(item: DecisionReadModel): D
   };
 }
 
+export function applyAuthoritativeNeedsChangesEligibility(
+  item: DecisionReadModel,
+  eligible: boolean,
+): DecisionReadModel {
+  const suppressed = suppressUnverifiedGitHubWriteActions(item);
+  if (!eligible) return suppressed;
+  return {
+    ...suppressed,
+    allowedActions: ["NEEDS_CHANGES", ...suppressed.allowedActions],
+  };
+}
+
 export async function readAuthoritativeNeedsChangesEligibility(
   item: DecisionReadModel,
   project: ProjectReadModel,
