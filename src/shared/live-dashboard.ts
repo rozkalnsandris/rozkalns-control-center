@@ -14,6 +14,7 @@ import { aggregateReviewState, isReviewRequirementSatisfied } from "./github-pro
 import { managedProjectPolicies, type ManagedProjectPolicy } from "./project-policy.js";
 import type {
   CheckRunRead,
+  IssueRead,
   PullRequestMergeStateRead,
   PullRequestRead,
   SourceControlReadProvider,
@@ -98,6 +99,19 @@ function allowedActionsForLiveDecision(
   return actions;
 }
 
+function linkedOpenIssue(pull: PullRequestRead, openIssues: readonly IssueRead[]): IssueRead | null {
+  const evidence = pull.closingIssues;
+  if (!evidence || evidence.totalCount !== 1 || evidence.issues.length !== 1) return null;
+  const linked = evidence.issues[0];
+  if (!linked || linked.state !== "open") return null;
+  const matches = openIssues.filter((issue) => issue.number === linked.number);
+  if (matches.length !== 1) return null;
+  const observed = matches[0];
+  if (!observed || observed.state !== "open") return null;
+  if (observed.title !== linked.title || observed.htmlUrl !== linked.htmlUrl) return null;
+  return observed;
+}
+
 function observedReason(pull: PullRequestRead, ci: CiState, review: ReviewState, mergeState: PullRequestMergeStateRead): string {
   if (ci === "FAIL") return "An observed exact-head GitHub check or workflow reports failure. GitHub write actions remain unavailable from this lightweight observation.";
   if (review === "CHANGES_REQUESTED") return "The latest effective GitHub review state includes changes requested. Human attention is required; GitHub write actions remain unavailable from this lightweight observation.";
@@ -107,7 +121,14 @@ function observedReason(pull: PullRequestRead, ci: CiState, review: ReviewState,
   return `Observed exact-head CI currently passes and GitHub reports ${mergeState.mergeable}/${mergeState.mergeStateStatus}, but branch-policy coverage is not complete enough to declare merge readiness; GitHub write actions remain fail closed.`;
 }
 
-async function readDecision(policy: ManagedProjectPolicy, provider: SourceControlReadProvider, pull: PullRequestRead, mainSha: string, observedAt: string): Promise<DecisionReadModel> {
+async function readDecision(
+  policy: ManagedProjectPolicy,
+  provider: SourceControlReadProvider,
+  pull: PullRequestRead,
+  openIssues: readonly IssueRead[],
+  mainSha: string,
+  observedAt: string,
+): Promise<DecisionReadModel> {
   const [mergeState, reviews, checkRuns, workflowRuns] = await Promise.all([
     provider.getPullRequestMergeState(policy.repository, pull.number),
     provider.listPullRequestReviews(policy.repository, pull.number),
@@ -118,13 +139,14 @@ async function readDecision(policy: ManagedProjectPolicy, provider: SourceContro
   const ci = aggregateObservedCiState(checkRuns, workflowRuns);
   const review = aggregateReviewState(reviews);
   const state = observedWorkflowState(ci, review);
-  const issueNumber = null;
+  const issue = linkedOpenIssue(pull, openIssues);
+  const issueNumber = issue?.number ?? null;
   return {
     id: `github:${policy.id}:pr:${pull.number}`,
     projectId: policy.id,
     workflowState: state,
     issueNumber,
-    issueTitle: null,
+    issueTitle: issue?.title ?? null,
     prNumber: pull.number,
     prTitle: pull.title,
     prUrl: pull.htmlUrl,
@@ -157,7 +179,9 @@ async function readProject(factory: LiveDashboardReadContextFactory, policy: Man
     provider.listOpenIssues(policy.repository),
     provider.listOpenPullRequests(policy.repository),
   ]);
-  const decisions = await Promise.all(openPullRequests.map((pull) => readDecision(policy, provider, pull, mainSha, observedAt)));
+  const decisions = await Promise.all(
+    openPullRequests.map((pull) => readDecision(policy, provider, pull, openIssues, mainSha, observedAt)),
+  );
   return {
     project: {
       id: policy.id,

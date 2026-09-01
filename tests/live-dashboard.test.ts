@@ -5,6 +5,7 @@ import { readLiveDashboardSnapshot } from "../src/shared/live-dashboard.js";
 import { managedProjectPolicies } from "../src/shared/project-policy.js";
 import type {
   CheckRunRead,
+  IssueRead,
   PullRequestRead,
   PullRequestReviewRead,
   SourceControlReadProvider,
@@ -152,6 +153,78 @@ test("live dashboard reads exactly the managed projects at one observation time 
   assert.equal(snapshot.decisions.every((item) => item.issueNumber === null && item.issueTitle === null), true);
   assert.equal(snapshot.decisions.every((item) => item.allowedActions.join(",") === "OPEN_PR"), true);
   assert.equal(snapshot.decisions.every((item) => item.lastReconciledAt === OBSERVED_AT), true);
+});
+
+test("live dashboard exposes only exact linked open issue identity without enabling GitHub write actions", async () => {
+  const linkedIssue: IssueRead = {
+    number: 101,
+    title: "Canonical linked issue",
+    state: "open",
+    htmlUrl: "https://github.com/rozkalnsandris/ops-workflows/issues/101",
+  };
+  const secondIssue: IssueRead = {
+    number: 102,
+    title: "Second linked issue",
+    state: "open",
+    htmlUrl: "https://github.com/rozkalnsandris/ops-workflows/issues/102",
+  };
+
+  async function snapshotFor(closingIssues: PullRequestRead["closingIssues"], openIssues: IssueRead[]) {
+    const commitStatusReads = { value: 0 };
+    return readLiveDashboardSnapshot(
+      {
+        createRepositoryReadContext(repository) {
+          const base = providerFor(repository, commitStatusReads);
+          if (repository !== "rozkalnsandris/ops-workflows") return { provider: base };
+          return {
+            provider: {
+              ...base,
+              async listOpenIssues() {
+                return openIssues;
+              },
+              async listOpenPullRequests() {
+                return [{ ...pull(14, "Ops linked issue evidence"), closingIssues }];
+              },
+              async listPullRequestReviews() {
+                return [];
+              },
+              async listCheckRuns() {
+                return [check("success")];
+              },
+            },
+          };
+        },
+      },
+      OBSERVED_AT,
+    );
+  }
+
+  const exact = await snapshotFor({ totalCount: 1, issues: [linkedIssue] }, [linkedIssue]);
+  const exactDecision = exact.decisions.find((item) => item.projectId === "ops-workflows");
+  assert.equal(exactDecision?.issueNumber, 101);
+  assert.equal(exactDecision?.issueTitle, "Canonical linked issue");
+  assert.equal(exactDecision?.workflowState, "WAITING");
+  assert.deepEqual(exactDecision?.allowedActions, ["LATER", "OPEN_PR"]);
+  assert.equal(exactDecision?.allowedActions.includes("MERGE"), false);
+  assert.equal(exactDecision?.allowedActions.includes("NEEDS_CHANGES"), false);
+
+  const ambiguous = await snapshotFor(
+    { totalCount: 2, issues: [linkedIssue, secondIssue] },
+    [linkedIssue, secondIssue],
+  );
+  const ambiguousDecision = ambiguous.decisions.find((item) => item.projectId === "ops-workflows");
+  assert.equal(ambiguousDecision?.issueNumber, null);
+  assert.equal(ambiguousDecision?.issueTitle, null);
+  assert.equal(ambiguousDecision?.allowedActions.includes("MERGE"), false);
+  assert.equal(ambiguousDecision?.allowedActions.includes("NEEDS_CHANGES"), false);
+
+  const inconsistent = await snapshotFor(
+    { totalCount: 1, issues: [{ ...linkedIssue, title: "Conflicting title" }] },
+    [linkedIssue],
+  );
+  const inconsistentDecision = inconsistent.decisions.find((item) => item.projectId === "ops-workflows");
+  assert.equal(inconsistentDecision?.issueNumber, null);
+  assert.equal(inconsistentDecision?.issueTitle, null);
 });
 
 test("live dashboard rejects exact-head evidence drift", async () => {
