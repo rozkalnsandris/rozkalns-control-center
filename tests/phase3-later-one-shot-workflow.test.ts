@@ -97,6 +97,35 @@ test("exactly one Later route call consumes authorization before the external PO
   assert.match(text, /NO_RETRY_ROLLBACK_CLEANUP=YES/);
 });
 
+test("non-200 Later POST preserves only bounded status and stable route error evidence", async () => {
+  const text = await source();
+  assert.match(text, /emit_later_post_failure_evidence\(\)/);
+  assert.match(text, /LATER_POST_HTTP_STATUS=%s/);
+  assert.match(text, /LATER_POST_HTTP_STATUS=UNKNOWN/);
+  assert.match(text, /LATER_POST_ERROR_CODE=%s/);
+  for (const code of [
+    "ACCESS_AUTHENTICATION_FAILED",
+    "AUTHORIZATION_STALE_STATE",
+    "RECONCILIATION_FAILED",
+    "PERSISTENCE_FAILED",
+    "PERSISTENCE_CONFLICT",
+    "RUNTIME_UNAVAILABLE",
+  ]) assert.ok(text.includes(code), `missing bounded Later error ${code}`);
+
+  const statusCheck = text.indexOf('if [ "$(cat "$tmp/later-response.code")" != "200" ]; then');
+  const evidence = text.indexOf(
+    'emit_later_post_failure_evidence "$tmp/later-response.code" "$tmp/later-response.json"',
+    statusCheck,
+  );
+  const stopped = text.indexOf("stop_post LATER_POST_HTTP_NOT_200", evidence);
+  assert.ok(statusCheck >= 0 && evidence > statusCheck && stopped > evidence);
+
+  assert.doesNotMatch(text, /cat\s+"\$tmp\/later-response\.json"/);
+  assert.doesNotMatch(text, /printf[^\n]*later-response\.json/);
+  assert.match(text, /AUTHORIZATION_CONSUMED=YES/);
+  assert.match(text, /NO_RETRY_ROLLBACK_CLEANUP=YES/);
+});
+
 test("postwrite path requires DEFERRED and one exact persisted row without GitHub mutation", async () => {
   const text = await source();
   assert.match(text, /\.status == "DEFERRED"/);
