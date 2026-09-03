@@ -38,6 +38,14 @@ test("Telegram activation preflight is manual, main-only, and read-only", () => 
   assert.match(workflow, /DISPATCH_QUEUE_WORKER_CONSUMER_NOT_UNIQUE/);
   assert.match(workflow, /DISPATCH_QUEUE_CONSUMER_POLICY_INCOMPATIBLE/);
 
+  assert.match(
+    workflow,
+    /LC_ALL=C tr -cd '\[:alnum:\] _\.\/:@,\+\{\}\\\[\\\]"-'/,
+  );
+  assert.doesNotMatch(workflow, /tr -cd '[^\n]*_- /);
+  assert.match(workflow, /CURRENT_DEPLOYMENT=%s/);
+  assert.match(workflow, /CURRENT_VERSION=%s/);
+
   assert.match(workflow, /CONTROL_NOTIFICATION_TRANSITIONS_ENABLED/);
   assert.match(workflow, /CONTROL_NOTIFICATION_DISPATCH_ENABLED/);
   assert.match(workflow, /CONTROL_NOTIFICATION_TARGET_KEYS/);
@@ -47,10 +55,42 @@ test("Telegram activation preflight is manual, main-only, and read-only", () => 
   assert.match(workflow, /CONTROL_TELEGRAM_CHAT_ID/);
   assert.match(workflow, /CONTROL_NOTIFICATION_CONTROL_ORIGIN/);
   assert.match(workflow, /NOTIFICATION_DISPATCH_QUEUE/);
+
+  assert.match(workflow, /TRANSITION_OPT_IN=MISSING/);
+  assert.match(workflow, /TRANSITION_OPT_IN=ENABLED/);
+  assert.match(workflow, /TRANSITION_OPT_IN=INVALID/);
+  assert.match(workflow, /DISPATCH_OPT_IN=MISSING/);
+  assert.match(workflow, /DISPATCH_OPT_IN=ENABLED/);
+  assert.match(workflow, /DISPATCH_OPT_IN=INVALID/);
+  assert.match(workflow, /TARGET_CONTRACT=MISSING/);
+  assert.match(workflow, /TARGET_CONTRACT=VALID_SINGLE_TELEGRAM_TARGET/);
+  assert.match(workflow, /TARGET_CONTRACT=INVALID/);
+  assert.match(workflow, /RETRY_POLICY=MISSING/);
+  assert.match(workflow, /RETRY_POLICY=VALID/);
+  assert.match(workflow, /RETRY_POLICY=INVALID/);
+  assert.match(workflow, /TELEGRAM_BOT_TOKEN_BINDING=MISSING/);
+  assert.match(workflow, /TELEGRAM_BOT_TOKEN_BINDING=PRESENT_SECRET/);
+  assert.match(workflow, /TELEGRAM_BOT_TOKEN_BINDING=INVALID/);
+  assert.match(workflow, /TELEGRAM_CHAT_ID_BINDING=MISSING/);
+  assert.match(workflow, /TELEGRAM_CHAT_ID_BINDING=PRESENT_SECRET/);
+  assert.match(workflow, /TELEGRAM_CHAT_ID_BINDING=INVALID/);
+  assert.match(workflow, /CONTROL_ORIGIN=MISSING/);
+  assert.match(workflow, /CONTROL_ORIGIN=VALID/);
+  assert.match(workflow, /CONTROL_ORIGIN=INVALID/);
+  assert.match(workflow, /DISPATCH_QUEUE_PRODUCER_BINDING=MISSING/);
+  assert.match(workflow, /DISPATCH_QUEUE_PRODUCER_BINDING=PRESENT/);
+  assert.match(workflow, /DISPATCH_QUEUE_PRODUCER_BINDING=INVALID/);
+  assert.match(workflow, /NOTIFICATION_ACTIVATION_BINDING_FAILURES=%s/);
   assert.match(workflow, /NOTIFICATION_ACTIVATION_BINDINGS_INCOMPLETE/);
 
-  assert.match(workflow, /CONTROL_TELEGRAM_BOT_TOKEN" and \(\.type == "secret_text" or \.type == "secret_key"\)/);
-  assert.match(workflow, /CONTROL_TELEGRAM_CHAT_ID" and \(\.type == "secret_text" or \.type == "secret_key"\)/);
+  assert.match(
+    workflow,
+    /CONTROL_TELEGRAM_BOT_TOKEN"\)\]\[0\] \| \.type == "secret_text" or \.type == "secret_key"/,
+  );
+  assert.match(
+    workflow,
+    /CONTROL_TELEGRAM_CHAT_ID"\)\]\[0\] \| \.type == "secret_text" or \.type == "secret_key"/,
+  );
   assert.doesNotMatch(workflow, /TELEGRAM_BOT_TOKEN=.*\$\{/);
   assert.doesNotMatch(workflow, /TELEGRAM_CHAT_ID=.*\$\{/);
   assert.doesNotMatch(workflow, /api\.telegram\.org/);
