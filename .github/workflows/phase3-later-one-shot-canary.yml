@@ -115,6 +115,28 @@ jobs:
             exit 1
           }
 
+          emit_later_post_failure_evidence() {
+            local code_file="$1" response_file="$2"
+            local code error_code
+
+            code="$(cat "$code_file" 2>/dev/null || true)"
+            if [[ "$code" =~ ^[0-9]{3}$ ]]; then
+              printf 'LATER_POST_HTTP_STATUS=%s\n' "$code" >&2
+            else
+              printf 'LATER_POST_HTTP_STATUS=UNKNOWN\n' >&2
+            fi
+
+            if error_code="$(jq -er 'if type == "object" and (.error | type == "string") then .error else empty end' "$response_file" 2>/dev/null)"; then
+              case "$error_code" in
+                INVALID_REQUEST|ACTION_NOT_ALLOWED|DECISION_NOT_FOUND|AUTHORIZATION_STALE_STATE|PERSISTENCE_CONFLICT|RECONCILIATION_FAILED|PERSISTENCE_FAILED|LATER_FAILED|RUNTIME_UNAVAILABLE|ACCESS_AUTHENTICATION_FAILED|METHOD_NOT_ALLOWED|UNSUPPORTED_MEDIA_TYPE|NOT_FOUND) ;;
+                *) error_code=UNKNOWN ;;
+              esac
+            else
+              error_code=UNKNOWN
+            fi
+            printf 'LATER_POST_ERROR_CODE=%s\n' "$error_code" >&2
+          }
+
           for cmd in curl jq node; do
             command -v "$cmd" >/dev/null 2>&1 || stop_pre "MISSING_${cmd^^}"
           done
@@ -333,7 +355,10 @@ jobs:
           request_body="$(jq -cn --arg repository "$TARGET_REPOSITORY" --arg decisionId "$decision_id" --arg fingerprint "$EXPECTED_FINGERPRINT" '{repository:$repository,decisionId:$decisionId,expectedStateFingerprint:$fingerprint}')"
           printf 'STAGE=LATER_POST\n'
           access_post_later "$request_body" "$tmp/later-response.json" "$tmp/later-response.code"
-          [ "$(cat "$tmp/later-response.code")" = "200" ] || stop_post LATER_POST_HTTP_NOT_200
+          if [ "$(cat "$tmp/later-response.code")" != "200" ]; then
+            emit_later_post_failure_evidence "$tmp/later-response.code" "$tmp/later-response.json"
+            stop_post LATER_POST_HTTP_NOT_200
+          fi
           jq -e --arg repository "$TARGET_REPOSITORY" --arg project "$TARGET_PROJECT_ID" --arg decision "$decision_id" --arg fingerprint "$EXPECTED_FINGERPRINT" '.status == "DEFERRED" and .repository == $repository and .projectId == $project and .decisionId == $decision and .stateFingerprint == $fingerprint and (.observedAt|type == "string")' "$tmp/later-response.json" >/dev/null || stop_post LATER_RESPONSE_MISMATCH
           observed_at="$(jq -r '.observedAt' "$tmp/later-response.json")"
           printf 'LATER_POST_SENT=YES\n'
