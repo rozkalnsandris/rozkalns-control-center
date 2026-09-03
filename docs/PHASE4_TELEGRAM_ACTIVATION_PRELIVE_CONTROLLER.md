@@ -25,3 +25,13 @@ Queue delete/purge, arbitrary D1 writes, secret export, permission changes, DNS/
 ## Activation order and gates
 
 The controller does not collapse D1, Queue, secrets, Worker rollout and provider delivery into a generic deploy label. They remain separate fail-closed categories. Current source can become Ready and merge independently; a later LIVE decision must re-run this controller from the exact merged `main` SHA and separately resolve D1 migration evidence before any production mutation is authorized.
+
+## Gate A pre-provider executor
+
+Once a separate review freezes `D1_MUTATION=0`, the repository-owned Gate A contract is implemented by `.github/workflows/phase4-telegram-preprovider-live.yml` and documented in `docs/PHASE4_TELEGRAM_PREPROVIDER_LIVE.md`.
+
+Gate A exists because the generic Worker `UPLOAD1:DEPLOY2` controller does not cover the prerequisite Queue or the two Telegram secret bindings. The dedicated controller keeps the Queue paused, creates the exact Worker consumer, adds the two protected Telegram secret bindings only on the single strict candidate version upload, attaches that candidate at 0% normal traffic, smoke-tests the exact version through a version override, and promotes only that verified candidate to 100%.
+
+The Queue remains paused after Gate A. Provider-delivery resume and every Telegram API request remain outside Gate A and require a separate Gate B owner authorization.
+
+Merging the Gate A workflow is source readiness only. It makes every older exact-SHA LIVE authorization stale. After merge, re-run exact-main CI and this GET-only pre-LIVE controller on the new `main`, then request a fresh exact Gate A authorization bound to the newly observed production baseline.
