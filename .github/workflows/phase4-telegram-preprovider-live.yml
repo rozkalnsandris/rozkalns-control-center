@@ -1,0 +1,430 @@
+name: Phase 4 Telegram pre-provider Live
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact 40-character main SHA approved for Gate A
+        required: true
+        type: string
+      expected_version:
+        description: Exact currently active Worker version
+        required: true
+        type: string
+      expected_deployment:
+        description: Exact currently active Worker deployment
+        required: true
+        type: string
+      expected_ci_run:
+        description: Exact successful main push CI run
+        required: true
+        type: string
+      expected_preflight_run:
+        description: Exact successful Telegram pre-LIVE controller run
+        required: true
+        type: string
+      owner_authorization:
+        description: Exact bounded Gate A owner authorization
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase4-telegram-preprovider-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: paused Queue + exact candidate rollout, provider still off
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production-worker-deploy
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      HOSTNAME: control.rozkalns.net
+      DISPATCH_QUEUE_NAME: rozkalns-control-notification-dispatch
+      GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout exact approved source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.approved_sha }}
+          persist-credentials: false
+
+      - name: Setup canonical Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install and validate exact source before live authority is consumed
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-node-version.mjs
+          npm ci
+          npm run check
+
+      - name: Gate A preflight and one-shot pre-provider activation
+        shell: bash
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+          EXPECTED_CI_RUN: ${{ inputs.expected_ci_run }}
+          EXPECTED_PREFLIGHT_RUN: ${{ inputs.expected_preflight_run }}
+          OWNER_AUTHORIZATION: ${{ inputs.owner_authorization }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+          CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
+          CONTROL_TELEGRAM_BOT_TOKEN: ${{ secrets.CONTROL_TELEGRAM_BOT_TOKEN }}
+          CONTROL_TELEGRAM_CHAT_ID: ${{ secrets.CONTROL_TELEGRAM_CHAT_ID }}
+          EVIDENCE_DIR: ${{ runner.temp }}/phase4-telegram-preprovider-live-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          mutation_started=NO
+          queue_create_count=0
+          queue_pause_count=0
+          queue_consumer_count=0
+          secret_binding_count=0
+          version_upload_count=0
+          deployment_write_count=0
+          candidate_version=""
+          queue_id=""
+          attached_deployment=""
+          final_deployment=""
+
+          mkdir -p "$EVIDENCE_DIR"
+          receipt="$EVIDENCE_DIR/receipt.txt"
+          : > "$receipt"
+
+          emit_stop_receipt() {
+            local reason="$1"
+            {
+              printf 'PHASE4_TELEGRAM_PREPROVIDER_LIVE=STOP\n'
+              printf 'STOP=%s\n' "$reason"
+              printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+              printf 'EXPECTED_VERSION=%s\n' "$EXPECTED_VERSION"
+              printf 'EXPECTED_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+              printf 'EXPECTED_CI_RUN=%s\n' "$EXPECTED_CI_RUN"
+              printf 'EXPECTED_PREFLIGHT_RUN=%s\n' "$EXPECTED_PREFLIGHT_RUN"
+              printf 'DISPATCH_QUEUE_ID=%s\n' "${queue_id:-NONE}"
+              printf 'CANDIDATE_VERSION=%s\n' "${candidate_version:-NONE}"
+              printf 'CANDIDATE_ATTACHMENT_DEPLOYMENT=%s\n' "${attached_deployment:-NONE}"
+              printf 'FINAL_DEPLOYMENT=%s\n' "${final_deployment:-NONE}"
+              printf 'QUEUE_CREATE_COUNT=%s\n' "$queue_create_count"
+              printf 'QUEUE_PAUSE_COUNT=%s\n' "$queue_pause_count"
+              printf 'QUEUE_CONSUMER_COUNT=%s\n' "$queue_consumer_count"
+              printf 'SECRET_BINDING_COUNT=%s\n' "$secret_binding_count"
+              printf 'VERSION_UPLOAD_COUNT=%s\n' "$version_upload_count"
+              printf 'DEPLOYMENT_WRITE_COUNT=%s\n' "$deployment_write_count"
+              printf 'D1_MUTATION_COUNT=0\n'
+              printf 'PROVIDER_RESUME_COUNT=0\n'
+              printf 'PROVIDER_API_REQUEST_COUNT=0\n'
+              printf 'FIRST_MUTATION_STARTED=%s\n' "$mutation_started"
+              if [[ "$mutation_started" == YES ]]; then
+                printf 'AUTHORIZATION_CONSUMED=YES\n'
+                printf 'AUTOMATIC_RETRY=NO\n'
+                printf 'AUTOMATIC_ROLLBACK=NO\n'
+                printf 'AUTOMATIC_CLEANUP=NO\n'
+              else
+                printf 'AUTHORIZATION_CONSUMED=NO\n'
+              fi
+              printf 'NEXT_ACTION=STOP_OWNER_REVIEW\n'
+            } | tee "$receipt"
+          }
+
+          stop() {
+            emit_stop_receipt "$1" >&2
+            exit 1
+          }
+
+          for cmd in curl git jq npm; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]] || stop APPROVED_SHA_INVALID
+          [[ "$EXPECTED_VERSION" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_VERSION_INVALID
+          [[ "$EXPECTED_DEPLOYMENT" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_DEPLOYMENT_INVALID
+          [[ "$EXPECTED_CI_RUN" =~ ^[0-9]+$ ]] || stop EXPECTED_CI_RUN_INVALID
+          [[ "$EXPECTED_PREFLIGHT_RUN" =~ ^[0-9]+$ ]] || stop EXPECTED_PREFLIGHT_RUN_INVALID
+          [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch ]] || stop WORKFLOW_EVENT_NOT_DISPATCH
+          [[ "${GITHUB_REF_NAME:-}" == main ]] || stop WORKFLOW_REF_NOT_MAIN
+          [[ "${GITHUB_SHA:-}" == "$APPROVED_SHA" ]] || stop WORKFLOW_SHA_NOT_APPROVED_SHA
+          [[ "${GITHUB_RUN_ATTEMPT:-}" == 1 ]] || stop WORKFLOW_RERUN_FORBIDDEN
+          [[ "$(git rev-parse HEAD)" == "$APPROVED_SHA" ]] || stop CHECKOUT_SHA_NOT_APPROVED_SHA
+
+          [[ -n "${GITHUB_TOKEN:-}" ]] || stop MISSING_GITHUB_TOKEN
+          [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]] || stop MISSING_CLOUDFLARE_API_TOKEN
+          [[ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ]] || stop MISSING_CONTROL_ACCESS_CLIENT_ID
+          [[ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ]] || stop MISSING_CONTROL_ACCESS_CLIENT_SECRET
+          [[ -n "${CONTROL_TELEGRAM_BOT_TOKEN:-}" ]] || stop MISSING_CONTROL_TELEGRAM_BOT_TOKEN
+          [[ -n "${CONTROL_TELEGRAM_CHAT_ID:-}" ]] || stop MISSING_CONTROL_TELEGRAM_CHAT_ID
+
+          expected_authorization="AUTHORIZE PHASE4 TELEGRAM PRE-PROVIDER LIVE — MAIN ${APPROVED_SHA} — CI ${EXPECTED_CI_RUN} — PREFLIGHT ${EXPECTED_PREFLIGHT_RUN} — BASELINE DEPLOYMENT ${EXPECTED_DEPLOYMENT} — BASELINE VERSION ${EXPECTED_VERSION} — D1 MUTATION 0 — QUEUE CREATE 1 PAUSE 1 CONSUMER 1 — SECRETS 2 — WORKER UPLOAD 1 DEPLOYMENT WRITES 2 — CANDIDATE 0 PERCENT THEN 100 PERCENT — PROVIDER RESUME 0 — PROVIDER REQUEST 0 — NO RETRY — NO ROLLBACK — NO CLEANUP"
+          [[ "$OWNER_AUTHORIZATION" == "$expected_authorization" ]] || stop OWNER_AUTHORIZATION_MISMATCH
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          gh_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
+          }
+
+          cf_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_RESPONSE_INVALID
+          }
+
+          cf_write_json() {
+            local method="$1" path="$2" data="$3" out="$4"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X "$method" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$data" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_WRITE_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_WRITE_RESPONSE_INVALID
+          }
+
+          access_health_get() {
+            local override_version="${1:-}" out="$2" code_file="$3"
+            local -a headers=(
+              -H "CF-Access-Client-Id: ${CONTROL_ACCESS_CLIENT_ID}"
+              -H "CF-Access-Client-Secret: ${CONTROL_ACCESS_CLIENT_SECRET}"
+              -H 'Cache-Control: no-cache'
+            )
+            if [[ -n "$override_version" ]]; then
+              headers+=( -H "Cloudflare-Workers-Version-Overrides: ${WORKER_NAME}=\"${override_version}\"" )
+            fi
+            local code
+            code="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              "${headers[@]}" -o "$out" -w '%{http_code}' "https://${HOSTNAME}/api/health")" || return 1
+            printf '%s' "$code" > "$code_file"
+          }
+
+          require_baseline() {
+            local file="$1"
+            jq -e --arg deployment "$EXPECTED_DEPLOYMENT" --arg version "$EXPECTED_VERSION" '
+              (.result.deployments | type == "array") and
+              (.result.deployments | length >= 1) and
+              .result.deployments[0].id == $deployment and
+              (.result.deployments[0].versions | type == "array") and
+              (.result.deployments[0].versions | length == 1) and
+              .result.deployments[0].versions[0].version_id == $version and
+              .result.deployments[0].versions[0].percentage == 100
+            ' "$file" >/dev/null || stop PRODUCTION_BASELINE_DRIFT
+          }
+
+          printf '%s\n' STAGE=GITHUB_EXACT_MAIN_CI_PREFLIGHT
+          gh_get '/branches/main' "$tmp/main.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+
+          gh_get "/actions/runs/${EXPECTED_CI_RUN}" "$tmp/ci.json"
+          jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_CI_RUN" '
+            .id == $id and .name == "CI" and .path == ".github/workflows/ci.yml" and
+            .head_branch == "main" and .head_sha == $sha and .event == "push" and
+            .status == "completed" and .conclusion == "success"
+          ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+
+          gh_get "/actions/runs/${EXPECTED_PREFLIGHT_RUN}" "$tmp/preflight.json"
+          jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_PREFLIGHT_RUN" '
+            .id == $id and
+            .name == "Phase 4 Telegram activation pre-LIVE controller" and
+            .path == ".github/workflows/phase4-telegram-activation-prelive-controller.yml" and
+            .head_branch == "main" and .head_sha == $sha and .event == "workflow_dispatch" and
+            .status == "completed" and .conclusion == "success"
+          ' "$tmp/preflight.json" >/dev/null || stop PREFLIGHT_RUN_DRIFT
+
+          printf '%s\n' STAGE=PRODUCTION_BASELINE_AND_QUEUE_ABSENCE
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-before.json"
+          require_baseline "$tmp/deployments-before.json"
+          access_health_get "" "$tmp/health-before.json" "$tmp/health-before.code" || stop BASELINE_HEALTH_GET_FAILED
+          [[ "$(cat "$tmp/health-before.code")" == 200 ]] || stop BASELINE_HEALTH_HTTP_NOT_200
+          jq -e --arg service "$WORKER_NAME" --arg version "$EXPECTED_VERSION" '
+            .status == "ok" and .service == $service and .workerVersion == $version
+          ' "$tmp/health-before.json" >/dev/null || stop BASELINE_HEALTH_INVALID
+
+          cf_get '/queues?per_page=100&page=1' "$tmp/queues-before.json"
+          [[ "$(jq -r '.result_info.total_pages // 1' "$tmp/queues-before.json")" == 1 ]] || stop QUEUE_INVENTORY_PAGINATION_AMBIGUOUS
+          [[ "$(jq -r --arg queue "$DISPATCH_QUEUE_NAME" '[.result[]? | select(.queue_name == $queue)] | length' "$tmp/queues-before.json")" == 0 ]] || stop DISPATCH_QUEUE_NOT_ABSENT
+
+          printf '%s\n' STAGE=FINAL_PREWRITE_REVALIDATION
+          gh_get '/branches/main' "$tmp/main-prewrite.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-prewrite.json" >/dev/null || stop MAIN_SHA_DRIFT_BEFORE_WRITE
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-prewrite.json"
+          require_baseline "$tmp/deployments-prewrite.json"
+          cf_get '/queues?per_page=100&page=1' "$tmp/queues-prewrite.json"
+          [[ "$(jq -r --arg queue "$DISPATCH_QUEUE_NAME" '[.result[]? | select(.queue_name == $queue)] | length' "$tmp/queues-prewrite.json")" == 0 ]] || stop DISPATCH_QUEUE_DRIFT_BEFORE_WRITE
+
+          printf '%s\n' STAGE=CREATE_DISPATCH_QUEUE
+          mutation_started=YES
+          queue_create_count=1
+          cf_write_json POST '/queues' "$(jq -cn --arg queue "$DISPATCH_QUEUE_NAME" '{queue_name:$queue}')" "$tmp/queue-created.json"
+          queue_id="$(jq -r '.result.queue_id // empty' "$tmp/queue-created.json")"
+          [[ "$queue_id" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || stop DISPATCH_QUEUE_ID_INVALID
+          jq -e --arg queue "$DISPATCH_QUEUE_NAME" --arg id "$queue_id" '.result.queue_name == $queue and .result.queue_id == $id' "$tmp/queue-created.json" >/dev/null || stop DISPATCH_QUEUE_CREATE_IDENTITY_MISMATCH
+
+          printf '%s\n' STAGE=PAUSE_DISPATCH_QUEUE
+          queue_pause_count=1
+          cf_write_json PATCH "/queues/${queue_id}" '{"settings":{"delivery_paused":true}}' "$tmp/queue-paused.json"
+          cf_get "/queues/${queue_id}" "$tmp/queue-after-pause.json"
+          jq -e --arg queue "$DISPATCH_QUEUE_NAME" --arg id "$queue_id" '.result.queue_name == $queue and .result.queue_id == $id and .result.settings.delivery_paused == true' "$tmp/queue-after-pause.json" >/dev/null || stop DISPATCH_QUEUE_NOT_PAUSED
+
+          printf '%s\n' STAGE=CREATE_DISPATCH_CONSUMER
+          queue_consumer_count=1
+          consumer_payload="$(jq -cn --arg script "$WORKER_NAME" '{type:"worker",script_name:$script,settings:{batch_size:10,max_wait_time_ms:5000,max_retries:3,retry_delay:60,max_concurrency:1}}')"
+          cf_write_json POST "/queues/${queue_id}/consumers" "$consumer_payload" "$tmp/consumer-created.json"
+          cf_get "/queues/${queue_id}/consumers" "$tmp/consumers.json"
+          jq -e --arg worker "$WORKER_NAME" --arg queue "$DISPATCH_QUEUE_NAME" '
+            (.result | type == "array") and (.result | length == 1) and
+            .result[0].type == "worker" and .result[0].queue_name == $queue and
+            ((.result[0].script_name == null) or (.result[0].script_name == $worker)) and
+            .result[0].settings.batch_size == 10 and
+            .result[0].settings.max_wait_time_ms == 5000 and
+            .result[0].settings.max_retries == 3 and
+            .result[0].settings.retry_delay == 60 and
+            .result[0].settings.max_concurrency == 1 and
+            ((.result[0].dead_letter_queue // "") == "")
+          ' "$tmp/consumers.json" >/dev/null || stop DISPATCH_QUEUE_CONSUMER_MISMATCH
+
+          printf '%s\n' STAGE=UPLOAD_EXACT_CANDIDATE_WITH_TWO_SECRETS
+          secrets_file="$tmp/telegram-secrets.json"
+          jq -n \
+            --arg bot "$CONTROL_TELEGRAM_BOT_TOKEN" \
+            --arg chat "$CONTROL_TELEGRAM_CHAT_ID" \
+            '{CONTROL_TELEGRAM_BOT_TOKEN:$bot,CONTROL_TELEGRAM_CHAT_ID:$chat}' > "$secrets_file"
+          chmod 600 "$secrets_file"
+          secret_binding_count=2
+          version_upload_count=1
+          export WRANGLER_OUTPUT_FILE_PATH="$tmp/wrangler-upload.jsonl"
+          npm exec -- wrangler versions upload \
+            --strict \
+            --secrets-file "$secrets_file" \
+            --message "Telegram pre-provider Gate A ${APPROVED_SHA}" \
+            --experimental-provision=false \
+            --experimental-auto-create=false || stop VERSION_UPLOAD_FAILED
+          rm -f "$secrets_file"
+
+          candidate_version="$(jq -r 'select(.type == "version-upload") | .version_id // empty' "$WRANGLER_OUTPUT_FILE_PATH" | tail -n1)"
+          [[ "$candidate_version" =~ ^[0-9a-f-]{36}$ ]] || stop CANDIDATE_VERSION_ID_MISSING
+          [[ "$candidate_version" != "$EXPECTED_VERSION" ]] || stop CANDIDATE_EQUALS_BASELINE
+
+          printf '%s\n' STAGE=CANDIDATE_ATTACH_ZERO_TRAFFIC
+          deployment_write_count=1
+          export WRANGLER_OUTPUT_FILE_PATH="$tmp/wrangler-attach.jsonl"
+          npm exec -- wrangler versions deploy \
+            "${EXPECTED_VERSION}@100%" \
+            "${candidate_version}@0%" \
+            --yes \
+            --message "Telegram Gate A candidate smoke ${APPROVED_SHA}" \
+            --experimental-provision=false \
+            --experimental-auto-create=false || stop CANDIDATE_ATTACH_FAILED
+
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-attached.json"
+          attached_deployment="$(jq -r '.result.deployments[0].id // empty' "$tmp/deployments-attached.json")"
+          [[ "$attached_deployment" =~ ^[0-9a-f-]{36}$ ]] || stop ATTACHED_DEPLOYMENT_ID_MISSING
+          jq -e --arg base "$EXPECTED_VERSION" --arg candidate "$candidate_version" '
+            (.result.deployments[0].versions | length == 2) and
+            (any(.result.deployments[0].versions[]; .version_id == $base and .percentage == 100)) and
+            (any(.result.deployments[0].versions[]; .version_id == $candidate and .percentage == 0))
+          ' "$tmp/deployments-attached.json" >/dev/null || stop ATTACHED_DEPLOYMENT_IDENTITY_MISMATCH
+
+          sleep 5
+          printf '%s\n' STAGE=EXACT_CANDIDATE_SMOKE
+          access_health_get "$candidate_version" "$tmp/candidate-health.json" "$tmp/candidate-health.code" || stop EXACT_CANDIDATE_SMOKE_GET_FAILED
+          [[ "$(cat "$tmp/candidate-health.code")" == 200 ]] || stop EXACT_CANDIDATE_SMOKE_HTTP_NOT_200
+          jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '.status == "ok" and .service == $service and .workerVersion == $version' "$tmp/candidate-health.json" >/dev/null || stop EXACT_CANDIDATE_SMOKE_IDENTITY_MISMATCH
+
+          printf '%s\n' STAGE=PREPROMOTION_DRIFT_GUARD
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-prepromote.json"
+          jq -e --arg deployment "$attached_deployment" --arg base "$EXPECTED_VERSION" --arg candidate "$candidate_version" '
+            .result.deployments[0].id == $deployment and
+            (.result.deployments[0].versions | length == 2) and
+            (any(.result.deployments[0].versions[]; .version_id == $base and .percentage == 100)) and
+            (any(.result.deployments[0].versions[]; .version_id == $candidate and .percentage == 0))
+          ' "$tmp/deployments-prepromote.json" >/dev/null || stop PREPROMOTION_DEPLOYMENT_DRIFT
+          gh_get '/branches/main' "$tmp/main-prepromote.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-prepromote.json" >/dev/null || stop MAIN_SHA_DRIFT_PREPROMOTION
+          cf_get "/queues/${queue_id}" "$tmp/queue-prepromote.json"
+          jq -e '.result.settings.delivery_paused == true' "$tmp/queue-prepromote.json" >/dev/null || stop QUEUE_UNPAUSED_PREPROMOTION
+
+          printf '%s\n' STAGE=PROMOTE_EXACT_VERIFIED_CANDIDATE
+          deployment_write_count=2
+          export WRANGLER_OUTPUT_FILE_PATH="$tmp/wrangler-promote.jsonl"
+          npm exec -- wrangler versions deploy \
+            "${candidate_version}@100%" \
+            --yes \
+            --message "Telegram Gate A promote ${APPROVED_SHA}" \
+            --experimental-provision=false \
+            --experimental-auto-create=false || stop CANDIDATE_PROMOTION_FAILED
+
+          printf '%s\n' STAGE=POSTWRITE_READONLY_RECONCILIATION
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-after.json"
+          final_deployment="$(jq -r '.result.deployments[0].id // empty' "$tmp/deployments-after.json")"
+          [[ "$final_deployment" =~ ^[0-9a-f-]{36}$ ]] || stop FINAL_DEPLOYMENT_ID_MISSING
+          jq -e --arg candidate "$candidate_version" '(.result.deployments[0].versions | length == 1) and .result.deployments[0].versions[0].version_id == $candidate and .result.deployments[0].versions[0].percentage == 100' "$tmp/deployments-after.json" >/dev/null || stop FINAL_DEPLOYMENT_IDENTITY_MISMATCH
+
+          access_health_get "" "$tmp/health-after.json" "$tmp/health-after.code" || stop FINAL_HEALTH_GET_FAILED
+          [[ "$(cat "$tmp/health-after.code")" == 200 ]] || stop FINAL_HEALTH_HTTP_NOT_200
+          jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '.status == "ok" and .service == $service and .workerVersion == $version' "$tmp/health-after.json" >/dev/null || stop FINAL_HEALTH_IDENTITY_MISMATCH
+
+          cf_get "/queues/${queue_id}" "$tmp/queue-after.json"
+          jq -e --arg queue "$DISPATCH_QUEUE_NAME" --arg id "$queue_id" '.result.queue_name == $queue and .result.queue_id == $id and .result.settings.delivery_paused == true' "$tmp/queue-after.json" >/dev/null || stop FINAL_QUEUE_NOT_PAUSED
+          cf_get "/queues/${queue_id}/consumers" "$tmp/consumers-after.json"
+          jq -e '.result | type == "array" and length == 1' "$tmp/consumers-after.json" >/dev/null || stop FINAL_CONSUMER_COUNT_DRIFT
+
+          gh_get '/branches/main' "$tmp/main-after.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-after.json" >/dev/null || stop FINAL_MAIN_SHA_DRIFT
+
+          {
+            printf 'PHASE4_TELEGRAM_PREPROVIDER_LIVE=PASS\n'
+            printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+            printf 'BASELINE_VERSION=%s\n' "$EXPECTED_VERSION"
+            printf 'BASELINE_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+            printf 'DISPATCH_QUEUE_ID=%s\n' "$queue_id"
+            printf 'DISPATCH_QUEUE_DELIVERY=PAUSED\n'
+            printf 'CANDIDATE_VERSION=%s\n' "$candidate_version"
+            printf 'FINAL_DEPLOYMENT=%s\n' "$final_deployment"
+            printf 'QUEUE_CREATE_COUNT=1\n'
+            printf 'QUEUE_PAUSE_COUNT=1\n'
+            printf 'QUEUE_CONSUMER_COUNT=1\n'
+            printf 'SECRET_BINDING_COUNT=2\n'
+            printf 'VERSION_UPLOAD_COUNT=1\n'
+            printf 'DEPLOYMENT_WRITE_COUNT=2\n'
+            printf 'D1_MUTATION_COUNT=0\n'
+            printf 'PROVIDER_RESUME_COUNT=0\n'
+            printf 'PROVIDER_API_REQUEST_COUNT=0\n'
+            printf 'AUTHORIZATION_CONSUMED=YES\n'
+            printf 'AUTOMATIC_RETRY=NO\n'
+            printf 'AUTOMATIC_ROLLBACK=NO\n'
+            printf 'AUTOMATIC_CLEANUP=NO\n'
+            printf 'NEXT_GATE=SEPARATE_PROVIDER_DELIVERY_RESUME_AUTHORIZATION\n'
+          } | tee "$receipt"
+
+      - name: Upload bounded public-safe receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phase4-telegram-preprovider-live-${{ github.run_id }}
+          path: ${{ runner.temp }}/phase4-telegram-preprovider-live-${{ github.run_id }}/receipt.txt
+          if-no-files-found: error
+          retention-days: 14
