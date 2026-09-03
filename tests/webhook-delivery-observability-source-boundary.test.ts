@@ -30,5 +30,10 @@ test("webhook observability stays bounded and no-store under the reviewed activa
 
   assert.equal(wrangler.vars.CONTROL_WEBHOOK_RUNTIME_ENABLED, "true");
   assert.equal(wrangler.queues.consumers[0].dead_letter_queue, "rozkalns-control-reconciliation-dlq");
-  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]);
+  assert.deepEqual(wrangler.secrets.required, [
+    "GITHUB_APP_PRIVATE_KEY_PEM",
+    "GITHUB_WEBHOOK_SECRET",
+    "CONTROL_TELEGRAM_BOT_TOKEN",
+    "CONTROL_TELEGRAM_CHAT_ID",
+  ]);
 });

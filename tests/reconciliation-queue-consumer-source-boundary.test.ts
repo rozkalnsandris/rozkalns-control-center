@@ -45,5 +45,13 @@ test("Queue consumer and DLQ lifecycle use the exact reviewed bounded production
       max_retries: 3,
       max_concurrency: 1,
     },
+    {
+      queue: "rozkalns-control-notification-dispatch",
+      max_batch_size: 10,
+      max_batch_timeout: 5,
+      max_retries: 3,
+      retry_delay: 60,
+      max_concurrency: 1,
+    },
   ]);
 });

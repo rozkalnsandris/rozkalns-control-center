@@ -28,11 +28,20 @@ test("recoverable webhook Queue adapter is exposed only through the exact fail-c
   assert.match(worker, /acceptor:\s*null/);
 
   assert.equal(wrangler.vars.CONTROL_WEBHOOK_RUNTIME_ENABLED, "true");
-  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]);
+  assert.deepEqual(wrangler.secrets.required, [
+    "GITHUB_APP_PRIVATE_KEY_PEM",
+    "GITHUB_WEBHOOK_SECRET",
+    "CONTROL_TELEGRAM_BOT_TOKEN",
+    "CONTROL_TELEGRAM_CHAT_ID",
+  ]);
   assert.deepEqual(wrangler.queues.producers, [
     {
       binding: "RECONCILIATION_QUEUE",
       queue: "rozkalns-control-reconciliation",
+    },
+    {
+      binding: "NOTIFICATION_DISPATCH_QUEUE",
+      queue: "rozkalns-control-notification-dispatch",
     },
   ]);
   assert.doesNotMatch(wranglerSource, /test-webhook-secret|BEGIN (?:RSA )?PRIVATE KEY|ghs_/i);
