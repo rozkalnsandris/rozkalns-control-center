@@ -338,7 +338,7 @@ jobs:
           printf 'QUEUE_PRE_PROVIDER_MUTATION_MAX=3\n'
           printf 'SECRET_BINDING_MUTATION_MAX=2\n'
           printf 'SECRET_BINDING_NAMES=CONTROL_TELEGRAM_BOT_TOKEN,CONTROL_TELEGRAM_CHAT_ID\n'
-          printf 'WORKER_ROLLOUT_CONTROLLER=.github/workflows/production-worker-composite-live.yml\n'
+          printf 'WORKER_ROLLOUT_CONTROLLER=.github/workflows/phase4-telegram-preprovider-live.yml\n'
           printf 'WORKER_VERSION_UPLOAD_MAX=1\n'
           printf 'WORKER_DEPLOYMENT_WRITE_MAX=2\n'
           printf 'WORKER_CANDIDATE_NORMAL_TRAFFIC_PERCENT=0\n'
