@@ -8,7 +8,18 @@
   "preview_urls": false,
   "upload_source_maps": true,
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+      "invocation_logs": false,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05,
+      "persist": true
+    }
   },
   "version_metadata": {
     "binding": "CF_VERSION_METADATA"

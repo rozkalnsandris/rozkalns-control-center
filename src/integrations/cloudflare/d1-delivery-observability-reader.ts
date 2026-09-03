@@ -1,9 +1,27 @@
 import type { DeliveryLifecycleState } from "../../shared/reconciliation-durability.js";
 import { requireManagedProjectPolicy } from "../../shared/project-policy.js";
+import {
+  WEBHOOK_DELIVERY_DIAGNOSTIC_LIMIT,
+  WEBHOOK_DELIVERY_STALE_AFTER_SECONDS,
+  type WebhookDeliveryDiagnostic,
+  type WebhookDeliveryDiagnosticDisposition,
+  type WebhookDeliveryObservabilityReader,
+  type WebhookDeliveryObservabilitySnapshot,
+  type WebhookDeliveryObservabilityStatus,
+  type WebhookDeliveryStateCounts,
+} from "../../shared/webhook-delivery-observability.js";
 import type { D1DatabaseLike, D1RunResultLike } from "./d1-delivery-claim-store.js";
 
-export const WEBHOOK_DELIVERY_STALE_AFTER_SECONDS = 15 * 60;
-export const WEBHOOK_DELIVERY_DIAGNOSTIC_LIMIT = 50;
+export {
+  WEBHOOK_DELIVERY_DIAGNOSTIC_LIMIT,
+  WEBHOOK_DELIVERY_STALE_AFTER_SECONDS,
+  type WebhookDeliveryDiagnostic,
+  type WebhookDeliveryDiagnosticDisposition,
+  type WebhookDeliveryObservabilityReader,
+  type WebhookDeliveryObservabilitySnapshot,
+  type WebhookDeliveryObservabilityStatus,
+  type WebhookDeliveryStateCounts,
+};
 
 const deliveryStates: readonly DeliveryLifecycleState[] = [
   "RECEIVED",
@@ -63,40 +81,6 @@ interface DeliveryDiagnosticRow {
   readonly received_at: string;
   readonly updated_at: string;
   readonly last_error_code: string | null;
-}
-
-export type WebhookDeliveryObservabilityStatus = "HEALTHY" | "ACTIVE" | "ATTENTION";
-export type WebhookDeliveryDiagnosticDisposition = "ACTIVE" | "STALE" | "DEAD_LETTERED";
-export type WebhookDeliveryStateCounts = Readonly<Record<DeliveryLifecycleState, number>>;
-
-export interface WebhookDeliveryDiagnostic {
-  readonly deliveryId: string;
-  readonly repository: string;
-  readonly projectId: string;
-  readonly eventName: string;
-  readonly state: Exclude<DeliveryLifecycleState, "SUCCEEDED">;
-  readonly attemptCount: number;
-  readonly receivedAt: string;
-  readonly updatedAt: string;
-  readonly lastErrorCode: string | null;
-  readonly disposition: WebhookDeliveryDiagnosticDisposition;
-}
-
-export interface WebhookDeliveryObservabilitySnapshot {
-  readonly observedAt: string;
-  readonly status: WebhookDeliveryObservabilityStatus;
-  readonly staleAfterSeconds: number;
-  readonly totalDeliveries: number;
-  readonly nonTerminalCount: number;
-  readonly deadLetteredCount: number;
-  readonly staleEvidenceCount: number;
-  readonly counts: WebhookDeliveryStateCounts;
-  readonly diagnostics: readonly WebhookDeliveryDiagnostic[];
-  readonly diagnosticsTruncated: boolean;
-}
-
-export interface WebhookDeliveryObservabilityReader {
-  readSnapshot(observedAt: string): Promise<WebhookDeliveryObservabilitySnapshot>;
 }
 
 export class D1DeliveryObservabilityError extends Error {
