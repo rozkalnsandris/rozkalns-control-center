@@ -121,6 +121,21 @@ async function runAgedSnapshotRegression(sessionId) {
   console.log("browser regression: over-age snapshot classification and action suppression PASS");
 }
 
+async function runOperationalObservabilityRegression(sessionId) {
+  await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=actions`);
+  const healthy = await waitForBrowser(sessionId, `const card=document.querySelector('.system-health'); if(!card||!card.textContent.includes('HEALTHY'))return null; return {counts:card.textContent.includes('Non-terminal')&&card.textContent.includes('Dead-lettered'),observed:card.textContent.includes('Observed'),mutationControls:Array.from(card.querySelectorAll('button')).length};`, "healthy reconciliation evidence");
+  assert.equal(healthy.counts, true);
+  assert.equal(healthy.observed, true);
+  assert.equal(healthy.mutationControls, 0);
+
+  await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=observability-failure`);
+  const unavailable = await waitForBrowser(sessionId, `const card=document.querySelector('.system-health'); if(!card||!card.textContent.includes('Delivery health unavailable'))return null; return {attention:card.textContent.includes('ATTENTION'),healthy:card.textContent.includes('HEALTHY'),mutationControls:Array.from(card.querySelectorAll('button')).length};`, "failed reconciliation observability");
+  assert.equal(unavailable.attention, true);
+  assert.equal(unavailable.healthy, false);
+  assert.equal(unavailable.mutationControls, 0);
+  console.log("browser regression: reconciliation observability fail-closed health PASS");
+}
+
 const vite = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--config", "tests/browser/vite.config.mjs", "--host", "127.0.0.1", "--port", "4173", "--strictPort"], { stdio: ["ignore", "pipe", "pipe"] });
 const chromeDriver = spawn(process.env.CHROMEDRIVER ?? "chromedriver", ["--port=9515", "--log-level=WARNING"], { stdio: ["ignore", "pipe", "pipe"] });
 const viteOutput = captureProcessOutput(vite);
@@ -136,6 +151,7 @@ try {
   await runConfirmedActionRegression(sessionId);
   await runStaleSnapshotRegression(sessionId);
   await runAgedSnapshotRegression(sessionId);
+  await runOperationalObservabilityRegression(sessionId);
 } catch (error) {
   console.error("browser regression failed");
   console.error(error);

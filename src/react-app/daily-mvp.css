@@ -87,6 +87,87 @@
   background: #5867e8;
 }
 
+.system-health__detail,
+.system-health__safety {
+  margin: 0;
+  color: #cbd1da;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.system-health__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 11px 0 0;
+}
+
+.system-health__metrics > div {
+  min-width: 0;
+  padding: 9px;
+  border-radius: 11px;
+  background: #13171c;
+}
+
+.system-health__metrics dt {
+  color: #8993a1;
+  font-size: 0.66rem;
+}
+
+.system-health__metrics dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: #e7eaf0;
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.system-health__diagnostics {
+  margin-top: 10px;
+  border: 1px solid #252c35;
+  border-radius: 12px;
+  background: #101419;
+}
+
+.system-health__diagnostics summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 8px 11px;
+  cursor: pointer;
+  color: #aeb8ff;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.system-health__diagnostics ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0 9px 9px;
+  list-style: none;
+}
+
+.system-health__diagnostics li {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border-radius: 10px;
+  background: #151a20;
+  font-size: 0.7rem;
+}
+
+.system-health__diagnostics li span {
+  overflow-wrap: anywhere;
+  color: #aeb6c2;
+}
+
+.system-health__safety {
+  margin-top: 10px;
+  color: #8993a1;
+}
+
 #needs-andris,
 #ci-failed,
 .decision-card {
@@ -107,5 +188,9 @@
   .operator-attention {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .system-health__metrics {
+    grid-template-columns: 1fr;
   }
 }

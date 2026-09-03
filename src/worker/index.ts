@@ -45,6 +45,10 @@ import {
 } from "./github-webhook-observability-route";
 import { handleGitHubWebhookRequest } from "./github-webhook-route";
 import { applyApiResponseSecurityHeaders } from "./response-security";
+import {
+  withWorkerQueueLogging,
+  withWorkerRequestLogging,
+} from "./structured-logging";
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
 
@@ -168,15 +172,21 @@ async function routeWorkerRequest(request: Request, env: Env): Promise<Response>
 
 const worker: ExportedHandler<Env> = {
   async fetch(request, env) {
-    return applyApiResponseSecurityHeaders(await routeWorkerRequest(request, env));
+    return withWorkerRequestLogging(
+      request,
+      env.CF_VERSION_METADATA.id,
+      async () => applyApiResponseSecurityHeaders(await routeWorkerRequest(request, env)),
+    );
   },
 
   async queue(batch, env) {
-    const resolution = resolveWebhookQueueRuntime(env);
-    if (resolution.status !== "READY") {
-      throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
-    }
-    await resolution.runtime.consumeQueueBatch(batch as unknown as QueueMessageBatchLike);
+    await withWorkerQueueLogging(batch, env.CF_VERSION_METADATA.id, async () => {
+      const resolution = resolveWebhookQueueRuntime(env);
+      if (resolution.status !== "READY") {
+        throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+      }
+      await resolution.runtime.consumeQueueBatch(batch as unknown as QueueMessageBatchLike);
+    });
   },
 };
 

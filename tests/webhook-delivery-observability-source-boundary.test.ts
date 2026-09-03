@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("webhook observability stays bounded and no-store under the reviewed activation config", async () => {
-  const [reader, route, runtimeAssembly, worker, wranglerSource] = await Promise.all([
+  const [reader, sharedContract, route, runtimeAssembly, worker, wranglerSource] = await Promise.all([
     readFile("src/integrations/cloudflare/d1-delivery-observability-reader.ts", "utf8"),
+    readFile("src/shared/webhook-delivery-observability.ts", "utf8"),
     readFile("src/worker/github-webhook-observability-route.ts", "utf8"),
     readFile("src/integrations/cloudflare/control-webhook-queue-runtime.ts", "utf8"),
     readFile("src/worker/index.ts", "utf8"),
@@ -15,7 +16,7 @@ test("webhook observability stays bounded and no-store under the reviewed activa
   assert.match(reader, /FROM webhook_deliveries/);
   assert.match(reader, /GROUP BY state/);
   assert.match(reader, /LIMIT \?1/);
-  assert.match(reader, /WEBHOOK_DELIVERY_DIAGNOSTIC_LIMIT = 50/);
+  assert.match(sharedContract, /WEBHOOK_DELIVERY_DIAGNOSTIC_LIMIT = 50/);
   assert.doesNotMatch(reader, /payload_body|raw_payload|private_key|CLOUDFLARE_API_TOKEN/i);
 
   assert.match(route, /WEBHOOK_OBSERVABILITY_DISABLED/);
