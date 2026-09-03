@@ -97,7 +97,7 @@ async function runStaleSnapshotRegression(sessionId) {
   assert.equal(armResponse.status, 204);
   await clickFreshSelector(sessionId, 'button[aria-label="Refresh live GitHub state"]');
   await waitForDashboardRequestAfter(beforeRefresh.dashboardRequests, "stale refresh fixture request");
-  const staleEvidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE · STALE"))return null; const buttonLabels=Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()); const openPr=Array.from(target.querySelectorAll("a")).find((link)=>link.textContent?.trim()==="Open PR"); return {staleStatus:document.body.innerText.includes("Refresh failed · keeping Snapshot"),cachedDecisionVisible:target.textContent?.includes("Browser regression live decision")??false,mutatingButtons:buttonLabels.filter((label)=>["Merge","Needs changes","Later"].includes(label)),openPrHref:openPr?.href??null};`, "stale snapshot action suppression");
+  const staleEvidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE · STALE"))return null; const buttonLabels=Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()); const openPr=Array.from(target.querySelectorAll("a")).find((link)=>link.textContent?.trim()==="Open PR"); return {staleStatus:document.body.innerText.includes("Live service error · keeping Snapshot"),cachedDecisionVisible:target.textContent?.includes("Browser regression live decision")??false,mutatingButtons:buttonLabels.filter((label)=>["Merge","Needs changes","Later"].includes(label)),openPrHref:openPr?.href??null};`, "stale snapshot action suppression");
   const afterRefresh = await browserState();
   assert.equal(staleEvidence.staleStatus, true);
   assert.equal(staleEvidence.cachedDecisionVisible, true);
@@ -105,6 +105,20 @@ async function runStaleSnapshotRegression(sessionId) {
   assert.equal(staleEvidence.openPrHref, "https://github.com/rozkalnsandris/ops-workflows/pull/999");
   assert.equal(afterRefresh.reconcileRequests, beforeRefresh.reconcileRequests);
   console.log("browser regression: stale snapshot suppression PASS");
+}
+
+async function runAgedSnapshotRegression(sessionId) {
+  const decisionTarget = targetId("browser-live-merge");
+  await fetch(`${APP_ORIGIN}/__browser/reset`, { method: "POST" });
+  await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=aged#${decisionTarget}`);
+  const evidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE · STALE"))return null; const labels=Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()); const openPr=Array.from(target.querySelectorAll("a")).find((link)=>link.textContent?.trim()==="Open PR"); return {freshness:document.body.innerText.includes("five-minute freshness limit"),cachedDecisionVisible:target.textContent?.includes("Browser regression live decision")??false,mutatingButtons:labels.filter((label)=>["Merge","Needs changes","Later"].includes(label)),openPrHref:openPr?.href??null};`, "aged snapshot classification");
+  const state = await browserState();
+  assert.equal(evidence.freshness, true);
+  assert.equal(evidence.cachedDecisionVisible, true);
+  assert.deepEqual(evidence.mutatingButtons, []);
+  assert.equal(evidence.openPrHref, "https://github.com/rozkalnsandris/ops-workflows/pull/999");
+  assert.equal(state.reconcileRequests, 0);
+  console.log("browser regression: over-age snapshot classification and action suppression PASS");
 }
 
 const vite = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--config", "tests/browser/vite.config.mjs", "--host", "127.0.0.1", "--port", "4173", "--strictPort"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -121,6 +135,7 @@ try {
   await runFixtureDeepLinkRegression(sessionId);
   await runConfirmedActionRegression(sessionId);
   await runStaleSnapshotRegression(sessionId);
+  await runAgedSnapshotRegression(sessionId);
 } catch (error) {
   console.error("browser regression failed");
   console.error(error);

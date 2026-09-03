@@ -25,10 +25,10 @@ test("public UI keeps the 320–430px mobile-first decision contract with confir
   assert.equal(app.includes("Decision control"), true);
   assert.equal(app.includes("hero__system"), false);
   assert.equal(app.includes("fixture-notice"), false);
-  assert.equal(app.includes('fetch("/api/github/dashboard"'), true);
+  assert.equal(app.includes('readControlJson("/api/github/dashboard"'), true);
   assert.equal(app.includes("AbortController"), true);
   assert.equal(app.includes("LIVE CONTROL"), true);
-  assert.equal(app.includes("Live data unavailable · fixture data shown"), true);
+  assert.equal(app.includes("fixture data shown"), true);
   assert.equal(app.includes("api.github.com"), false);
 
   assert.equal(card.includes('<details className="evidence-details">'), true);
