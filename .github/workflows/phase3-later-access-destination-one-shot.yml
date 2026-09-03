@@ -1,0 +1,381 @@
+name: Phase 3 Later Access destination one-shot
+
+on:
+  workflow_dispatch:
+    inputs:
+      owner_authorization:
+        description: Exact owner authorization envelope bound to main, CI, inventory, app and AUD
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase3-later-access-destination-one-shot
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: add exactly one Later destination to the existing Access write app
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      ACCESS_APP_ID: b3ebc664-8b21-401b-b8bb-2e5baa019a45
+      ACCESS_APP_NAME: Rozkalns Control GitHub needs-changes write
+      ACCESS_APP_TYPE: self_hosted
+      ACCESS_APP_DOMAIN: control.rozkalns.net/api/github/needs-changes
+      ACCESS_APP_AUD: a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc
+      ACCESS_POLICY_ID: 4900e7a4-0f1a-4bbe-8eab-2607bf69a0f3
+      ACCESS_POLICY_NAME: rozkalns-control-github-readonly-reconcile
+      ACCESS_POLICY_DECISION: non_identity
+      ACCESS_POLICY_PRECEDENCE: "1"
+      EXISTING_DESTINATION_1: control.rozkalns.net/api/github/needs-changes
+      EXISTING_DESTINATION_2: control.rozkalns.net/api/github/merge
+      NEW_DESTINATION: control.rozkalns.net/api/github/later
+
+    steps:
+      - name: Bind and mask owner authorization envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          fail_bind() {
+            {
+              printf 'ACCESS_DESTINATION_APPLY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=NO\n'
+              printf 'ACCESS_PUT_STARTED=NO\n'
+              printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          command -v jq >/dev/null 2>&1 || fail_bind MISSING_JQ
+          [ -n "${GITHUB_EVENT_PATH:-}" ] || fail_bind MISSING_GITHUB_EVENT_PATH
+
+          owner_authorization="$(jq -er '.inputs.owner_authorization | select(type == "string" and length > 0)' "$GITHUB_EVENT_PATH" 2>/dev/null)" || fail_bind OWNER_AUTHORIZATION_MISSING
+          printf '::add-mask::%s\n' "$owner_authorization"
+
+          authorization_pattern='^AUTHORIZE_ACCESS_LATER_DESTINATION_ADD:([0-9a-f]{40}):([1-9][0-9]*):([1-9][0-9]*):b3ebc664-8b21-401b-b8bb-2e5baa019a45:a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc:PUT1$'
+          [[ "$owner_authorization" =~ $authorization_pattern ]] || fail_bind OWNER_AUTHORIZATION_INVALID
+
+          APPROVED_SHA="${BASH_REMATCH[1]}"
+          EXPECTED_CI_RUN_ID="${BASH_REMATCH[2]}"
+          EXPECTED_INVENTORY_RUN_ID="${BASH_REMATCH[3]}"
+
+          {
+            printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+            printf 'EXPECTED_CI_RUN_ID=%s\n' "$EXPECTED_CI_RUN_ID"
+            printf 'EXPECTED_INVENTORY_RUN_ID=%s\n' "$EXPECTED_INVENTORY_RUN_ID"
+            printf 'OWNER_AUTHORIZATION=%s\n' "$owner_authorization"
+          } >> "$GITHUB_ENV"
+
+      - name: Revalidate and add exactly one Access destination
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+          CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop_pre() {
+            {
+              printf 'ACCESS_DESTINATION_APPLY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=NO\n'
+              printf 'ACCESS_PUT_STARTED=NO\n'
+              printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          stop_post() {
+            {
+              printf 'ACCESS_DESTINATION_APPLY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=YES\n'
+              printf 'ACCESS_PUT_STARTED=YES\n'
+              printf 'CLOUDFLARE_ACCESS_MUTATION=UNKNOWN_AFTER_PUT_START\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          emit_put_status() {
+            local status="$1"
+            if [[ "$status" =~ ^[0-9]{3}$ ]]; then
+              printf 'ACCESS_PUT_HTTP_STATUS=%s\n' "$status" >&2
+            else
+              printf 'ACCESS_PUT_HTTP_STATUS=UNKNOWN\n' >&2
+            fi
+          }
+
+          for cmd in curl jq sha256sum awk; do
+            command -v "$cmd" >/dev/null 2>&1 || stop_pre "MISSING_${cmd^^}"
+          done
+
+          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop_pre WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop_pre WORKFLOW_REF_NOT_MAIN
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop_pre WORKFLOW_ATTEMPT_NOT_ONE
+          [ "${GITHUB_SHA:-}" = "${APPROVED_SHA:-}" ] || stop_pre WORKFLOW_SHA_NOT_APPROVED
+
+          [[ "${APPROVED_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || stop_pre APPROVED_SHA_INVALID
+          [[ "${EXPECTED_CI_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre CI_RUN_ID_INVALID
+          [[ "${EXPECTED_INVENTORY_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] || stop_pre INVENTORY_RUN_ID_INVALID
+
+          expected_authorization="AUTHORIZE_ACCESS_LATER_DESTINATION_ADD:${APPROVED_SHA}:${EXPECTED_CI_RUN_ID}:${EXPECTED_INVENTORY_RUN_ID}:${ACCESS_APP_ID}:${ACCESS_APP_AUD}:PUT1"
+          [ "${OWNER_AUTHORIZATION:-}" = "$expected_authorization" ] || stop_pre OWNER_AUTHORIZATION_INVALID
+
+          [ -n "${GITHUB_TOKEN:-}" ] || stop_pre MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_ACCESS_READ_TOKEN:-}" ] || stop_pre MISSING_CLOUDFLARE_ACCESS_READ_TOKEN
+          [ -n "${CLOUDFLARE_ACCESS_WRITE_TOKEN:-}" ] || stop_pre MISSING_CLOUDFLARE_ACCESS_WRITE_TOKEN
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          gh_control_get_pre() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop_pre GITHUB_CONTROL_GET_FAILED
+          }
+
+          cf_access_get_pre() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop_pre CLOUDFLARE_ACCESS_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop_pre CLOUDFLARE_ACCESS_RESPONSE_INVALID
+          }
+
+          cf_access_get_post() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop_post POSTVERIFY_CLOUDFLARE_ACCESS_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop_post POSTVERIFY_CLOUDFLARE_ACCESS_RESPONSE_INVALID
+          }
+
+          revalidate_bound_state() {
+            local label="$1"
+            gh_control_get_pre '/branches/main' "$tmp/main-${label}.json"
+            jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-${label}.json" >/dev/null || stop_pre MAIN_SHA_DRIFT
+
+            gh_control_get_pre "/actions/runs/${EXPECTED_CI_RUN_ID}" "$tmp/ci-${label}.json"
+            jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_CI_RUN_ID" '
+              .id == $id and
+              .name == "CI" and
+              .path == ".github/workflows/ci.yml" and
+              .head_branch == "main" and
+              .head_sha == $sha and
+              .event == "push" and
+              .run_attempt == 1 and
+              .status == "completed" and
+              .conclusion == "success"
+            ' "$tmp/ci-${label}.json" >/dev/null || stop_pre EXACT_MAIN_CI_DRIFT
+
+            gh_control_get_pre "/actions/runs/${EXPECTED_INVENTORY_RUN_ID}" "$tmp/inventory-${label}.json"
+            jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_INVENTORY_RUN_ID" '
+              .id == $id and
+              .name == "Phase 3 Later Access read-only inventory" and
+              .path == ".github/workflows/phase3-later-access-readonly-inventory.yml" and
+              .head_branch == "main" and
+              .head_sha == $sha and
+              (.event == "workflow_dispatch" or .event == "issue_comment") and
+              .run_attempt == 1 and
+              .status == "completed" and
+              .conclusion == "success"
+            ' "$tmp/inventory-${label}.json" >/dev/null || stop_pre ACCESS_INVENTORY_RUN_DRIFT
+
+            printf 'BOUND_STATE_%s=PASS\n' "${label^^}"
+          }
+
+          validate_access_prestate() {
+            local label="$1"
+            local app_file="$tmp/app-${label}.json"
+            local policies_file="$tmp/policies-${label}.json"
+
+            cf_access_get_pre "/access/apps/${ACCESS_APP_ID}" "$app_file"
+            cf_access_get_pre "/access/apps/${ACCESS_APP_ID}/policies?per_page=100&page=1" "$policies_file"
+
+            jq -e \
+              --arg id "$ACCESS_APP_ID" \
+              --arg name "$ACCESS_APP_NAME" \
+              --arg type "$ACCESS_APP_TYPE" \
+              --arg domain "$ACCESS_APP_DOMAIN" \
+              --arg aud "$ACCESS_APP_AUD" \
+              --arg d1 "$EXISTING_DESTINATION_1" \
+              --arg d2 "$EXISTING_DESTINATION_2" \
+              --arg later "$NEW_DESTINATION" '
+                .success == true and
+                (.result | type == "object") and
+                .result.id == $id and
+                .result.name == $name and
+                .result.type == $type and
+                .result.domain == $domain and
+                .result.aud == $aud and
+                (.result.destinations | type == "array") and
+                (.result.destinations | length == 2) and
+                (all(.result.destinations[]; ((.type // "public") == "public") and ((.uri | type) == "string"))) and
+                ([.result.destinations[].uri] | sort) == ([$d1, $d2] | sort) and
+                ([.result.destinations[].uri] | index($later)) == null
+              ' "$app_file" >/dev/null || stop_pre ACCESS_APP_PRESTATE_DRIFT
+
+            jq -e \
+              --arg id "$ACCESS_POLICY_ID" \
+              --arg name "$ACCESS_POLICY_NAME" \
+              --arg decision "$ACCESS_POLICY_DECISION" \
+              --argjson precedence "$ACCESS_POLICY_PRECEDENCE" '
+                .success == true and
+                (.result | type == "array") and
+                (.result | length == 1) and
+                .result[0].id == $id and
+                .result[0].name == $name and
+                ((.result[0].decision // .result[0].action) == $decision) and
+                .result[0].precedence == $precedence
+              ' "$policies_file" >/dev/null || stop_pre ACCESS_POLICY_PRESTATE_DRIFT
+
+            APP_NONDEST_HASH="$(jq -Sc '.result | del(.destinations, .self_hosted_domains, .updated_at)' "$app_file" | sha256sum | awk '{print $1}')"
+            POLICY_HASH="$(jq -Sc '.result | sort_by(.id)' "$policies_file" | sha256sum | awk '{print $1}')"
+            [[ "$APP_NONDEST_HASH" =~ ^[0-9a-f]{64}$ ]] || stop_pre ACCESS_APP_PRESTATE_HASH_INVALID
+            [[ "$POLICY_HASH" =~ ^[0-9a-f]{64}$ ]] || stop_pre ACCESS_POLICY_PRESTATE_HASH_INVALID
+            printf 'ACCESS_PRESTATE_%s=PASS\n' "${label^^}"
+          }
+
+          printf '%s\n' STAGE=INITIAL_READ_ONLY_REVALIDATION
+          revalidate_bound_state initial
+          validate_access_prestate initial
+          INITIAL_APP_NONDEST_HASH="$APP_NONDEST_HASH"
+          INITIAL_POLICY_HASH="$POLICY_HASH"
+
+          printf '%s\n' STAGE=PREWRITE_READ_ONLY_REVALIDATION
+          revalidate_bound_state prewrite
+          validate_access_prestate prewrite
+          [ "$APP_NONDEST_HASH" = "$INITIAL_APP_NONDEST_HASH" ] || stop_pre ACCESS_APP_CHANGED_DURING_PREFLIGHT
+          [ "$POLICY_HASH" = "$INITIAL_POLICY_HASH" ] || stop_pre ACCESS_POLICY_CHANGED_DURING_PREFLIGHT
+          PREWRITE_APP_NONDEST_HASH="$APP_NONDEST_HASH"
+          PREWRITE_POLICY_HASH="$POLICY_HASH"
+
+          jq -cn \
+            --arg domain "$ACCESS_APP_DOMAIN" \
+            --arg type "$ACCESS_APP_TYPE" \
+            --arg d1 "$EXISTING_DESTINATION_1" \
+            --arg d2 "$EXISTING_DESTINATION_2" \
+            --arg d3 "$NEW_DESTINATION" \
+            '{domain:$domain,type:$type,destinations:[{type:"public",uri:$d1},{type:"public",uri:$d2},{type:"public",uri:$d3}]}' \
+            > "$tmp/update-body.json"
+
+          jq -e \
+            --arg domain "$ACCESS_APP_DOMAIN" \
+            --arg type "$ACCESS_APP_TYPE" \
+            --arg d1 "$EXISTING_DESTINATION_1" \
+            --arg d2 "$EXISTING_DESTINATION_2" \
+            --arg d3 "$NEW_DESTINATION" '
+              keys == ["destinations","domain","type"] and
+              .domain == $domain and
+              .type == $type and
+              (.destinations | length == 3) and
+              [.destinations[].uri] == [$d1,$d2,$d3] and
+              all(.destinations[]; .type == "public")
+            ' "$tmp/update-body.json" >/dev/null || stop_pre ACCESS_UPDATE_BODY_INVALID
+
+          printf 'PREWRITE_GATE=PASS\n'
+          printf 'ACCESS_PUT_STARTED=YES\n'
+          printf 'AUTHORIZATION_CONSUMED=YES\n'
+          printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+
+          set +e
+          put_status="$(curl -sS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 45 \
+            -X PUT \
+            -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_WRITE_TOKEN}" \
+            -H 'Accept: application/json' \
+            -H 'Content-Type: application/json' \
+            --data-binary "@$tmp/update-body.json" \
+            -o "$tmp/update-response.json" \
+            -w '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/access/apps/${ACCESS_APP_ID}")"
+          put_rc=$?
+          set -e
+
+          if [ "$put_rc" -ne 0 ]; then
+            emit_put_status "$put_status"
+            stop_post ACCESS_PUT_TRANSPORT_FAILED
+          fi
+          emit_put_status "$put_status"
+          [ "$put_status" = "200" ] || stop_post ACCESS_PUT_HTTP_NOT_200
+          jq -e --arg id "$ACCESS_APP_ID" '.success == true and (.result | type == "object") and .result.id == $id' "$tmp/update-response.json" >/dev/null || stop_post ACCESS_PUT_RESPONSE_INVALID
+
+          printf '%s\n' STAGE=POSTWRITE_READ_ONLY_VERIFICATION
+          cf_access_get_post "/access/apps/${ACCESS_APP_ID}" "$tmp/app-post.json"
+          cf_access_get_post "/access/apps/${ACCESS_APP_ID}/policies?per_page=100&page=1" "$tmp/policies-post.json"
+
+          jq -e \
+            --arg id "$ACCESS_APP_ID" \
+            --arg name "$ACCESS_APP_NAME" \
+            --arg type "$ACCESS_APP_TYPE" \
+            --arg domain "$ACCESS_APP_DOMAIN" \
+            --arg aud "$ACCESS_APP_AUD" \
+            --arg d1 "$EXISTING_DESTINATION_1" \
+            --arg d2 "$EXISTING_DESTINATION_2" \
+            --arg d3 "$NEW_DESTINATION" '
+              .success == true and
+              (.result | type == "object") and
+              .result.id == $id and
+              .result.name == $name and
+              .result.type == $type and
+              .result.domain == $domain and
+              .result.aud == $aud and
+              (.result.destinations | type == "array") and
+              (.result.destinations | length == 3) and
+              (all(.result.destinations[]; ((.type // "public") == "public") and ((.uri | type) == "string"))) and
+              ([.result.destinations[].uri] | sort) == ([$d1,$d2,$d3] | sort)
+            ' "$tmp/app-post.json" >/dev/null || stop_post POSTVERIFY_ACCESS_APP_DRIFT
+
+          jq -e \
+            --arg id "$ACCESS_POLICY_ID" \
+            --arg name "$ACCESS_POLICY_NAME" \
+            --arg decision "$ACCESS_POLICY_DECISION" \
+            --argjson precedence "$ACCESS_POLICY_PRECEDENCE" '
+              .success == true and
+              (.result | type == "array") and
+              (.result | length == 1) and
+              .result[0].id == $id and
+              .result[0].name == $name and
+              ((.result[0].decision // .result[0].action) == $decision) and
+              .result[0].precedence == $precedence
+            ' "$tmp/policies-post.json" >/dev/null || stop_post POSTVERIFY_ACCESS_POLICY_DRIFT
+
+          POST_APP_NONDEST_HASH="$(jq -Sc '.result | del(.destinations, .self_hosted_domains, .updated_at)' "$tmp/app-post.json" | sha256sum | awk '{print $1}')"
+          POST_POLICY_HASH="$(jq -Sc '.result | sort_by(.id)' "$tmp/policies-post.json" | sha256sum | awk '{print $1}')"
+          [ "$POST_APP_NONDEST_HASH" = "$PREWRITE_APP_NONDEST_HASH" ] || stop_post POSTVERIFY_NONDESTINATION_APP_STATE_DRIFT
+          [ "$POST_POLICY_HASH" = "$PREWRITE_POLICY_HASH" ] || stop_post POSTVERIFY_POLICY_STATE_DRIFT
+
+          printf 'ACCESS_DESTINATION_APPLY=PASS\n'
+          printf 'AUTHORIZATION_CONSUMED=YES\n'
+          printf 'ACCESS_PUT_STARTED=YES\n'
+          printf 'ACCESS_PUT_HTTP_STATUS=200\n'
+          printf 'CLOUDFLARE_ACCESS_MUTATION=ONE_DESTINATION_ADD\n'
+          printf 'ACCESS_POLICY_MUTATION=NO\n'
+          printf 'NEW_DESTINATION_PRESENT=YES\n'
+          printf 'WORKER_MUTATION=NO\n'
+          printf 'REMOTE_D1_MUTATION=NO\n'
+          printf 'LATER_POST_SENT=NO\n'
+          printf 'GITHUB_DECISION_MUTATION=NO\n'
+          printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+          printf 'NEXT_GATE=FRESH_READ_ONLY_LATER_PREFLIGHT\n'
