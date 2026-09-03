@@ -1,0 +1,331 @@
+name: Phase 3 Later Access read-only inventory
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase3-later-access-readonly-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.action == 'created' &&
+        github.event.issue.number == 278 &&
+        github.event.issue.pull_request == null &&
+        github.event.comment.user.id == 277435981 &&
+        github.event.comment.user.type == 'User' &&
+        github.event.comment.body == '/phase3-later-access-inventory'
+      )
+    name: inventory Later Access applications and policies without mutation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      TARGET_HOST: control.rozkalns.net
+      TARGET_PATH: /api/github/later
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+
+    steps:
+      - name: Inventory bounded Access application and policy evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop() {
+            {
+              printf 'ACCESS_INVENTORY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'ACCESS_API_METHOD=GET\n'
+              printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
+              printf 'LATER_POST_SENT=NO\n'
+              printf 'REMOTE_D1_MUTATION=NO\n'
+              printf 'WORKER_MUTATION=NO\n'
+              printf 'CLOUDFLARE_CONFIG_MUTATION=NO\n'
+              printf 'GITHUB_DECISION_MUTATION=NO\n'
+            } >&2
+            exit 1
+          }
+
+          sanitize_diag() {
+            printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:] _./:@*+-' | cut -c1-200
+          }
+
+          for cmd in curl jq node sed tr wc; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop WORKFLOW_ATTEMPT_NOT_ONE
+          case "${GITHUB_EVENT_NAME:-}" in
+            workflow_dispatch)
+              ;;
+            issue_comment)
+              [ -n "${GITHUB_EVENT_PATH:-}" ] || stop MISSING_GITHUB_EVENT_PATH
+              jq -e '
+                .action == "created" and
+                .issue.number == 278 and
+                (.issue | has("pull_request") | not) and
+                .comment.user.id == 277435981 and
+                .comment.user.type == "User" and
+                .comment.body == "/phase3-later-access-inventory"
+              ' "$GITHUB_EVENT_PATH" >/dev/null || stop OWNER_COMMENT_TRIGGER_INVALID
+              ;;
+            *) stop WORKFLOW_EVENT_UNSUPPORTED ;;
+          esac
+
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_ACCESS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_READ_TOKEN
+
+          printf 'ACCESS_READ_SECRET_NAME=CLOUDFLARE_ACCESS_READ_TOKEN\n'
+          printf 'ACCESS_READ_REQUIRED_SCOPE=Access_Apps_and_Policies_Read\n'
+          printf 'TARGET_HOST=%s\n' "$TARGET_HOST"
+          printf 'TARGET_PATH=%s\n' "$TARGET_PATH"
+          printf 'ACCESS_MATCH_MODE=HOST_OVERLAP_FOR_TARGET_PATH_REVIEW\n'
+
+          tmp="${RUNNER_TEMP}/phase3-later-access-inventory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$tmp"
+          trap 'rm -rf "$tmp"' EXIT
+
+          gh_control_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_CONTROL_GET_FAILED
+          }
+
+          cf_access_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_ACCESS_GET_FAILED
+            jq -e '.success == true and (.result | type == "array")' "$out" >/dev/null || stop CLOUDFLARE_ACCESS_RESPONSE_INVALID
+          }
+
+          fetch_paginated() {
+            local base_path="$1" output="$2" label="$3"
+            local page=1 page_file count
+            : > "$output"
+            while :; do
+              [ "$page" -le 10 ] || stop "${label}_PAGINATION_LIMIT"
+              page_file="$tmp/${label,,}-${page}.json"
+              cf_access_get "${base_path}?per_page=100&page=${page}" "$page_file"
+              jq -c '.result[]?' "$page_file" >> "$output"
+              count="$(jq '.result | length' "$page_file")"
+              [[ "$count" =~ ^[0-9]+$ ]] || stop "${label}_PAGE_COUNT_INVALID"
+              [ "$count" -lt 100 ] && break
+              page=$((page + 1))
+            done
+            printf '%s_PAGE_COUNT=%s\n' "$label" "$page"
+          }
+
+          printf '%s\n' STAGE=GITHUB_EXACT_MAIN_CI
+          run_sha="${GITHUB_SHA:-}"
+          [[ "$run_sha" =~ ^[0-9a-f]{40}$ ]] || stop WORKFLOW_SHA_INVALID
+
+          gh_control_get '/branches/main' "$tmp/main.json"
+          jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+
+          gh_control_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${run_sha}&per_page=10" "$tmp/ci-runs.json"
+          ci_run_id="$(
+            jq -r --arg sha "$run_sha" '
+              [
+                .workflow_runs[]?
+                | select(
+                    .name == "CI" and
+                    .path == ".github/workflows/ci.yml" and
+                    .head_branch == "main" and
+                    .head_sha == $sha and
+                    .event == "push" and
+                    .status == "completed" and
+                    .conclusion == "success"
+                  )
+              ]
+              | sort_by(.run_number)
+              | last
+              | .id // empty
+            ' "$tmp/ci-runs.json"
+          )"
+          [[ "$ci_run_id" =~ ^[0-9]+$ ]] || stop EXACT_MAIN_CI_NOT_SUCCESS
+          gh_control_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
+          jq -e --arg sha "$run_sha" --argjson id "$ci_run_id" '
+            .id == $id and
+            .name == "CI" and
+            .path == ".github/workflows/ci.yml" and
+            .head_branch == "main" and
+            .head_sha == $sha and
+            .event == "push" and
+            .status == "completed" and
+            .conclusion == "success"
+          ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+          printf 'SOURCE_SHA=%s\n' "$run_sha"
+          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+
+          printf '%s\n' STAGE=ACCESS_APPLICATION_INVENTORY
+          fetch_paginated '/access/apps' "$tmp/apps.ndjson" ACCESS_APPS
+          app_count="$(wc -l < "$tmp/apps.ndjson" | tr -d '[:space:]')"
+          [[ "$app_count" =~ ^[0-9]+$ ]] || stop ACCESS_APP_COUNT_INVALID
+          [ "$app_count" -le 1000 ] || stop ACCESS_APP_COUNT_UNBOUNDED
+          printf 'ACCESS_APP_TOTAL_COUNT=%s\n' "$app_count"
+
+          node - "$tmp/apps.ndjson" "$tmp/candidates.json" <<'NODE'
+          const fs = require('fs');
+
+          const [inputPath, outputPath] = process.argv.slice(2);
+          const targetHost = process.env.TARGET_HOST.toLowerCase();
+          const lines = fs.readFileSync(inputPath, 'utf8').split('\n').filter(Boolean);
+
+          const normalizePublicUri = (value) => {
+            if (typeof value !== 'string') return '';
+            let normalized = value.trim();
+            if (normalized.length === 0 || normalized.length > 512) return '';
+            normalized = normalized.replace(/^https?:\/\//i, '');
+            while (normalized.endsWith('/') && normalized !== '/') normalized = normalized.slice(0, -1);
+            const wholeSiteWildcard = normalized.match(/^([^/]+)\/\*$/);
+            if (wholeSiteWildcard) normalized = wholeSiteWildcard[1];
+            return normalized;
+          };
+
+          const isPublicDestination = (destination) => {
+            if (!destination || typeof destination !== 'object') return false;
+            if (destination.type !== undefined && destination.type !== 'public') return false;
+            return typeof destination.uri === 'string';
+          };
+
+          const publicUris = (app) => {
+            const destinations = app?.destinations;
+            if (Array.isArray(destinations) && destinations.length > 0) {
+              if (destinations.length > 20) throw new Error('ACCESS_APP_DESTINATION_COUNT_UNBOUNDED');
+              return destinations
+                .filter(isPublicDestination)
+                .map((destination) => normalizePublicUri(destination?.uri))
+                .filter(Boolean);
+            }
+            const legacyDomain = normalizePublicUri(app?.domain);
+            return legacyDomain ? [legacyDomain] : [];
+          };
+
+          const hostCoversTarget = (uri) => {
+            const slash = uri.indexOf('/');
+            const host = (slash === -1 ? uri : uri.slice(0, slash)).toLowerCase();
+            if (host === targetHost) return true;
+            if (!host.startsWith('*.')) return false;
+            const suffix = host.slice(2);
+            if (!suffix || suffix.includes('*')) return false;
+            const targetLabels = targetHost.split('.');
+            const suffixLabels = suffix.split('.');
+            return targetLabels.length === suffixLabels.length + 1 && targetLabels.slice(1).join('.') === suffix;
+          };
+
+          const candidates = [];
+          for (const line of lines) {
+            const app = JSON.parse(line);
+            const uris = publicUris(app);
+            if (!uris.some(hostCoversTarget)) continue;
+            const id = typeof app.id === 'string' ? app.id : '';
+            if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error('ACCESS_APP_ID_INVALID');
+            candidates.push({
+              id,
+              name: typeof app.name === 'string' ? app.name : '',
+              type: typeof app.type === 'string' ? app.type : '',
+              domain: typeof app.domain === 'string' ? app.domain : '',
+              aud: typeof app.aud === 'string' ? app.aud : '',
+              publicUris: uris,
+            });
+          }
+
+          candidates.sort((a, b) => a.id.localeCompare(b.id));
+          fs.writeFileSync(outputPath, JSON.stringify(candidates));
+          NODE
+
+          candidate_count="$(jq 'length' "$tmp/candidates.json")"
+          [[ "$candidate_count" =~ ^[0-9]+$ ]] || stop ACCESS_APP_CANDIDATE_COUNT_INVALID
+          [ "$candidate_count" -gt 0 ] || stop NO_MATCHING_ACCESS_APPLICATION
+          [ "$candidate_count" -le 20 ] || stop ACCESS_APP_CANDIDATE_COUNT_UNBOUNDED
+          printf 'MATCHING_ACCESS_APP_COUNT=%s\n' "$candidate_count"
+
+          total_policy_count=0
+          for candidate_index in $(seq 0 $((candidate_count - 1))); do
+            ordinal=$((candidate_index + 1))
+            app_id="$(jq -r ".[$candidate_index].id" "$tmp/candidates.json")"
+            app_name="$(jq -r ".[$candidate_index].name" "$tmp/candidates.json")"
+            app_type="$(jq -r ".[$candidate_index].type" "$tmp/candidates.json")"
+            app_domain="$(jq -r ".[$candidate_index].domain" "$tmp/candidates.json")"
+            app_aud="$(jq -r ".[$candidate_index].aud" "$tmp/candidates.json")"
+            public_uri_count="$(jq ".[$candidate_index].publicUris | length" "$tmp/candidates.json")"
+
+            printf 'ACCESS_APP_%s_ID=%s\n' "$ordinal" "$(sanitize_diag "$app_id")"
+            printf 'ACCESS_APP_%s_NAME=%s\n' "$ordinal" "$(sanitize_diag "$app_name")"
+            printf 'ACCESS_APP_%s_TYPE=%s\n' "$ordinal" "$(sanitize_diag "$app_type")"
+            printf 'ACCESS_APP_%s_DOMAIN=%s\n' "$ordinal" "$(sanitize_diag "$app_domain")"
+            if [ -n "$app_aud" ]; then
+              printf 'ACCESS_APP_%s_AUD=%s\n' "$ordinal" "$(sanitize_diag "$app_aud")"
+            else
+              printf 'ACCESS_APP_%s_AUD=NONE\n' "$ordinal"
+            fi
+            [[ "$public_uri_count" =~ ^[0-9]+$ ]] || stop ACCESS_PUBLIC_URI_COUNT_INVALID
+            [ "$public_uri_count" -le 20 ] || stop ACCESS_PUBLIC_URI_COUNT_UNBOUNDED
+            printf 'ACCESS_APP_%s_PUBLIC_URI_COUNT=%s\n' "$ordinal" "$public_uri_count"
+            for public_uri_index in $(seq 0 $((public_uri_count - 1))); do
+              public_uri_ordinal=$((public_uri_index + 1))
+              public_uri="$(jq -r ".[$candidate_index].publicUris[$public_uri_index]" "$tmp/candidates.json")"
+              printf 'ACCESS_APP_%s_PUBLIC_URI_%s=%s\n' "$ordinal" "$public_uri_ordinal" "$(sanitize_diag "$public_uri")"
+            done
+
+            policies_file="$tmp/policies-${ordinal}.ndjson"
+            fetch_paginated "/access/apps/${app_id}/policies" "$policies_file" "ACCESS_APP_${ordinal}_POLICIES"
+            policy_count="$(wc -l < "$policies_file" | tr -d '[:space:]')"
+            [[ "$policy_count" =~ ^[0-9]+$ ]] || stop ACCESS_POLICY_COUNT_INVALID
+            [ "$policy_count" -le 100 ] || stop ACCESS_POLICY_COUNT_UNBOUNDED
+            total_policy_count=$((total_policy_count + policy_count))
+            [ "$total_policy_count" -le 200 ] || stop ACCESS_POLICY_TOTAL_COUNT_UNBOUNDED
+            printf 'ACCESS_APP_%s_POLICY_COUNT=%s\n' "$ordinal" "$policy_count"
+
+            policy_ordinal=0
+            while IFS= read -r policy; do
+              [ -n "$policy" ] || continue
+              policy_ordinal=$((policy_ordinal + 1))
+              policy_id="$(jq -r 'if (.id | type) == "string" then .id else "" end' <<< "$policy")"
+              policy_name="$(jq -r 'if (.name | type) == "string" then .name else "" end' <<< "$policy")"
+              policy_decision="$(jq -r 'if (.decision | type) == "string" then .decision elif (.action | type) == "string" then .action else "" end' <<< "$policy")"
+              policy_precedence="$(jq -r 'if (.precedence | type) == "number" then (.precedence|tostring) else "NONE" end' <<< "$policy")"
+              [[ "$policy_id" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || stop ACCESS_POLICY_ID_INVALID
+              printf 'ACCESS_APP_%s_POLICY_%s_ID=%s\n' "$ordinal" "$policy_ordinal" "$(sanitize_diag "$policy_id")"
+              printf 'ACCESS_APP_%s_POLICY_%s_NAME=%s\n' "$ordinal" "$policy_ordinal" "$(sanitize_diag "$policy_name")"
+              printf 'ACCESS_APP_%s_POLICY_%s_DECISION=%s\n' "$ordinal" "$policy_ordinal" "$(sanitize_diag "$policy_decision")"
+              printf 'ACCESS_APP_%s_POLICY_%s_PRECEDENCE=%s\n' "$ordinal" "$policy_ordinal" "$(sanitize_diag "$policy_precedence")"
+            done < "$policies_file"
+          done
+          printf 'MATCHING_ACCESS_POLICY_TOTAL_COUNT=%s\n' "$total_policy_count"
+
+          printf '%s\n' STAGE=FINAL_ANTI_DRIFT
+          gh_control_get '/branches/main' "$tmp/main-final.json"
+          jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main-final.json" >/dev/null || stop MAIN_SHA_FINAL_DRIFT
+
+          printf 'ACCESS_INVENTORY=PASS\n'
+          printf 'ACCESS_API_METHOD=GET\n'
+          printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
+          printf 'LATER_POST_SENT=NO\n'
+          printf 'REMOTE_D1_MUTATION=NO\n'
+          printf 'WORKER_MUTATION=NO\n'
+          printf 'CLOUDFLARE_CONFIG_MUTATION=NO\n'
+          printf 'GITHUB_DECISION_MUTATION=NO\n'
+          printf 'NEXT_GATE=REVIEW_READONLY_ACCESS_APPLICATION_POLICY_INVENTORY\n'
