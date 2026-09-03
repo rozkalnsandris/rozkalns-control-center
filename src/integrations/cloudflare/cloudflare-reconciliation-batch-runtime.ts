@@ -1,7 +1,13 @@
 import { readCloudflareGitHubDashboardSnapshot } from "../github/cloudflare-dashboard-runtime.js";
 import type { CloudflareGitHubRuntimeBindings } from "../github/cloudflare-worker-runtime.js";
+import {
+  createNotificationDeliveryDispatchQueueMessage,
+  type NotificationDeliveryDispatchQueueMessageV1,
+} from "../../shared/notification-delivery-dispatch-queue.js";
 import type { NotificationDeliveryTargetKey } from "../../shared/notification-delivery.js";
-import type { NotificationDeliveryIntentStore } from "../../shared/notification-delivery-intent-store.js";
+import type {
+  NotificationDeliveryIntentStore,
+} from "../../shared/notification-delivery-intent-store.js";
 import { reconcileNotificationTransitionDeliveries } from "../../shared/notification-transition-delivery-reconciliation.js";
 import type { NotificationTransitionStore } from "../../shared/notification-transition-store.js";
 import type { DeliveryLifecycleStore } from "./d1-delivery-claim-store.js";
@@ -11,10 +17,15 @@ import {
 } from "./reconciliation-queue-batch-consumer.js";
 import type { ReconciliationQueueConsumeResult } from "./reconciliation-queue-consumer.js";
 
+export interface NotificationDispatchQueueProducerLike {
+  send(message: NotificationDeliveryDispatchQueueMessageV1): Promise<void>;
+}
+
 export interface CloudflareNotificationDeliveryRuntimeOptions {
   readonly transitionStore: NotificationTransitionStore;
   readonly intentStore: NotificationDeliveryIntentStore;
   readonly targetKeys: readonly NotificationDeliveryTargetKey[];
+  readonly dispatchQueue?: NotificationDispatchQueueProducerLike;
 }
 
 export interface CloudflareReconciliationBatchRuntimeOptions {
@@ -30,6 +41,27 @@ export type CloudflareReconciliationBatchHandler = (
   batch: QueueMessageBatchLike,
 ) => Promise<readonly ReconciliationQueueConsumeResult[]>;
 
+function intentStoreWithDispatchQueue(
+  options: CloudflareNotificationDeliveryRuntimeOptions,
+): NotificationDeliveryIntentStore {
+  if (!options.dispatchQueue) return options.intentStore;
+
+  return {
+    async enqueue(intent) {
+      const result = await options.intentStore.enqueue(intent);
+
+      // Queue only deterministic delivery identity after the durable intent
+      // exists. Reconciliation replay may enqueue a duplicate Queue message;
+      // downstream durable dispatch claims make that safe and never authorize a
+      // second provider send.
+      await options.dispatchQueue?.send(
+        createNotificationDeliveryDispatchQueueMessage(intent.envelope.deliveryId),
+      );
+      return result;
+    },
+  };
+}
+
 /**
  * Build a Cloudflare Queue batch handler around the already-proven bounded live
  * dashboard read path.
@@ -38,8 +70,9 @@ export type CloudflareReconciliationBatchHandler = (
  * consumeReconciliationQueueBatch and therefore runs at most once for the
  * entire Queue invocation. When an explicitly supplied notification-delivery
  * runtime is present, the same authoritative snapshot is reconciled through the
- * restart-safe provider-neutral transition→intent contract. This creates only
- * durable transition/intent evidence; no notification provider request is sent.
+ * restart-safe provider-neutral transition→intent contract. An additionally
+ * supplied dispatch Queue may receive deterministic delivery IDs only after each
+ * durable intent enqueue succeeds; this invocation never calls a provider.
  */
 export function createCloudflareReconciliationBatchHandler(
   options: CloudflareReconciliationBatchRuntimeOptions,
@@ -66,7 +99,7 @@ export function createCloudflareReconciliationBatchHandler(
               targetKeys: options.notificationDelivery.targetKeys,
             },
             options.notificationDelivery.transitionStore,
-            options.notificationDelivery.intentStore,
+            intentStoreWithDispatchQueue(options.notificationDelivery),
           );
         }
       },
