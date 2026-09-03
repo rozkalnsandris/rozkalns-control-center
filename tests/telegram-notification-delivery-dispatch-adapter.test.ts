@@ -55,23 +55,22 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 test("Telegram adapter sends one bounded plain-text sendMessage request", async () => {
-  let captured:
-    | {
-        readonly input: string;
-        readonly init: RequestInit;
-      }
-    | null = null;
+  const captured: Array<{
+    readonly input: string;
+    readonly init: RequestInit;
+  }> = [];
 
   const fetcher: TelegramNotificationFetch = async (input, init) => {
-    captured = { input, init };
+    captured.push({ input, init });
     return jsonResponse({ ok: true, result: { message_id: 42 } });
   };
 
   const adapter = createTelegramNotificationDeliveryDispatchAdapter(config(), fetcher);
   assert.deepEqual(await adapter.deliver(attempt()), { kind: "DELIVERED" });
-  assert.ok(captured);
+  assert.equal(captured.length, 1);
 
-  const request = captured;
+  const request = captured[0];
+  assert.ok(request);
   assert.equal(request.input, "https://api.telegram.org/botTEST_TOKEN/sendMessage");
   assert.equal(request.init.method, "POST");
   assert.equal(request.init.redirect, "manual");
