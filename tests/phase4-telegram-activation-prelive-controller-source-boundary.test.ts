@@ -7,8 +7,8 @@ const workflow = readFileSync(
   resolve(process.cwd(), ".github/workflows/phase4-telegram-activation-prelive-controller.yml"),
   "utf8",
 );
-const workerLive = readFileSync(
-  resolve(process.cwd(), ".github/workflows/production-worker-composite-live.yml"),
+const gateALive = readFileSync(
+  resolve(process.cwd(), ".github/workflows/phase4-telegram-preprovider-live.yml"),
   "utf8",
 );
 
@@ -82,15 +82,19 @@ test("Telegram pre-LIVE controller is exact-main, read-only and inventory-first"
   assert.doesNotMatch(workflow, /\/messages\/(?:pull|ack|purge)/);
 });
 
-test("pre-LIVE envelope preserves the reviewed one-upload, zero-percent smoke, two-deployment Worker controller", () => {
-  assert.match(workflow, /WORKER_ROLLOUT_CONTROLLER=\.github\/workflows\/production-worker-composite-live\.yml/);
-  assert.match(workerLive, /UPLOAD1:DEPLOY2/);
-  assert.match(workerLive, /wrangler versions upload/);
-  assert.match(workerLive, /\$\{EXPECTED_VERSION\}@100%/);
-  assert.match(workerLive, /\$\{candidate_version\}@0%/);
-  assert.match(workerLive, /Cloudflare-Workers-Version-Overrides/);
-  assert.match(workerLive, /\$\{candidate_version\}@100%/);
-  assert.match(workerLive, /AUTOMATIC_RETRY=NO/);
-  assert.match(workerLive, /AUTOMATIC_ROLLBACK=NO/);
-  assert.match(workerLive, /AUTOMATIC_CLEANUP=NO/);
+test("pre-LIVE envelope points to the dedicated Gate A one-shot controller", () => {
+  assert.match(
+    workflow,
+    /WORKER_ROLLOUT_CONTROLLER=\.github\/workflows\/phase4-telegram-preprovider-live\.yml/,
+  );
+  assert.match(gateALive, /wrangler versions upload/);
+  assert.match(gateALive, /\$\{EXPECTED_VERSION\}@100%/);
+  assert.match(gateALive, /\$\{candidate_version\}@0%/);
+  assert.match(gateALive, /Cloudflare-Workers-Version-Overrides/);
+  assert.match(gateALive, /\$\{candidate_version\}@100%/);
+  assert.match(gateALive, /PROVIDER_RESUME_COUNT=0/);
+  assert.match(gateALive, /PROVIDER_API_REQUEST_COUNT=0/);
+  assert.match(gateALive, /AUTOMATIC_RETRY=NO/);
+  assert.match(gateALive, /AUTOMATIC_ROLLBACK=NO/);
+  assert.match(gateALive, /AUTOMATIC_CLEANUP=NO/);
 });
