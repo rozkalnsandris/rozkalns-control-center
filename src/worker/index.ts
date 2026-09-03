@@ -44,6 +44,7 @@ import {
   handleGitHubWebhookObservabilityRequest,
 } from "./github-webhook-observability-route";
 import { handleGitHubWebhookRequest } from "./github-webhook-route";
+import { applyApiResponseSecurityHeaders } from "./response-security";
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
 
@@ -82,8 +83,7 @@ function resolveLaterRuntime(env: Env) {
   );
 }
 
-const worker: ExportedHandler<Env> = {
-  async fetch(request, env) {
+async function routeWorkerRequest(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/api/health") {
@@ -163,7 +163,12 @@ const worker: ExportedHandler<Env> = {
       );
     }
 
-    return new Response("Not Found", { status: 404 });
+  return new Response("Not Found", { status: 404 });
+}
+
+const worker: ExportedHandler<Env> = {
+  async fetch(request, env) {
+    return applyApiResponseSecurityHeaders(await routeWorkerRequest(request, env));
   },
 
   async queue(batch, env) {

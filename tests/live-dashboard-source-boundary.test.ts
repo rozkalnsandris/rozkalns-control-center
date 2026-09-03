@@ -48,10 +48,14 @@ test("live dashboard UI uses one same-origin snapshot request and one authoritat
     source("src/react-app/needs-changes-eligibility-client.ts"),
   ]);
 
-  assert.equal(app.match(/fetch\("\/api\/github\/dashboard"/g)?.length, 1);
+  assert.equal(app.match(/readControlJson\("\/api\/github\/dashboard"/g)?.length, 1);
   assert.match(app, /AbortController/);
+  assert.match(app, /classifyDashboardFreshness/);
+  assert.match(app, /freshness\.state==="FRESH"\?"LIVE":freshness\.state/);
+  assert.match(app, /allowedActions:decision\.allowedActions\.filter/);
   assert.match(app, /LIVE CONTROL/);
-  assert.match(app, /Live data unavailable · fixture data shown/);
+  assert.match(app, /Live read timed out/);
+  assert.match(app, /fixture data shown/);
   assert.match(app, /ActionConfirmationDialog/);
   assert.match(app, /postDecisionAction/);
   assert.doesNotMatch(app, /api\.github\.com/);
