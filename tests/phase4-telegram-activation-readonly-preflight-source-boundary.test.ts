@@ -42,7 +42,20 @@ test("Telegram activation preflight is manual, main-only, and read-only", () => 
   assert.match(workflow, /QUEUE_INVENTORY_PAGINATION_AMBIGUOUS/);
   assert.match(workflow, /DISPATCH_QUEUE_NOT_UNIQUE/);
   assert.match(workflow, /DISPATCH_QUEUE_WORKER_CONSUMER_NOT_UNIQUE/);
+  assert.match(workflow, /DISPATCH_QUEUE_CONSUMER_SCRIPT_NAME_MISMATCH/);
   assert.match(workflow, /DISPATCH_QUEUE_CONSUMER_POLICY_INCOMPATIBLE/);
+  assert.match(
+    workflow,
+    /select\(\.type == "worker" and \.queue_name == \$queue\)/,
+  );
+  assert.match(
+    workflow,
+    /\(\(\$c\.script_name == null\) or \(\$c\.script_name == \$worker\)\)/,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /select\(\.script_name == \$worker and \.queue_name == \$queue\)/,
+  );
 
   assert.match(
     workflow,
