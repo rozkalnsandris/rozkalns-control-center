@@ -31,6 +31,13 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
     GITHUB_APP_INSTALLATION_ID: "153121564",
     CONTROL_LIVE_READ_ENABLED: "true",
     CONTROL_WEBHOOK_RUNTIME_ENABLED: "true",
+    CONTROL_NOTIFICATION_TRANSITIONS_ENABLED: "true",
+    CONTROL_NOTIFICATION_TARGET_KEYS: '["primary"]',
+    CONTROL_NOTIFICATION_DISPATCH_ENABLED: "true",
+    CONTROL_NOTIFICATION_RETRY_POLICY:
+      '{"schemaVersion":1,"maxAttempts":2,"retryDelaysSeconds":[60]}',
+    CONTROL_TELEGRAM_TARGET_KEY: "primary",
+    CONTROL_NOTIFICATION_CONTROL_ORIGIN: "https://control.rozkalns.net",
     CONTROL_NEEDS_CHANGES_ACCESS_ISSUER: "https://super-salad-2357.cloudflareaccess.com",
     CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE:
       "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
@@ -67,7 +74,12 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
     config.vars?.CONTROL_LATER_ACCESS_AUDIENCE,
     "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
   );
-  assert.deepEqual(config.secrets?.required, ["GITHUB_APP_PRIVATE_KEY_PEM", "GITHUB_WEBHOOK_SECRET"]);
+  assert.deepEqual(config.secrets?.required, [
+    "GITHUB_APP_PRIVATE_KEY_PEM",
+    "GITHUB_WEBHOOK_SECRET",
+    "CONTROL_TELEGRAM_BOT_TOKEN",
+    "CONTROL_TELEGRAM_CHAT_ID",
+  ]);
   assert.doesNotMatch(wrangler, /-----BEGIN|ghs_|test-webhook-secret|contents:write/i);
 
   assert.doesNotMatch(worker, /app-read-rollout-plan|GitHubReadRollout|cloudflare-worker-runtime|GITHUB_APP_/);

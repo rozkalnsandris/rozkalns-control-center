@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("Telegram transport is source-wired but remains dormant in production configuration", async () => {
+test("Telegram transport and exact activation configuration remain source-bounded", async () => {
   const [adapterSource, runtimeAssembly, dispatchRuntime, workerSource, wranglerSource] =
     await Promise.all([
       readFile(
@@ -34,21 +34,33 @@ test("Telegram transport is source-wired but remains dormant in production confi
   assert.match(dispatchRuntime, /coordinateNotificationDeliveryDispatch/);
   assert.match(dispatchRuntime, /planNotificationDeliveryDispatch/);
 
-  // Worker entrypoint remains provider-agnostic; the existing queue resolver is
-  // the only composition point. Production config still has no activation,
-  // Telegram credential/destination or dispatch Queue binding.
+  // The Worker entrypoint stays provider-agnostic. Source now declares the exact
+  // deploy-time activation contract, while credential values remain outside git
+  // and any actual production deployment remains separately LIVE-gated.
   assert.doesNotMatch(workerSource, /integrations\/telegram|api\.telegram\.org/);
-  for (const forbidden of [
-    "CONTROL_NOTIFICATION_DISPATCH_ENABLED",
-    "CONTROL_NOTIFICATION_RETRY_POLICY",
-    "CONTROL_TELEGRAM_TARGET_KEY",
-    "CONTROL_TELEGRAM_BOT_TOKEN",
-    "CONTROL_TELEGRAM_CHAT_ID",
-    "CONTROL_NOTIFICATION_CONTROL_ORIGIN",
-    "NOTIFICATION_DISPATCH_QUEUE",
-    "rozkalns-control-notification-dispatch",
-    "api.telegram.org",
-  ]) {
-    assert.equal(wranglerSource.includes(forbidden), false);
-  }
+  assert.match(wranglerSource, /"CONTROL_NOTIFICATION_TRANSITIONS_ENABLED": "true"/);
+  assert.match(wranglerSource, /"CONTROL_NOTIFICATION_TARGET_KEYS": "\[\\"primary\\"\]"/);
+  assert.match(wranglerSource, /"CONTROL_NOTIFICATION_DISPATCH_ENABLED": "true"/);
+  assert.match(
+    wranglerSource,
+    /"CONTROL_NOTIFICATION_RETRY_POLICY": "\{\\"schemaVersion\\":1,\\"maxAttempts\\":2,\\"retryDelaysSeconds\\":\[60\]\}"/,
+  );
+  assert.match(wranglerSource, /"CONTROL_TELEGRAM_TARGET_KEY": "primary"/);
+  assert.match(
+    wranglerSource,
+    /"CONTROL_NOTIFICATION_CONTROL_ORIGIN": "https:\/\/control\.rozkalns\.net"/,
+  );
+  assert.match(wranglerSource, /"CONTROL_TELEGRAM_BOT_TOKEN"/);
+  assert.match(wranglerSource, /"CONTROL_TELEGRAM_CHAT_ID"/);
+  assert.match(wranglerSource, /"binding": "NOTIFICATION_DISPATCH_QUEUE"/);
+  assert.match(wranglerSource, /"queue": "rozkalns-control-notification-dispatch"/);
+  assert.match(wranglerSource, /"max_batch_size": 10/);
+  assert.match(wranglerSource, /"max_batch_timeout": 5/);
+  assert.match(wranglerSource, /"max_retries": 3/);
+  assert.match(wranglerSource, /"retry_delay": 60/);
+  assert.match(wranglerSource, /"max_concurrency": 1/);
+
+  assert.doesNotMatch(wranglerSource, /"CONTROL_TELEGRAM_BOT_TOKEN"\s*:/);
+  assert.doesNotMatch(wranglerSource, /"CONTROL_TELEGRAM_CHAT_ID"\s*:/);
+  assert.doesNotMatch(wranglerSource, /api\.telegram\.org/);
 });

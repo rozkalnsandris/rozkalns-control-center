@@ -27,6 +27,10 @@ test("Queue batch reconciliation remains coalesced under the reviewed production
   assert.equal(wrangler.vars.CONTROL_WEBHOOK_RUNTIME_ENABLED, "true");
   assert.deepEqual(wrangler.queues.producers, [
     { binding: "RECONCILIATION_QUEUE", queue: "rozkalns-control-reconciliation" },
+    {
+      binding: "NOTIFICATION_DISPATCH_QUEUE",
+      queue: "rozkalns-control-notification-dispatch",
+    },
   ]);
   assert.equal(wrangler.queues.consumers[0].max_concurrency, 1);
   assert.equal(wrangler.queues.consumers[0].max_batch_size, 10);
