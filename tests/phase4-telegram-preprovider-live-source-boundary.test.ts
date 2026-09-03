@@ -76,7 +76,7 @@ test("Telegram secrets are protected inputs on the single candidate version uplo
   assert.doesNotMatch(workflow, /printf[^\n]*CONTROL_TELEGRAM_(?:BOT_TOKEN|CHAT_ID)/);
 });
 
-test("Telegram Gate A preserves exact zero-percent smoke and one-shot failure semantics", () => {
+test("Telegram Gate A preserves exact zero-percent smoke and mutation one-shot semantics", () => {
   assert.match(workflow, /\$\{EXPECTED_VERSION\}@100%/);
   assert.match(workflow, /\$\{candidate_version\}@0%/);
   assert.match(workflow, /Cloudflare-Workers-Version-Overrides/);
@@ -90,4 +90,25 @@ test("Telegram Gate A preserves exact zero-percent smoke and one-shot failure se
   assert.doesNotMatch(workflow, /wrangler\s+rollback/);
   assert.doesNotMatch(workflow, /queues\s+purge/);
   assert.doesNotMatch(workflow, /queues\s+delete/);
+});
+
+test("Telegram Gate A bounds normal-host health convergence after promotion", () => {
+  assert.match(workflow, /for final_health_attempt in 1 2 3 4 5 6; do/);
+  assert.match(workflow, /health-after-\$\{final_health_attempt\}\.json/);
+  assert.match(
+    workflow,
+    /access_health_get "" "\$final_health_body" "\$final_health_code"/,
+  );
+  assert.match(
+    workflow,
+    /\.status == "ok" and \.service == \$service and \.workerVersion == \$version/,
+  );
+  assert.match(
+    workflow,
+    /if \[\[ "\$final_health_attempt" -lt 6 \]\]; then\s+sleep 5/,
+  );
+  assert.match(workflow, /FINAL_HEALTH_CONVERGENCE_TIMEOUT/);
+  assert.doesNotMatch(workflow, /FINAL_HEALTH_IDENTITY_MISMATCH/);
+  assert.doesNotMatch(workflow, /FINAL_HEALTH_HTTP_NOT_200/);
+  assert.doesNotMatch(workflow, /FINAL_HEALTH_GET_FAILED/);
 });
