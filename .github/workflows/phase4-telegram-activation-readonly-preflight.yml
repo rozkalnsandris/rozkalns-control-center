@@ -23,6 +23,8 @@ jobs:
       WORKER_NAME: rozkalns-control
       DISPATCH_QUEUE_NAME: rozkalns-control-notification-dispatch
       CONTROL_ORIGIN: https://control.rozkalns.net
+      EXPECTED_TARGET_KEY: primary
+      EXPECTED_RETRY_POLICY_JSON: '{"schemaVersion":1,"maxAttempts":2,"retryDelaysSeconds":[60]}'
       GITHUB_TOKEN: ${{ github.token }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -177,7 +179,7 @@ jobs:
           if [ "$targets_count" = "0" ] || [ "$telegram_target_count" = "0" ]; then
             printf 'TARGET_CONTRACT=MISSING\n'
             activation_failures=$((activation_failures + 1))
-          elif [ "$targets_count" = "1" ] && [ "$telegram_target_count" = "1" ] && jq -e '
+          elif [ "$targets_count" = "1" ] && [ "$telegram_target_count" = "1" ] && jq -e --arg target "$EXPECTED_TARGET_KEY" '
             [.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TARGET_KEYS")][0] as $targetsBinding |
             [.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_TARGET_KEY")][0] as $targetBinding |
             ($targetsBinding.type == "plain_text") and
@@ -185,9 +187,11 @@ jobs:
             ($targetsBinding.text | fromjson) as $targets |
             ($targets | type == "array" and length == 1) and
             ($targets[0] | type == "string" and test("^[a-z0-9](?:[a-z0-9._:-]{0,63})$")) and
-            ($targetBinding.text == $targets[0])
+            ($targets == [$target]) and
+            ($targetBinding.text == $target)
           ' "$tmp/version.json" >/dev/null 2>&1; then
             printf 'TARGET_CONTRACT=VALID_SINGLE_TELEGRAM_TARGET\n'
+            printf 'TARGET_KEY=%s\n' "$EXPECTED_TARGET_KEY"
           else
             printf 'TARGET_CONTRACT=INVALID\n'
             activation_failures=$((activation_failures + 1))
@@ -197,10 +201,12 @@ jobs:
           if [ "$retry_count" = "0" ]; then
             printf 'RETRY_POLICY=MISSING\n'
             activation_failures=$((activation_failures + 1))
-          elif [ "$retry_count" = "1" ] && jq -e '
+          elif [ "$retry_count" = "1" ] && jq -e --arg expected "$EXPECTED_RETRY_POLICY_JSON" '
             [.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY")][0] as $binding |
             ($binding.type == "plain_text") and
             ($binding.text | fromjson) as $retry |
+            ($expected | fromjson) as $expectedRetry |
+            ($retry == $expectedRetry) and
             ($retry | type == "object") and
             ($retry.schemaVersion == 1) and
             ($retry.maxAttempts | type == "number" and floor == . and . >= 1 and . <= 8) and
