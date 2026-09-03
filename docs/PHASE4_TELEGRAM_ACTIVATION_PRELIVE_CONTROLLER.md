@@ -8,6 +8,8 @@ Issue #548 adds a repository-owned, source-only controller for the decision imme
 
 The Queue path uses only Cloudflare GET endpoints to distinguish Queue absent/present, delivery paused/active, runtime producer absent/present-expected/drifted, consumer absent/present-expected/drifted, and best-effort point-in-time backlog count/bytes/oldest-message timestamp. Missing activation bindings do not short-circuit Queue evidence. Ambiguous Queue identity, missing documented pause state, invalid metrics, SHA drift, or deployment drift fail closed.
 
+For the activation GET-only preflight, a relevant Queue consumer is selected by `type == "worker"` plus the reviewed Queue name, not by `script_name`. Exactly one such consumer is required. Cloudflare may return `script_name: null`; null is acceptable as unavailable attestation, while every non-null value must equal the exact Worker name `rozkalns-control`. Duplicate relevant consumers, malformed evidence, any non-null Worker-name mismatch, or incompatible consumer settings fail closed.
+
 Remote D1 migration history remains `D1_NOTIFICATION_MIGRATIONS=NOT_PROVEN_GET_ONLY`. This controller does not issue D1 queries or infer migration application from repository files.
 
 ## Frozen future LIVE envelope
@@ -31,6 +33,8 @@ The controller does not collapse D1, Queue, secrets, Worker rollout and provider
 Once a separate review freezes `D1_MUTATION=0`, the repository-owned Gate A contract is implemented by `.github/workflows/phase4-telegram-preprovider-live.yml` and documented in `docs/PHASE4_TELEGRAM_PREPROVIDER_LIVE.md`.
 
 Gate A exists because the generic Worker `UPLOAD1:DEPLOY2` controller does not cover the prerequisite Queue or the two Telegram secret bindings. The dedicated controller keeps the Queue paused, creates the exact Worker consumer, adds the two protected Telegram secret bindings only on the single strict candidate version upload, attaches that candidate at 0% normal traffic, smoke-tests the exact version through a version override, and promotes only that verified candidate to 100%.
+
+After promotion, Gate A reconciles the normal hostname with a small bounded GET-only convergence window before accepting exact service + candidate version identity. This read-only convergence does not authorize deployment retry, alternate mutation, rollback or cleanup.
 
 The Queue remains paused after Gate A. Provider-delivery resume and every Telegram API request remain outside Gate A and require a separate Gate B owner authorization.
 
