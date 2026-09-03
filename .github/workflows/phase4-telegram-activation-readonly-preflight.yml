@@ -51,7 +51,7 @@ jobs:
           }
 
           sanitize_diag() {
-            printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:] _./:@,+{}\[\]"_- ' | cut -c1-320
+            printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:] _./:@,+{}\[\]"-' | cut -c1-320
           }
 
           for cmd in curl jq; do
@@ -147,50 +147,121 @@ jobs:
           cf_get "/workers/scripts/${WORKER_NAME}/versions/${current_version}" "$tmp/version.json"
           jq -e --arg ver "$current_version" '.result.id == $ver and (.result.resources.bindings // [] | type == "array")' "$tmp/version.json" >/dev/null || stop VERSION_BINDING_INVENTORY_INVALID
 
-          jq -e --arg queue "$DISPATCH_QUEUE_NAME" --arg origin "$CONTROL_ORIGIN" '
-            (.result.resources.bindings // []) as $b |
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED") ] | length == 1) and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED") ][0] | .type == "plain_text" and .text == "true") and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_DISPATCH_ENABLED") ] | length == 1) and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_DISPATCH_ENABLED") ][0] | .type == "plain_text" and .text == "true") and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_TARGET_KEYS") ] | length == 1) and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_TARGET_KEYS") ][0].text | fromjson) as $targets |
+          activation_failures=0
+          retry_max_attempts=0
+
+          transition_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED")] | length' "$tmp/version.json")"
+          if [ "$transition_count" = "0" ]; then
+            printf 'TRANSITION_OPT_IN=MISSING\n'
+            activation_failures=$((activation_failures + 1))
+          elif [ "$transition_count" = "1" ] && jq -e '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED")][0] | .type == "plain_text" and .text == "true"' "$tmp/version.json" >/dev/null; then
+            printf 'TRANSITION_OPT_IN=ENABLED\n'
+          else
+            printf 'TRANSITION_OPT_IN=INVALID\n'
+            activation_failures=$((activation_failures + 1))
+          fi
+
+          dispatch_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_DISPATCH_ENABLED")] | length' "$tmp/version.json")"
+          if [ "$dispatch_count" = "0" ]; then
+            printf 'DISPATCH_OPT_IN=MISSING\n'
+            activation_failures=$((activation_failures + 1))
+          elif [ "$dispatch_count" = "1" ] && jq -e '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_DISPATCH_ENABLED")][0] | .type == "plain_text" and .text == "true"' "$tmp/version.json" >/dev/null; then
+            printf 'DISPATCH_OPT_IN=ENABLED\n'
+          else
+            printf 'DISPATCH_OPT_IN=INVALID\n'
+            activation_failures=$((activation_failures + 1))
+          fi
+
+          targets_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TARGET_KEYS")] | length' "$tmp/version.json")"
+          telegram_target_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_TARGET_KEY")] | length' "$tmp/version.json")"
+          if [ "$targets_count" = "0" ] || [ "$telegram_target_count" = "0" ]; then
+            printf 'TARGET_CONTRACT=MISSING\n'
+            activation_failures=$((activation_failures + 1))
+          elif [ "$targets_count" = "1" ] && [ "$telegram_target_count" = "1" ] && jq -e '
+            [.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TARGET_KEYS")][0] as $targetsBinding |
+            [.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_TARGET_KEY")][0] as $targetBinding |
+            ($targetsBinding.type == "plain_text") and
+            ($targetBinding.type == "plain_text") and
+            ($targetsBinding.text | fromjson) as $targets |
             ($targets | type == "array" and length == 1) and
             ($targets[0] | type == "string" and test("^[a-z0-9](?:[a-z0-9._:-]{0,63})$")) and
-            ([ $b[] | select(.name == "CONTROL_TELEGRAM_TARGET_KEY") ] | length == 1) and
-            ([ $b[] | select(.name == "CONTROL_TELEGRAM_TARGET_KEY") ][0] | .type == "plain_text" and .text == $targets[0]) and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY") ] | length == 1) and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY") ][0].text | fromjson) as $retry |
+            ($targetBinding.text == $targets[0])
+          ' "$tmp/version.json" >/dev/null 2>&1; then
+            printf 'TARGET_CONTRACT=VALID_SINGLE_TELEGRAM_TARGET\n'
+          else
+            printf 'TARGET_CONTRACT=INVALID\n'
+            activation_failures=$((activation_failures + 1))
+          fi
+
+          retry_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY")] | length' "$tmp/version.json")"
+          if [ "$retry_count" = "0" ]; then
+            printf 'RETRY_POLICY=MISSING\n'
+            activation_failures=$((activation_failures + 1))
+          elif [ "$retry_count" = "1" ] && jq -e '
+            [.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY")][0] as $binding |
+            ($binding.type == "plain_text") and
+            ($binding.text | fromjson) as $retry |
             ($retry | type == "object") and
             ($retry.schemaVersion == 1) and
             ($retry.maxAttempts | type == "number" and floor == . and . >= 1 and . <= 8) and
             ($retry.retryDelaysSeconds | type == "array" and length == ($retry.maxAttempts - 1)) and
-            (all($retry.retryDelaysSeconds[]?; type == "number" and floor == . and . >= 1 and . <= 86400)) and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_CONTROL_ORIGIN") ] | length == 1) and
-            ([ $b[] | select(.name == "CONTROL_NOTIFICATION_CONTROL_ORIGIN") ][0] | .type == "plain_text" and .text == $origin) and
-            (any($b[]; .name == "CONTROL_TELEGRAM_BOT_TOKEN" and (.type == "secret_text" or .type == "secret_key"))) and
-            (any($b[]; .name == "CONTROL_TELEGRAM_CHAT_ID" and (.type == "secret_text" or .type == "secret_key"))) and
-            (any($b[]; .name == "NOTIFICATION_DISPATCH_QUEUE" and .type == "queue" and ((.queue_name // "") == $queue)))
-          ' "$tmp/version.json" >/dev/null || stop NOTIFICATION_ACTIVATION_BINDINGS_INCOMPLETE
+            (all($retry.retryDelaysSeconds[]?; type == "number" and floor == . and . >= 1 and . <= 86400))
+          ' "$tmp/version.json" >/dev/null 2>&1; then
+            retry_max_attempts="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY")][0].text | fromjson | .maxAttempts' "$tmp/version.json")"
+            printf 'RETRY_POLICY=VALID\n'
+            printf 'RETRY_MAX_ATTEMPTS=%s\n' "$retry_max_attempts"
+          else
+            printf 'RETRY_POLICY=INVALID\n'
+            activation_failures=$((activation_failures + 1))
+          fi
 
-          retry_max_attempts="$(
-            jq -r '
-              [.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY")][0].text
-              | fromjson
-              | .maxAttempts
-            ' "$tmp/version.json"
-          )"
+          bot_token_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_BOT_TOKEN")] | length' "$tmp/version.json")"
+          if [ "$bot_token_count" = "0" ]; then
+            printf 'TELEGRAM_BOT_TOKEN_BINDING=MISSING\n'
+            activation_failures=$((activation_failures + 1))
+          elif [ "$bot_token_count" = "1" ] && jq -e '[.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_BOT_TOKEN")][0] | .type == "secret_text" or .type == "secret_key"' "$tmp/version.json" >/dev/null; then
+            printf 'TELEGRAM_BOT_TOKEN_BINDING=PRESENT_SECRET\n'
+          else
+            printf 'TELEGRAM_BOT_TOKEN_BINDING=INVALID\n'
+            activation_failures=$((activation_failures + 1))
+          fi
+
+          chat_id_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_CHAT_ID")] | length' "$tmp/version.json")"
+          if [ "$chat_id_count" = "0" ]; then
+            printf 'TELEGRAM_CHAT_ID_BINDING=MISSING\n'
+            activation_failures=$((activation_failures + 1))
+          elif [ "$chat_id_count" = "1" ] && jq -e '[.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_CHAT_ID")][0] | .type == "secret_text" or .type == "secret_key"' "$tmp/version.json" >/dev/null; then
+            printf 'TELEGRAM_CHAT_ID_BINDING=PRESENT_SECRET\n'
+          else
+            printf 'TELEGRAM_CHAT_ID_BINDING=INVALID\n'
+            activation_failures=$((activation_failures + 1))
+          fi
+
+          origin_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_CONTROL_ORIGIN")] | length' "$tmp/version.json")"
+          if [ "$origin_count" = "0" ]; then
+            printf 'CONTROL_ORIGIN=MISSING\n'
+            activation_failures=$((activation_failures + 1))
+          elif [ "$origin_count" = "1" ] && jq -e --arg origin "$CONTROL_ORIGIN" '[.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_CONTROL_ORIGIN")][0] | .type == "plain_text" and .text == $origin' "$tmp/version.json" >/dev/null; then
+            printf 'CONTROL_ORIGIN=VALID\n'
+          else
+            printf 'CONTROL_ORIGIN=INVALID\n'
+            activation_failures=$((activation_failures + 1))
+          fi
+
+          queue_binding_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "NOTIFICATION_DISPATCH_QUEUE")] | length' "$tmp/version.json")"
+          if [ "$queue_binding_count" = "0" ]; then
+            printf 'DISPATCH_QUEUE_PRODUCER_BINDING=MISSING\n'
+            activation_failures=$((activation_failures + 1))
+          elif [ "$queue_binding_count" = "1" ] && jq -e --arg queue "$DISPATCH_QUEUE_NAME" '[.result.resources.bindings[]? | select(.name == "NOTIFICATION_DISPATCH_QUEUE")][0] | .type == "queue" and ((.queue_name // "") == $queue)' "$tmp/version.json" >/dev/null; then
+            printf 'DISPATCH_QUEUE_PRODUCER_BINDING=PRESENT\n'
+          else
+            printf 'DISPATCH_QUEUE_PRODUCER_BINDING=INVALID\n'
+            activation_failures=$((activation_failures + 1))
+          fi
+
+          printf 'NOTIFICATION_ACTIVATION_BINDING_FAILURES=%s\n' "$activation_failures"
+          [ "$activation_failures" -eq 0 ] || stop NOTIFICATION_ACTIVATION_BINDINGS_INCOMPLETE
           [ "$retry_max_attempts" -ge 1 ] 2>/dev/null || stop RETRY_POLICY_INVALID
-
-          printf 'TRANSITION_OPT_IN=ENABLED\n'
-          printf 'DISPATCH_OPT_IN=ENABLED\n'
-          printf 'TARGET_CONTRACT=VALID_SINGLE_TELEGRAM_TARGET\n'
-          printf 'RETRY_POLICY=VALID\n'
-          printf 'RETRY_MAX_ATTEMPTS=%s\n' "$retry_max_attempts"
-          printf 'TELEGRAM_BOT_TOKEN_BINDING=PRESENT_SECRET\n'
-          printf 'TELEGRAM_CHAT_ID_BINDING=PRESENT_SECRET\n'
-          printf 'CONTROL_ORIGIN=VALID\n'
-          printf 'DISPATCH_QUEUE_PRODUCER_BINDING=PRESENT\n'
 
           printf '%s\n' STAGE=QUEUE_TOPOLOGY_INVENTORY
           cf_get '/queues?per_page=100&page=1' "$tmp/queues.json"
