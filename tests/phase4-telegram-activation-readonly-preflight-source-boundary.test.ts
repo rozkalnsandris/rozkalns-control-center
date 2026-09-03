@@ -74,7 +74,7 @@ test("Telegram activation preflight is manual, main-only, and read-only", () => 
   assert.doesNotMatch(workflow, /(?:^|\s)--request\s+(?:POST|PUT|PATCH|DELETE)\b/m);
   assert.doesNotMatch(workflow, /\/d1\/database/);
   assert.doesNotMatch(workflow, /\/messages\/purge/);
-  assert.doesNotMatch(workflow, /\/purge(?:\?|\s|")/);
+  assert.doesNotMatch(workflow, /\/purge(?:\?|\s|["])/);
   assert.doesNotMatch(workflow, /CLOUDFLARE_D1_READ_TOKEN/);
   assert.doesNotMatch(workflow, /CONTROL_ACCESS_CLIENT_(?:ID|SECRET)/);
 });
