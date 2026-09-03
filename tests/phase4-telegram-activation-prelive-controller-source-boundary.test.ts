@@ -31,7 +31,7 @@ test("Telegram pre-LIVE controller is exact-main, read-only and inventory-first"
   assert.ok(workerInventory >= 0);
   assert.ok(queueInventory > workerInventory);
   assert.ok(finalDrift > queueInventory);
-  assert.doesNotMatch(workflow, /\[\[ \"\$binding_failures\" == 0 \]\]/);
+  assert.doesNotMatch(workflow, /\[\[ "\$binding_failures" == 0 \]\]/);
   assert.doesNotMatch(workflow, /NOTIFICATION_ACTIVATION_BINDINGS_INCOMPLETE/);
 
   assert.match(workflow, /\/queues\?per_page=100&page=1/);
