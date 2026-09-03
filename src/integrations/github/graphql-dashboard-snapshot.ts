@@ -24,6 +24,11 @@ import type {
   WorkflowRunRead,
   WorkflowRunStatus,
 } from "../../shared/source-control-read.js";
+import {
+  aggregateGitHubRateLimitHealth,
+} from "../../shared/github-rate-limit-health.js";
+import type { GitHubRateLimitEvidence } from "./app-installation-read-contract.js";
+import { parseGitHubRateLimitEvidence } from "./rest-read-transport.js";
 
 export const GITHUB_GRAPHQL_DASHBOARD_OPERATION = "ControlDashboardRepositorySnapshot" as const;
 export const GITHUB_GRAPHQL_DASHBOARD_QUERY = `query ControlDashboardRepositorySnapshot($owner: String!, $name: String!) {
@@ -155,6 +160,7 @@ interface RepositoryEvidence {
   readonly mainSha: string;
   readonly issues: readonly IssueRead[];
   readonly pulls: readonly PullEvidence[];
+  readonly rateLimit: GitHubRateLimitEvidence | null;
 }
 
 function invalid(): never {
@@ -407,7 +413,10 @@ function issueFromNode(value: unknown): IssueRead {
   };
 }
 
-function repositoryFromEnvelope(value: unknown, expectedRepository: string): RepositoryEvidence {
+function repositoryFromEnvelope(
+  value: unknown,
+  expectedRepository: string,
+): Omit<RepositoryEvidence, "rateLimit"> {
   const envelope = record(value);
   if (Array.isArray(envelope.errors) && envelope.errors.length > 0) invalid();
   if (envelope.errors !== undefined) invalid();
@@ -457,7 +466,10 @@ async function readRepository(
   });
   if (response.status !== 200 || !jsonMediaType(response)) invalid();
   try {
-    return repositoryFromEnvelope(await response.json(), repository);
+    return {
+      ...repositoryFromEnvelope(await response.json(), repository),
+      rateLimit: parseGitHubRateLimitEvidence(response.headers),
+    };
   } catch (error) {
     if (error instanceof GitHubDashboardSnapshotError) throw error;
     return invalid();
@@ -567,6 +579,10 @@ export async function createGitHubDashboardReadContextFactory(options: {
   if (evidenceByRepository.size !== scope.repositories.length) invalid();
 
   return {
+    githubRateLimitHealth: aggregateGitHubRateLimitHealth(
+      repositories.flatMap((evidence) => evidence.rateLimit === null ? [] : [evidence.rateLimit]),
+      observedAt,
+    ),
     createRepositoryReadContext(repository, requestedObservedAt) {
       if (requestedObservedAt !== observedAt) return invalid();
       const evidence = evidenceByRepository.get(repository.toLowerCase());

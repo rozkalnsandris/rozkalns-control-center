@@ -7,6 +7,8 @@ import {
   type GitHubInstallationReadScope,
   type GitHubInstallationReadTransport,
   type GitHubRateLimitEvidence,
+  type GitHubReadOptions,
+  type GitHubReadPageOutcome,
   type GitHubReadRequest,
   type GitHubReadResult,
 } from "./app-installation-read-contract.js";
@@ -15,6 +17,9 @@ export const GITHUB_REST_ORIGIN = "https://api.github.com" as const;
 export const GITHUB_REST_ACCEPT = "application/vnd.github+json" as const;
 export const GITHUB_REST_DEFAULT_MAX_REQUESTS = 10;
 export const GITHUB_REST_MAX_REQUEST_BUDGET = 100;
+export const GITHUB_REST_CONDITIONAL_CACHE_MAX_ENTRIES = 100;
+export const GITHUB_REST_CONDITIONAL_CACHE_MAX_BODY_BYTES = 1024 * 1024;
+export const GITHUB_REST_CONDITIONAL_CACHE_MAX_TOTAL_BYTES = 5 * 1024 * 1024;
 
 export type GitHubRestReadFailureCode =
   | "INVALID_REQUEST"
@@ -76,6 +81,7 @@ export interface GitHubAuthorizedRestGet {
   readonly accept: typeof GITHUB_REST_ACCEPT;
   readonly apiVersion: typeof GITHUB_REST_API_VERSION;
   readonly redirect: "manual";
+  readonly ifNoneMatch?: string;
 }
 
 export interface GitHubInstallationAuthorizedReadSession {
@@ -90,6 +96,71 @@ export type GitHubInstallationAuthorizedReadSessionProvider = (
 
 export interface GitHubRestReadTransportOptions {
   readonly maxRequests?: number;
+  readonly conditionalCache?: GitHubRestConditionalCache;
+}
+
+interface GitHubRestConditionalCacheEntry {
+  readonly validator: string;
+  readonly body: unknown;
+  readonly nextUrl: string | null;
+  readonly bodyBytes: number;
+}
+
+export interface GitHubRestConditionalCache {
+  get(key: string): GitHubRestConditionalCacheEntry | null;
+  set(key: string, entry: GitHubRestConditionalCacheEntry): void;
+  delete(key: string): void;
+}
+
+export function createGitHubRestConditionalCache(): GitHubRestConditionalCache {
+  const entries = new Map<string, GitHubRestConditionalCacheEntry>();
+  let totalBytes = 0;
+
+  function remove(key: string): void {
+    const existing = entries.get(key);
+    if (existing) totalBytes -= existing.bodyBytes;
+    entries.delete(key);
+  }
+
+  return {
+    get(key) {
+      const entry = entries.get(key);
+      if (!entry) return null;
+      entries.delete(key);
+      entries.set(key, entry);
+      return entry;
+    },
+    set(key, entry) {
+      if (
+        entry.bodyBytes < 0 ||
+        entry.bodyBytes > GITHUB_REST_CONDITIONAL_CACHE_MAX_BODY_BYTES
+      ) return;
+      remove(key);
+      entries.set(key, entry);
+      totalBytes += entry.bodyBytes;
+      while (
+        entries.size > GITHUB_REST_CONDITIONAL_CACHE_MAX_ENTRIES ||
+        totalBytes > GITHUB_REST_CONDITIONAL_CACHE_MAX_TOTAL_BYTES
+      ) {
+        const oldest = entries.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        remove(oldest);
+      }
+    },
+    delete: remove,
+  };
+}
+
+export function normalizeGitHubEtag(value: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length < 3 ||
+    value.length > 256 ||
+    !/^(?:W\/)?"[!#-~]+"$/.test(value)
+  ) {
+    throw new GitHubRestReadError("INVALID_REQUEST");
+  }
+  return value;
 }
 
 function parseObservedAt(value: string): number {
@@ -237,7 +308,7 @@ function epochSecondsToIso(value: number): string {
   return date.toISOString();
 }
 
-function parseRateLimitEvidence(headers: Headers): GitHubRateLimitEvidence | null {
+export function parseGitHubRateLimitEvidence(headers: Headers): GitHubRateLimitEvidence | null {
   const limit = optionalHeaderInteger(headers, "x-ratelimit-limit");
   const remaining = optionalHeaderInteger(headers, "x-ratelimit-remaining");
   const used = optionalHeaderInteger(headers, "x-ratelimit-used");
@@ -262,6 +333,44 @@ function parseRateLimitEvidence(headers: Headers): GitHubRateLimitEvidence | nul
     resetAt: reset === null ? null : epochSecondsToIso(reset),
     resource,
   };
+}
+
+function responseEtag(headers: Headers): string | null {
+  const raw = headers.get("etag");
+  if (raw === null) return null;
+  try {
+    return normalizeGitHubEtag(raw);
+  } catch {
+    throw new GitHubRestReadError("MALFORMED_RESPONSE");
+  }
+}
+
+function conditionalCacheKey(
+  scope: GitHubInstallationReadScope,
+  request: GitHubReadRequest,
+  url: URL,
+): string {
+  const repositories = [...scope.repositories].map((repository) => repository.toLowerCase()).sort();
+  const permissions = Object.entries(scope.permissions).sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify([
+    scope.installationId,
+    repositories,
+    permissions,
+    request.repository.toLowerCase(),
+    request.requiredPermission,
+    url.href,
+  ]);
+}
+
+function cacheableBody(body: unknown): { readonly body: unknown; readonly bodyBytes: number } | null {
+  try {
+    const serialized = JSON.stringify(body);
+    const bodyBytes = new TextEncoder().encode(serialized).byteLength;
+    if (bodyBytes > GITHUB_REST_CONDITIONAL_CACHE_MAX_BODY_BYTES) return null;
+    return { body: JSON.parse(serialized) as unknown, bodyBytes };
+  } catch {
+    return null;
+  }
 }
 
 function retryAfter(headers: Headers, observedAtMs: number): string | null {
@@ -346,12 +455,14 @@ export function createGitHubRestReadTransport(
   options: GitHubRestReadTransportOptions = {},
 ): GitHubInstallationReadTransport {
   const maxRequests = normalizeMaxRequests(options.maxRequests);
+  const conditionalCache = options.conditionalCache;
 
   return {
     async get<T>(
       scopeInput: GitHubInstallationReadScope,
       requestInput: GitHubReadRequest,
       observedAt: string,
+      readOptions: GitHubReadOptions = {},
     ): Promise<GitHubReadResult<T>> {
       const observedAtMs = parseObservedAt(observedAt);
 
@@ -362,6 +473,14 @@ export function createGitHubRestReadTransport(
         throw new GitHubRestReadError("INVALID_REQUEST");
       }
       const request = normalizeRequest(scope, requestInput);
+      if (
+        Object.keys(readOptions).some((key) => key !== "cacheMode") ||
+        (readOptions.cacheMode !== undefined && readOptions.cacheMode !== "READ_ONLY_CONDITIONAL") ||
+        (readOptions.cacheMode === "READ_ONLY_CONDITIONAL" && conditionalCache === undefined)
+      ) {
+        throw new GitHubRestReadError("INVALID_REQUEST");
+      }
+      const useConditionalCache = readOptions.cacheMode === "READ_ONLY_CONDITIONAL";
       let currentUrl = initialUrl(request);
 
       let session: GitHubInstallationAuthorizedReadSession;
@@ -381,12 +500,23 @@ export function createGitHubRestReadTransport(
       const visited = new Set<string>();
       let requestCount = 0;
       let lastRateLimit: GitHubRateLimitEvidence | null = null;
+      const pageOutcomes: GitHubReadPageOutcome[] = [];
 
       while (true) {
         if (visited.has(currentUrl.href)) throw new GitHubRestReadError("PAGINATION_CYCLE");
         if (requestCount >= maxRequests) throw new GitHubRestReadError("PAGINATION_BUDGET_EXHAUSTED");
         visited.add(currentUrl.href);
 
+        const cacheKey = conditionalCacheKey(scope, request, currentUrl);
+        const cached = useConditionalCache ? conditionalCache?.get(cacheKey) ?? null : null;
+        let cachedValidator: string | null = null;
+        if (cached !== null) {
+          try {
+            cachedValidator = normalizeGitHubEtag(cached.validator);
+          } catch {
+            throw new GitHubRestReadError("MALFORMED_RESPONSE");
+          }
+        }
         let response: Response;
         try {
           response = await session.execute({
@@ -395,18 +525,62 @@ export function createGitHubRestReadTransport(
             accept: GITHUB_REST_ACCEPT,
             apiVersion: GITHUB_REST_API_VERSION,
             redirect: "manual",
+            ...(cachedValidator === null ? {} : { ifNoneMatch: cachedValidator }),
           });
         } catch {
           throw new GitHubRestReadError("TRANSPORT_FAILURE");
         }
         requestCount += 1;
 
-        const rateLimit = parseRateLimitEvidence(response.headers);
+        const rateLimit = parseGitHubRateLimitEvidence(response.headers);
         if (rateLimit !== null) lastRateLimit = rateLimit;
-        assertSuccessfulStatus(response, observedAtMs, rateLimit);
-        pages.push(await parseJsonPage<T>(response));
+        let next: URL | null;
+        if (response.status === 304) {
+          if (!useConditionalCache || cached === null) {
+            throw new GitHubRestReadError("MALFORMED_RESPONSE", { status: response.status });
+          }
+          const validator = responseEtag(response.headers) ?? cachedValidator;
+          if (validator === null || validator !== cachedValidator) {
+            throw new GitHubRestReadError("MALFORMED_RESPONSE", { status: response.status });
+          }
+          pages.push(structuredClone(cached.body) as T);
+          pageOutcomes.push({ kind: "NOT_MODIFIED", validator });
+          if (cached.nextUrl === null) {
+            next = null;
+          } else {
+            try {
+              next = new URL(cached.nextUrl);
+            } catch {
+              throw new GitHubRestReadError("MALFORMED_RESPONSE", { status: response.status });
+            }
+            assertRepositoryUrl(next, request.repository);
+          }
+        } else {
+          assertSuccessfulStatus(response, observedAtMs, rateLimit);
+          const page = await parseJsonPage<T>(response);
+          pages.push(page);
+          next = nextLink(response.headers, request.repository);
+          const validator = responseEtag(response.headers);
+          pageOutcomes.push({ kind: "OK", validator });
+          if (useConditionalCache) {
+            if (validator === null) {
+              conditionalCache?.delete(cacheKey);
+            } else {
+              const cachedBody = cacheableBody(page);
+              if (cachedBody === null) {
+                conditionalCache?.delete(cacheKey);
+              } else {
+                conditionalCache?.set(cacheKey, {
+                  validator,
+                  body: cachedBody.body,
+                  nextUrl: next?.href ?? null,
+                  bodyBytes: cachedBody.bodyBytes,
+                });
+              }
+            }
+          }
+        }
 
-        const next = nextLink(response.headers, request.repository);
         if (next === null) break;
         if (visited.has(next.href)) throw new GitHubRestReadError("PAGINATION_CYCLE");
         if (requestCount >= maxRequests) throw new GitHubRestReadError("PAGINATION_BUDGET_EXHAUSTED");
@@ -418,6 +592,7 @@ export function createGitHubRestReadTransport(
         credentialLease: session.credentialLease,
         requestCount,
         rateLimit: lastRateLimit,
+        pageOutcomes,
       };
     },
   };

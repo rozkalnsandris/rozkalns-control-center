@@ -19,6 +19,7 @@ import {
 import {
   GITHUB_REST_ACCEPT,
   GITHUB_REST_ORIGIN,
+  normalizeGitHubEtag,
   type GitHubAuthorizedRestGet,
   type GitHubInstallationAuthorizedReadSession,
   type GitHubInstallationAuthorizedReadSessionProvider,
@@ -355,6 +356,13 @@ function assertAuthorizedReadRequest(request: GitHubAuthorizedRestGet, scope: Gi
   ) {
     throw new GitHubAppSessionError("READ_REQUEST_INVALID");
   }
+  if (request.ifNoneMatch !== undefined) {
+    try {
+      normalizeGitHubEtag(request.ifNoneMatch);
+    } catch {
+      throw new GitHubAppSessionError("READ_REQUEST_INVALID");
+    }
+  }
 
   let url: URL;
   try {
@@ -389,14 +397,16 @@ function createAuthorizedReadSession(
     async execute(request: GitHubAuthorizedRestGet): Promise<Response> {
       const url = assertAuthorizedReadRequest(request, scope);
       try {
+        const headers = new Headers({
+          Accept: GITHUB_REST_ACCEPT,
+          Authorization: `Bearer ${rawCredential}`,
+          "X-GitHub-Api-Version": GITHUB_REST_API_VERSION,
+        });
+        if (request.ifNoneMatch !== undefined) headers.set("If-None-Match", request.ifNoneMatch);
         return await fetchRequest(
           new Request(url.href, {
             method: "GET",
-            headers: {
-              Accept: GITHUB_REST_ACCEPT,
-              Authorization: `Bearer ${rawCredential}`,
-              "X-GitHub-Api-Version": GITHUB_REST_API_VERSION,
-            },
+            headers,
             redirect: "manual",
           }),
         );

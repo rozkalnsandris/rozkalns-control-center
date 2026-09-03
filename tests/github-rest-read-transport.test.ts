@@ -8,8 +8,11 @@ import {
 } from "../src/integrations/github/app-installation-read-contract.js";
 import {
   GITHUB_REST_ACCEPT,
+  GITHUB_REST_CONDITIONAL_CACHE_MAX_BODY_BYTES,
+  GITHUB_REST_CONDITIONAL_CACHE_MAX_ENTRIES,
   GITHUB_REST_ORIGIN,
   GitHubRestReadError,
+  createGitHubRestConditionalCache,
   createGitHubRestReadTransport,
   type GitHubAuthorizedRestGet,
 } from "../src/integrations/github/rest-read-transport.js";
@@ -73,6 +76,165 @@ function scriptedTransport(responses: readonly Response[], options: { maxRequest
   }), options);
   return { transport, seen };
 }
+
+test("reuses an identity-bound cached body only after a typed ETag 304", async () => {
+  const cache = createGitHubRestConditionalCache();
+  const seen: GitHubAuthorizedRestGet[] = [];
+  const responses = [
+    jsonResponse([{ number: 1 }], { headers: { etag: '"etag-one"' } }),
+    new Response(null, { status: 304, headers: { etag: '"etag-one"' } }),
+  ];
+  const transport = createGitHubRestReadTransport(
+    async () => ({
+      credentialLease: lease,
+      async execute(request) {
+        seen.push(request);
+        const response = responses.shift();
+        if (!response) throw new Error("script exhausted");
+        return response;
+      },
+    }),
+    { conditionalCache: cache },
+  );
+
+  const first = await transport.get<readonly { number: number }[]>(
+    scope,
+    pullRequest(),
+    observedAt,
+    { cacheMode: "READ_ONLY_CONDITIONAL" },
+  );
+  const second = await transport.get<readonly { number: number }[]>(
+    scope,
+    pullRequest(),
+    observedAt,
+    { cacheMode: "READ_ONLY_CONDITIONAL" },
+  );
+
+  assert.deepEqual(first.pages, [[{ number: 1 }]]);
+  assert.deepEqual(first.pageOutcomes, [{ kind: "OK", validator: '"etag-one"' }]);
+  assert.deepEqual(second.pages, [[{ number: 1 }]]);
+  assert.deepEqual(second.pageOutcomes, [{ kind: "NOT_MODIFIED", validator: '"etag-one"' }]);
+  assert.equal(seen[0]?.ifNoneMatch, undefined);
+  assert.equal(seen[1]?.ifNoneMatch, '"etag-one"');
+});
+
+test("conditional body cache enforces entry and per-body bounds", () => {
+  const cache = createGitHubRestConditionalCache();
+  cache.set("oversized", {
+    validator: '"oversized"',
+    body: null,
+    nextUrl: null,
+    bodyBytes: GITHUB_REST_CONDITIONAL_CACHE_MAX_BODY_BYTES + 1,
+  });
+  assert.equal(cache.get("oversized"), null);
+
+  for (let index = 0; index <= GITHUB_REST_CONDITIONAL_CACHE_MAX_ENTRIES; index += 1) {
+    cache.set(`entry-${index}`, {
+      validator: `"entry-${index}"`,
+      body: { index },
+      nextUrl: null,
+      bodyBytes: 16,
+    });
+  }
+  assert.equal(cache.get("entry-0"), null);
+  assert.deepEqual(cache.get(`entry-${GITHUB_REST_CONDITIONAL_CACHE_MAX_ENTRIES}`)?.body, {
+    index: GITHUB_REST_CONDITIONAL_CACHE_MAX_ENTRIES,
+  });
+});
+
+test("conditional cache keys include the exact endpoint query and reject an unbound 304", async () => {
+  const cache = createGitHubRestConditionalCache();
+  const responses = [
+    jsonResponse([{ number: 1 }], { headers: { etag: '"etag-one"' } }),
+    new Response(null, { status: 304 }),
+  ];
+  const seen: GitHubAuthorizedRestGet[] = [];
+  const transport = createGitHubRestReadTransport(
+    async () => ({
+      credentialLease: lease,
+      async execute(request) {
+        seen.push(request);
+        const response = responses.shift();
+        if (!response) throw new Error("script exhausted");
+        return response;
+      },
+    }),
+    { conditionalCache: cache },
+  );
+
+  await transport.get(scope, pullRequest("/repos/rozkalnsandris/hermes-tech/pulls?state=open"), observedAt, {
+    cacheMode: "READ_ONLY_CONDITIONAL",
+  });
+  const error = await captureReadError(() =>
+    transport.get(scope, pullRequest("/repos/rozkalnsandris/hermes-tech/pulls?state=closed"), observedAt, {
+      cacheMode: "READ_ONLY_CONDITIONAL",
+    }),
+  );
+
+  assert.equal(error.code, "MALFORMED_RESPONSE");
+  assert.equal(seen[1]?.ifNoneMatch, undefined);
+});
+
+test("conditional pagination revalidates and reuses every exact cached page", async () => {
+  const cache = createGitHubRestConditionalCache();
+  const pageTwo = `${GITHUB_REST_ORIGIN}/repos/rozkalnsandris/hermes-tech/pulls?per_page=1&page=2`;
+  const responses = [
+    jsonResponse([{ number: 1 }], {
+      headers: { etag: '"page-one"', link: `<${pageTwo}>; rel="next"` },
+    }),
+    jsonResponse([{ number: 2 }], { headers: { etag: 'W/"page-two"' } }),
+    new Response(null, { status: 304 }),
+    new Response(null, { status: 304 }),
+  ];
+  const seen: GitHubAuthorizedRestGet[] = [];
+  const transport = createGitHubRestReadTransport(
+    async () => ({
+      credentialLease: lease,
+      async execute(request) {
+        seen.push(request);
+        const response = responses.shift();
+        if (!response) throw new Error("script exhausted");
+        return response;
+      },
+    }),
+    { conditionalCache: cache },
+  );
+  const request = pullRequest("/repos/rozkalnsandris/hermes-tech/pulls?per_page=1&page=1");
+
+  await transport.get(scope, request, observedAt, { cacheMode: "READ_ONLY_CONDITIONAL" });
+  const reused = await transport.get<readonly { number: number }[]>(scope, request, observedAt, {
+    cacheMode: "READ_ONLY_CONDITIONAL",
+  });
+
+  assert.deepEqual(reused.pages, [[{ number: 1 }], [{ number: 2 }]]);
+  assert.deepEqual(reused.pageOutcomes, [
+    { kind: "NOT_MODIFIED", validator: '"page-one"' },
+    { kind: "NOT_MODIFIED", validator: 'W/"page-two"' },
+  ]);
+  assert.equal(seen[2]?.ifNoneMatch, '"page-one"');
+  assert.equal(seen[3]?.ifNoneMatch, 'W/"page-two"');
+});
+
+test("rejects malformed returned ETag validators and conditional mode without a bounded cache", async () => {
+  const malformed = createGitHubRestReadTransport(async () => ({
+    credentialLease: lease,
+    execute: async () => jsonResponse([], { headers: { etag: "unquoted" } }),
+  }), { conditionalCache: createGitHubRestConditionalCache() });
+  assert.equal(
+    (await captureReadError(() => malformed.get(scope, pullRequest(), observedAt, {
+      cacheMode: "READ_ONLY_CONDITIONAL",
+    }))).code,
+    "MALFORMED_RESPONSE",
+  );
+
+  const unbounded = scriptedTransport([jsonResponse([])]).transport;
+  assert.equal(
+    (await captureReadError(() => unbounded.get(scope, pullRequest(), observedAt, {
+      cacheMode: "READ_ONLY_CONDITIONAL",
+    }))).code,
+    "INVALID_REQUEST",
+  );
+});
 
 async function captureReadError(action: () => Promise<unknown>): Promise<GitHubRestReadError> {
   let caught: unknown;

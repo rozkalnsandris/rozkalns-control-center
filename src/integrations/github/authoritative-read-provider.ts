@@ -58,6 +58,7 @@ export interface GitHubAuthoritativeReadProviderOptions {
   readonly observedAt: string;
   readonly restTransport: GitHubInstallationReadTransport;
   readonly graphqlMergeStateTransport: GitHubGraphqlMergeStateTransport;
+  readonly restReadMode?: "AUTHORITATIVE_LIVE" | "READ_ONLY_CONDITIONAL";
 }
 
 export interface GitHubAuthoritativePullRequestSnapshotOptions
@@ -186,6 +187,7 @@ export function createGitHubAuthoritativeReadProvider(
   const observedAt = normalizeObservedAt(options.observedAt);
   const restTransport = options.restTransport;
   const graphqlMergeStateTransport = options.graphqlMergeStateTransport;
+  const restReadMode = options.restReadMode ?? "AUTHORITATIVE_LIVE";
 
   async function restPages(
     repositoryInput: string,
@@ -199,7 +201,16 @@ export function createGitHubAuthoritativeReadProvider(
     } catch {
       throw new GitHubAuthoritativeReadProviderError("INVALID_REQUEST");
     }
-    return (await restTransport.get<unknown>(scope, request, observedAt)).pages;
+    return (
+      await restTransport.get<unknown>(
+        scope,
+        request,
+        observedAt,
+        restReadMode === "READ_ONLY_CONDITIONAL"
+          ? { cacheMode: "READ_ONLY_CONDITIONAL" }
+          : undefined,
+      )
+    ).pages;
   }
 
   return {

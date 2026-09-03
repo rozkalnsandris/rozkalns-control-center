@@ -328,3 +328,32 @@ test("authorized session rejects off-origin and out-of-scope reads before HTTP",
   }
   assert.equal(fetchCount, 1);
 });
+
+test("authorized session owns the validated If-None-Match header", async () => {
+  const requests: Request[] = [];
+  const provider = createGitHubAppInstallationSessionProvider({
+    identity: { clientId: "control-client" },
+    signer: signer(),
+    fetchRequest: async (request) => {
+      requests.push(request.clone());
+      return request.method === "POST" ? jsonResponse(tokenPayload()) : new Response(null, { status: 304 });
+    },
+  });
+  const session = await provider(scope(), observedAt);
+  const authorizedRequest = {
+    method: "GET",
+    url: "https://api.github.com/repos/rozkalnsandris/hermes-tech/pulls/42",
+    accept: GITHUB_REST_ACCEPT,
+    apiVersion: GITHUB_REST_API_VERSION,
+    redirect: "manual",
+  } as const;
+
+  const response = await session.execute({ ...authorizedRequest, ifNoneMatch: 'W/"safe-validator"' });
+  assert.equal(response.status, 304);
+  assert.equal(requests[1]?.headers.get("if-none-match"), 'W/"safe-validator"');
+  await assert.rejects(
+    () => session.execute({ ...authorizedRequest, ifNoneMatch: "malformed\r\nheader" }),
+    (error) => errorCode(error) === "READ_REQUEST_INVALID",
+  );
+  assert.equal(requests.length, 2);
+});

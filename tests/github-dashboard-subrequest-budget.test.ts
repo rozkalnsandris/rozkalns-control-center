@@ -30,7 +30,16 @@ function signer(): GitHubAppJwtSigner {
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...(status === 200 ? {
+        "x-ratelimit-limit": "5000",
+        "x-ratelimit-remaining": "4500",
+        "x-ratelimit-used": "500",
+        "x-ratelimit-reset": "1788444000",
+        "x-ratelimit-resource": "core",
+      } : {}),
+    },
   });
 }
 
@@ -180,6 +189,15 @@ test("dashboard reuses one exact-six-repository token and stays well below the C
   assert.equal(snapshot.decisions.some((decision) => decision.workflowState === "MERGE_READY"), false);
   assert.equal(snapshot.decisions.some((decision) => decision.allowedActions.includes("MERGE")), false);
   assert.equal(snapshot.decisions.some((decision) => decision.allowedActions.includes("NEEDS_CHANGES")), false);
+  assert.deepEqual(snapshot.githubRateLimitHealth, {
+    status: "HEALTHY",
+    limit: 5000,
+    remaining: 4500,
+    used: 500,
+    resetAt: "2026-09-03T14:00:00.000Z",
+    resource: "core",
+    observedAt: OBSERVED_AT,
+  });
 });
 
 test("dashboard fails closed instead of paginating beyond the bounded GraphQL snapshot", async () => {
