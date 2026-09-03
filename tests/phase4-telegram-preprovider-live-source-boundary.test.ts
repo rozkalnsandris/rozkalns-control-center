@@ -49,7 +49,7 @@ test("Telegram Gate A keeps Queue paused and provider delivery explicitly outsid
   assert.match(workflow, /queue_create_count=1/);
   assert.match(workflow, /queue_pause_count=1/);
   assert.match(workflow, /queue_consumer_count=1/);
-  assert.match(workflow, /delivery_paused\":true/);
+  assert.match(workflow, /delivery_paused":true/);
   assert.match(workflow, /QUEUE_UNPAUSED_PREPROMOTION/);
   assert.match(workflow, /FINAL_QUEUE_NOT_PAUSED/);
   assert.match(workflow, /PROVIDER_RESUME_COUNT=0/);
