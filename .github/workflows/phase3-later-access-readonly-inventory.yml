@@ -96,6 +96,7 @@ jobs:
           printf 'ACCESS_READ_REQUIRED_SCOPE=Access_Apps_and_Policies_Read\n'
           printf 'TARGET_HOST=%s\n' "$TARGET_HOST"
           printf 'TARGET_PATH=%s\n' "$TARGET_PATH"
+          printf 'ACCESS_MATCH_MODE=HOST_OVERLAP_FOR_TARGET_PATH_REVIEW\n'
 
           tmp="${RUNNER_TEMP}/phase3-later-access-inventory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           mkdir -p "$tmp"
@@ -190,49 +191,68 @@ jobs:
 
           const [inputPath, outputPath] = process.argv.slice(2);
           const targetHost = process.env.TARGET_HOST.toLowerCase();
-          const targetPath = process.env.TARGET_PATH.replace(/^\/+/, '');
-          const targetSegments = targetPath === '' ? [] : targetPath.split('/');
           const lines = fs.readFileSync(inputPath, 'utf8').split('\n').filter(Boolean);
 
-          const wildcardSegmentMatches = (pattern, value, separator) => {
-            const escaped = pattern
-              .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-              .replace(/\*/g, separator === '.' ? '[^.]*' : '[^/]*');
-            return new RegExp(`^${escaped}$`, 'i').test(value);
+          const normalizePublicUri = (value) => {
+            if (typeof value !== 'string') return '';
+            let normalized = value.trim();
+            if (normalized.length === 0 || normalized.length > 512) return '';
+            normalized = normalized.replace(/^https?:\/\//i, '');
+            while (normalized.endsWith('/') && normalized !== '/') normalized = normalized.slice(0, -1);
+            const wholeSiteWildcard = normalized.match(/^([^/]+)\/\*$/);
+            if (wholeSiteWildcard) normalized = wholeSiteWildcard[1];
+            return normalized;
           };
 
-          const domainMatches = (domain) => {
-            if (typeof domain !== 'string' || domain.length === 0 || domain.length > 512) return false;
-            const normalized = domain.replace(/^https?:\/\//i, '').replace(/^\/+/, '');
-            const slash = normalized.indexOf('/');
-            const hostPattern = (slash === -1 ? normalized : normalized.slice(0, slash)).toLowerCase();
-            const pathPattern = slash === -1 ? '' : normalized.slice(slash + 1).replace(/\/+$/, '');
-            const hostParts = hostPattern.split('.');
-            const targetHostParts = targetHost.split('.');
-            if (hostParts.length !== targetHostParts.length) return false;
-            if (!hostParts.every((part, index) => wildcardSegmentMatches(part, targetHostParts[index], '.'))) return false;
-            if (pathPattern === '') return true;
-            const patternSegments = pathPattern.split('/');
-            if (targetSegments.length < patternSegments.length) return false;
-            return patternSegments.every((part, index) => wildcardSegmentMatches(part, targetSegments[index], '/'));
+          const isPublicDestination = (destination) => {
+            if (!destination || typeof destination !== 'object') return false;
+            if (destination.type !== undefined && destination.type !== 'public') return false;
+            return typeof destination.uri === 'string';
+          };
+
+          const publicUris = (app) => {
+            const destinations = app?.destinations;
+            if (Array.isArray(destinations) && destinations.length > 0) {
+              if (destinations.length > 20) throw new Error('ACCESS_APP_DESTINATION_COUNT_UNBOUNDED');
+              return destinations
+                .filter(isPublicDestination)
+                .map((destination) => normalizePublicUri(destination?.uri))
+                .filter(Boolean);
+            }
+            const legacyDomain = normalizePublicUri(app?.domain);
+            return legacyDomain ? [legacyDomain] : [];
+          };
+
+          const hostCoversTarget = (uri) => {
+            const slash = uri.indexOf('/');
+            const host = (slash === -1 ? uri : uri.slice(0, slash)).toLowerCase();
+            if (host === targetHost) return true;
+            if (!host.startsWith('*.')) return false;
+            const suffix = host.slice(2);
+            if (!suffix || suffix.includes('*')) return false;
+            const targetLabels = targetHost.split('.');
+            const suffixLabels = suffix.split('.');
+            return targetLabels.length === suffixLabels.length + 1 && targetLabels.slice(1).join('.') === suffix;
           };
 
           const candidates = [];
           for (const line of lines) {
             const app = JSON.parse(line);
-            if (!domainMatches(app?.domain)) continue;
+            const uris = publicUris(app);
+            if (!uris.some(hostCoversTarget)) continue;
             const id = typeof app.id === 'string' ? app.id : '';
             if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error('ACCESS_APP_ID_INVALID');
             candidates.push({
               id,
               name: typeof app.name === 'string' ? app.name : '',
               type: typeof app.type === 'string' ? app.type : '',
-              domain: app.domain,
+              domain: typeof app.domain === 'string' ? app.domain : '',
               aud: typeof app.aud === 'string' ? app.aud : '',
+              publicUris: uris,
             });
           }
 
-          candidates.sort((a, b) => b.domain.length - a.domain.length || a.id.localeCompare(b.id));
+          candidates.sort((a, b) => a.id.localeCompare(b.id));
           fs.writeFileSync(outputPath, JSON.stringify(candidates));
           NODE
 
@@ -250,6 +270,7 @@ jobs:
             app_type="$(jq -r ".[$candidate_index].type" "$tmp/candidates.json")"
             app_domain="$(jq -r ".[$candidate_index].domain" "$tmp/candidates.json")"
             app_aud="$(jq -r ".[$candidate_index].aud" "$tmp/candidates.json")"
+            public_uri_count="$(jq ".[$candidate_index].publicUris | length" "$tmp/candidates.json")"
 
             printf 'ACCESS_APP_%s_ID=%s\n' "$ordinal" "$(sanitize_diag "$app_id")"
             printf 'ACCESS_APP_%s_NAME=%s\n' "$ordinal" "$(sanitize_diag "$app_name")"
@@ -260,6 +281,14 @@ jobs:
             else
               printf 'ACCESS_APP_%s_AUD=NONE\n' "$ordinal"
             fi
+            [[ "$public_uri_count" =~ ^[0-9]+$ ]] || stop ACCESS_PUBLIC_URI_COUNT_INVALID
+            [ "$public_uri_count" -le 20 ] || stop ACCESS_PUBLIC_URI_COUNT_UNBOUNDED
+            printf 'ACCESS_APP_%s_PUBLIC_URI_COUNT=%s\n' "$ordinal" "$public_uri_count"
+            for public_uri_index in $(seq 0 $((public_uri_count - 1))); do
+              public_uri_ordinal=$((public_uri_index + 1))
+              public_uri="$(jq -r ".[$candidate_index].publicUris[$public_uri_index]" "$tmp/candidates.json")"
+              printf 'ACCESS_APP_%s_PUBLIC_URI_%s=%s\n' "$ordinal" "$public_uri_ordinal" "$(sanitize_diag "$public_uri")"
+            done
 
             policies_file="$tmp/policies-${ordinal}.ndjson"
             fetch_paginated "/access/apps/${app_id}/policies" "$policies_file" "ACCESS_APP_${ordinal}_POLICIES"
