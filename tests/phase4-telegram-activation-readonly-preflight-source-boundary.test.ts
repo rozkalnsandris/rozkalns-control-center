@@ -28,6 +28,12 @@ test("Telegram activation preflight is manual, main-only, and read-only", () => 
   assert.match(workflow, /FINAL_MAIN_SHA_DRIFT/);
 
   assert.match(workflow, /DISPATCH_QUEUE_NAME:\s*rozkalns-control-notification-dispatch/);
+  assert.match(workflow, /CONTROL_ORIGIN:\s*https:\/\/control\.rozkalns\.net/);
+  assert.match(workflow, /EXPECTED_TARGET_KEY:\s*primary/);
+  assert.match(
+    workflow,
+    /EXPECTED_RETRY_POLICY_JSON:\s*'\{"schemaVersion":1,"maxAttempts":2,"retryDelaysSeconds":\[60\]\}'/,
+  );
   assert.match(workflow, /\/workers\/scripts\/\$\{WORKER_NAME\}\/deployments/);
   assert.match(workflow, /\/workers\/scripts\/\$\{WORKER_NAME\}\/versions\/\$\{current_version\}/);
   assert.match(workflow, /\/queues\?per_page=100&page=1/);
@@ -56,6 +62,13 @@ test("Telegram activation preflight is manual, main-only, and read-only", () => 
   assert.match(workflow, /CONTROL_NOTIFICATION_CONTROL_ORIGIN/);
   assert.match(workflow, /NOTIFICATION_DISPATCH_QUEUE/);
 
+  assert.match(workflow, /--arg target "\$EXPECTED_TARGET_KEY"/);
+  assert.match(workflow, /\(\$targets == \[\$target\]\)/);
+  assert.match(workflow, /\(\$targetBinding\.text == \$target\)/);
+  assert.match(workflow, /--arg expected "\$EXPECTED_RETRY_POLICY_JSON"/);
+  assert.match(workflow, /\(\$expected \| fromjson\) as \$expectedRetry/);
+  assert.match(workflow, /\(\$retry == \$expectedRetry\)/);
+
   assert.match(workflow, /TRANSITION_OPT_IN=MISSING/);
   assert.match(workflow, /TRANSITION_OPT_IN=ENABLED/);
   assert.match(workflow, /TRANSITION_OPT_IN=INVALID/);
@@ -65,6 +78,7 @@ test("Telegram activation preflight is manual, main-only, and read-only", () => 
   assert.match(workflow, /TARGET_CONTRACT=MISSING/);
   assert.match(workflow, /TARGET_CONTRACT=VALID_SINGLE_TELEGRAM_TARGET/);
   assert.match(workflow, /TARGET_CONTRACT=INVALID/);
+  assert.match(workflow, /TARGET_KEY=%s/);
   assert.match(workflow, /RETRY_POLICY=MISSING/);
   assert.match(workflow, /RETRY_POLICY=VALID/);
   assert.match(workflow, /RETRY_POLICY=INVALID/);
