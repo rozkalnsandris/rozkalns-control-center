@@ -39,26 +39,40 @@ test("inventory uses only GET semantics for Access applications and policies", a
   assert.match(text, /fetch_paginated '\/access\/apps'/);
   assert.match(text, /fetch_paginated "\/access\/apps\/\$\{app_id\}\/policies"/);
   assert.match(text, /api\.cloudflare\.com\/client\/v4\/accounts\/\$\{CF_ACCOUNT_ID\}\$\{path\}/);
-  assert.doesNotMatch(text, /-X (?:POST|PUT|PATCH|DELETE)/);
-  assert.doesNotMatch(text, /--data(?:-raw|-binary)?\b|-d\s/);
-  assert.doesNotMatch(text, /\/api\/github\/later"/);
+
+  const accessGetStart = text.indexOf("cf_access_get() {");
+  const accessGetEnd = text.indexOf("fetch_paginated() {", accessGetStart);
+  assert.ok(accessGetStart >= 0 && accessGetEnd > accessGetStart, "bounded cf_access_get helper not found");
+  const accessGet = text.slice(accessGetStart, accessGetEnd);
+  assert.doesNotMatch(accessGet, /-X (?:POST|PUT|PATCH|DELETE)/);
+  assert.doesNotMatch(accessGet, /--data(?:-raw|-binary)?\b/);
+  assert.doesNotMatch(accessGet, /(?:^|\s)-d(?:\s|$)/m);
+
+  assert.doesNotMatch(text, /CONTROL_ORIGIN|CF-Access-Client-Id|CF-Access-Client-Secret/);
   assert.match(text, /ACCESS_API_METHOD=GET/);
 });
 
-test("candidate matching covers host wildcards, path prefixes and specific-path evidence", async () => {
+test("candidate inventory mirrors canonical modern destination and host-wildcard semantics", async () => {
   const text = await source();
   assert.match(text, /targetHost = process\.env\.TARGET_HOST\.toLowerCase\(\)/);
-  assert.match(text, /targetPath = process\.env\.TARGET_PATH\.replace/);
-  assert.match(text, /wildcardSegmentMatches/);
-  assert.match(text, /hostParts\.length !== targetHostParts\.length/);
-  assert.match(text, /targetSegments\.length < patternSegments\.length/);
-  assert.match(text, /patternSegments\.every/);
-  assert.match(text, /candidates\.sort\(\(a, b\) => b\.domain\.length - a\.domain\.length/);
+  assert.match(text, /const destinations = app\?\.destinations/);
+  assert.match(text, /Array\.isArray\(destinations\) && destinations\.length > 0/);
+  assert.match(text, /destination\.type !== undefined && destination\.type !== 'public'/);
+  assert.match(text, /const wholeSiteWildcard = normalized\.match\(\/\^\(\[\^\/\]\+\)\\\/\\\*\$\//);
+  assert.match(text, /const legacyDomain = normalizePublicUri\(app\?\.domain\)/);
+  assert.match(text, /if \(host === targetHost\) return true/);
+  assert.match(text, /if \(!host\.startsWith\('\*\.'\)\) return false/);
+  assert.match(text, /targetLabels\.length === suffixLabels\.length \+ 1/);
+  assert.match(text, /targetLabels\.slice\(1\)\.join\('\.'\) === suffix/);
+  assert.match(text, /const uris = publicUris\(app\)/);
+  assert.match(text, /if \(!uris\.some\(hostCoversTarget\)\) continue/);
+  assert.match(text, /ACCESS_MATCH_MODE=HOST_OVERLAP_FOR_TARGET_PATH_REVIEW/);
+  assert.doesNotMatch(text, /domainMatches\(app\?\.domain\)/);
   assert.match(text, /NO_MATCHING_ACCESS_APPLICATION/);
   assert.match(text, /ACCESS_APP_CANDIDATE_COUNT_UNBOUNDED/);
 });
 
-test("receipt exposes bounded app AUD and policy precedence without raw responses", async () => {
+test("receipt exposes bounded public destinations, app AUD and policy precedence without raw responses", async () => {
   const text = await source();
   for (const expected of [
     "MATCHING_ACCESS_APP_COUNT",
@@ -67,6 +81,8 @@ test("receipt exposes bounded app AUD and policy precedence without raw response
     "ACCESS_APP_%s_TYPE",
     "ACCESS_APP_%s_DOMAIN",
     "ACCESS_APP_%s_AUD",
+    "ACCESS_APP_%s_PUBLIC_URI_COUNT",
+    "ACCESS_APP_%s_PUBLIC_URI_%s",
     "ACCESS_APP_%s_POLICY_COUNT",
     "ACCESS_APP_%s_POLICY_%s_ID",
     "ACCESS_APP_%s_POLICY_%s_NAME",
@@ -75,6 +91,8 @@ test("receipt exposes bounded app AUD and policy precedence without raw response
     "MATCHING_ACCESS_POLICY_TOTAL_COUNT",
   ]) assert.ok(text.includes(expected), `missing ${expected}`);
 
+  assert.match(text, /ACCESS_APP_DESTINATION_COUNT_UNBOUNDED/);
+  assert.match(text, /ACCESS_PUBLIC_URI_COUNT_UNBOUNDED/);
   assert.match(text, /sanitize_diag\(\)/);
   assert.match(text, /cut -c1-200/);
   assert.doesNotMatch(text, /cat\s+"?\$tmp\/(?:apps|policies)/);
