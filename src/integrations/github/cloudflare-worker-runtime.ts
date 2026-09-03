@@ -29,6 +29,7 @@ import {
   createGitHubCredentialDiagnosticGraphqlTransport,
   createGitHubCredentialDiagnosticRestTransport,
 } from "./credential-stage-diagnostics.js";
+import type { GitHubRestConditionalCache } from "./rest-read-transport.js";
 
 export const GITHUB_APP_PRIVATE_KEY_SECRET_NAME = "GITHUB_APP_PRIVATE_KEY_PEM" as const;
 export const GITHUB_APP_CLIENT_ID_BINDING_NAME = "GITHUB_APP_CLIENT_ID" as const;
@@ -80,13 +81,18 @@ export interface CloudflareGitHubNeedsChangesReadContext extends CloudflareGitHu
 export interface CloudflareGitHubReadRuntime {
   readonly clientId: string;
   readonly installationId: number;
-  createRepositoryReadContext(repository: string, observedAt: string): CloudflareGitHubRepositoryReadContext;
+  createRepositoryReadContext(
+    repository: string,
+    observedAt: string,
+    options?: { readonly purpose?: "AUTHORITATIVE_LIVE" | "READ_ONLY_CONDITIONAL" },
+  ): CloudflareGitHubRepositoryReadContext;
   createRepositoryNeedsChangesReadContext(repository: string, observedAt: string): CloudflareGitHubNeedsChangesReadContext;
 }
 
 export interface CloudflareGitHubReadRuntimeOptions {
   readonly bindings: CloudflareGitHubRuntimeBindings;
   readonly fetchRequest?: GitHubAppCredentialFetch;
+  readonly conditionalCache?: GitHubRestConditionalCache;
 }
 
 function invalidBinding(): never {
@@ -197,7 +203,9 @@ export function createCloudflareGitHubReadRuntime(
   const graphqlSessionProvider = memoizeGitHubInstallationSessionProvider(
     createGitHubAppInstallationGraphqlSessionProvider(dependencies),
   );
-  const restTransport = createGitHubCredentialDiagnosticRestTransport(restSessionProvider);
+  const restTransport = options.conditionalCache === undefined
+    ? createGitHubCredentialDiagnosticRestTransport(restSessionProvider)
+    : createGitHubCredentialDiagnosticRestTransport(restSessionProvider, options.conditionalCache);
   const graphqlMergeStateTransport = createGitHubCredentialDiagnosticGraphqlTransport(graphqlSessionProvider);
 
   const approvedRolloutScope = buildPhase2GitHubReadScopeForStage(installationId, "actions");
@@ -211,6 +219,7 @@ export function createCloudflareGitHubReadRuntime(
     repositoryInput: string,
     observedAtInput: string,
     rolloutScope: GitHubInstallationReadScope = approvedRolloutScope,
+    restReadMode: "AUTHORITATIVE_LIVE" | "READ_ONLY_CONDITIONAL" = "AUTHORITATIVE_LIVE",
   ): {
     repository: string;
     observedAt: string;
@@ -230,6 +239,7 @@ export function createCloudflareGitHubReadRuntime(
       observedAt,
       restTransport,
       graphqlMergeStateTransport,
+      restReadMode,
     });
     const activeBranchRulesReader = createGitHubActiveBranchRulesReader({
       scope,
@@ -249,8 +259,25 @@ export function createCloudflareGitHubReadRuntime(
     clientId,
     installationId,
 
-    createRepositoryReadContext(repositoryInput: string, observedAtInput: string): CloudflareGitHubRepositoryReadContext {
-      const base = baseContext(repositoryInput, observedAtInput);
+    createRepositoryReadContext(
+      repositoryInput: string,
+      observedAtInput: string,
+      contextOptions = {},
+    ): CloudflareGitHubRepositoryReadContext {
+      if (
+        Object.keys(contextOptions).some((key) => key !== "purpose") ||
+        (contextOptions.purpose !== undefined &&
+          contextOptions.purpose !== "AUTHORITATIVE_LIVE" &&
+          contextOptions.purpose !== "READ_ONLY_CONDITIONAL")
+      ) {
+        throw new CloudflareGitHubRuntimeError("INVALID_CONTEXT");
+      }
+      const base = baseContext(
+        repositoryInput,
+        observedAtInput,
+        approvedRolloutScope,
+        contextOptions.purpose ?? "AUTHORITATIVE_LIVE",
+      );
       const branchPolicyReader: BranchPolicyEvidenceReader = {
         async readBranchPolicyEvidence(repositoryInputInner, branch, observedAtInner) {
           assertContext(repositoryInputInner, base.repository, observedAtInner, base.observedAt);

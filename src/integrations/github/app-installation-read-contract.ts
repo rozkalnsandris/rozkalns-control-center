@@ -49,11 +49,22 @@ export interface GitHubRateLimitEvidence {
   resource: string | null;
 }
 
+export type GitHubReadPageOutcome =
+  | { readonly kind: "OK"; readonly validator: string | null }
+  | { readonly kind: "NOT_MODIFIED"; readonly validator: string };
+
+export interface GitHubReadOptions {
+  /** Explicitly limited to dashboard/background reads; mutation preflight callers omit this. */
+  readonly cacheMode?: "READ_ONLY_CONDITIONAL";
+}
+
 export interface GitHubReadResult<T> {
   pages: readonly T[];
   credentialLease: GitHubCredentialLeaseEvidence;
   requestCount: number;
   rateLimit: GitHubRateLimitEvidence | null;
+  /** Present for the concrete REST transport; optional for detached test/provider adapters. */
+  pageOutcomes?: readonly GitHubReadPageOutcome[];
 }
 
 /**
@@ -62,7 +73,12 @@ export interface GitHubReadResult<T> {
  * High-privilege read scopes remain opt-in: Phase 2 rollout helpers never add administration.
  */
 export interface GitHubInstallationReadTransport {
-  get<T>(scope: GitHubInstallationReadScope, request: GitHubReadRequest, observedAt: string): Promise<GitHubReadResult<T>>;
+  get<T>(
+    scope: GitHubInstallationReadScope,
+    request: GitHubReadRequest,
+    observedAt: string,
+    options?: GitHubReadOptions,
+  ): Promise<GitHubReadResult<T>>;
 }
 
 const allowedPermissionNames = new Set<string>(githubInstallationReadPermissions);

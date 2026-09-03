@@ -8,9 +8,11 @@ import {
   type GitHubInstallationAuthorizedGraphqlQuerySessionProvider,
 } from "./graphql-merge-state-transport.js";
 import {
+  createGitHubRestConditionalCache,
   createGitHubRestReadTransport,
   GitHubRestReadError,
   type GitHubInstallationAuthorizedReadSessionProvider,
+  type GitHubRestConditionalCache,
   type GitHubRestReadFailureCode,
 } from "./rest-read-transport.js";
 
@@ -130,9 +132,10 @@ function tokenExchangeTransportFailure(error: GitHubAppSessionError): boolean {
 
 export function createGitHubCredentialDiagnosticRestTransport(
   acquireSession: GitHubInstallationAuthorizedReadSessionProvider,
+  conditionalCache: GitHubRestConditionalCache = createGitHubRestConditionalCache(),
 ): GitHubInstallationReadTransport {
   return {
-    async get(scope, request, observedAt) {
+    async get(scope, request, observedAt, options) {
       let session;
       try {
         session = await acquireSession(scope, observedAt);
@@ -149,8 +152,10 @@ export function createGitHubCredentialDiagnosticRestTransport(
         }
         throw new GitHubRestReadError("CREDENTIAL_UNAVAILABLE");
       }
-
-      return createGitHubRestReadTransport(async () => session).get(scope, request, observedAt);
+      return createGitHubRestReadTransport(
+        async () => session,
+        { conditionalCache },
+      ).get(scope, request, observedAt, options);
     },
   };
 }

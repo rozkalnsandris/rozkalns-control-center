@@ -1,4 +1,5 @@
 import type { ProductionVisibilityReadModel } from "./production-visibility.js";
+import type { GitHubRateLimitHealth } from "./github-rate-limit-health.js";
 
 export type WorkflowState =
   | "NEEDS_ANDRIS"
@@ -56,6 +57,7 @@ export interface ControlDashboardData {
   projects: ProjectReadModel[];
   decisions: DecisionReadModel[];
   productionVisibility?: ProductionVisibilityReadModel[];
+  githubRateLimitHealth?: GitHubRateLimitHealth;
 }
 
 export type ControlFixtureSet = ControlDashboardData;

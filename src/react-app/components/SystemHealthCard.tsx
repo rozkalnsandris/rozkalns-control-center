@@ -7,6 +7,7 @@ import {
   type WebhookDeliveryObservabilitySnapshot,
   type WebhookDeliveryObservabilityStatus,
 } from "../../shared/webhook-delivery-observability";
+import type { GitHubRateLimitHealth } from "../../shared/github-rate-limit-health";
 import { isAbortedControlRead, readControlJson } from "../read-only-fetch";
 import { StatusPill } from "./StatusPill";
 
@@ -14,6 +15,7 @@ type ObservabilityReadState = "LOADING" | "READY" | "STALE" | "FUTURE" | "INVALI
 
 interface SystemHealthCardProps {
   readonly refreshSequence: number;
+  readonly githubRateLimitHealth: GitHubRateLimitHealth | null;
 }
 
 interface ObservabilityReadResult {
@@ -61,7 +63,14 @@ function diagnosticLabel(diagnostic: WebhookDeliveryDiagnostic): string {
   return `${diagnostic.repository} · ${diagnostic.eventName} · ${timestampLabel(diagnostic.updatedAt)} UTC`;
 }
 
-export function SystemHealthCard({ refreshSequence }: SystemHealthCardProps) {
+function rateLimitDetail(health: GitHubRateLimitHealth | null): string {
+  if (!health || health.status === "UNKNOWN") return "GitHub API rate-limit evidence was not observed";
+  if (health.status === "EXHAUSTED") return `GitHub ${health.resource} requests are exhausted until ${timestampLabel(health.resetAt ?? "")} UTC`;
+  if (health.status === "ATTENTION") return `GitHub ${health.resource} requests are near exhaustion`;
+  return `GitHub ${health.resource} request capacity is healthy`;
+}
+
+export function SystemHealthCard({ refreshSequence, githubRateLimitHealth }: SystemHealthCardProps) {
   const [result, setResult] = useState<ObservabilityReadResult>({
     sequence: -1,
     state: "LOADING",
@@ -100,7 +109,11 @@ export function SystemHealthCard({ refreshSequence }: SystemHealthCardProps) {
   const readState: ObservabilityReadState =
     result.sequence === refreshSequence ? result.state : "LOADING";
   const displayedStatus: WebhookDeliveryObservabilityStatus =
-    readState === "READY" && snapshot ? snapshot.status : "ATTENTION";
+    readState === "READY" &&
+    snapshot &&
+    githubRateLimitHealth?.status === "HEALTHY"
+      ? snapshot.status
+      : "ATTENTION";
   const observed = snapshot ? `${timestampLabel(snapshot.observedAt)} UTC` : "Unknown";
 
   return (
@@ -110,11 +123,16 @@ export function SystemHealthCard({ refreshSequence }: SystemHealthCardProps) {
         <StatusPill label={displayedStatus} tone={statusTone(displayedStatus)} />
       </div>
       <p className="system-health__detail">{readDetail(readState, snapshot)}</p>
+      <p className="system-health__detail">{rateLimitDetail(githubRateLimitHealth)}</p>
       <dl className="system-health__metrics">
         <div><dt>Non-terminal</dt><dd>{snapshot?.nonTerminalCount ?? "—"}</dd></div>
         <div><dt>Stale</dt><dd>{snapshot?.staleEvidenceCount ?? "—"}</dd></div>
         <div><dt>Dead-lettered</dt><dd>{snapshot?.deadLetteredCount ?? "—"}</dd></div>
         <div><dt>Observed</dt><dd>{observed}</dd></div>
+        <div><dt>GitHub API</dt><dd>{githubRateLimitHealth?.status ?? "UNKNOWN"}</dd></div>
+        <div><dt>API remaining</dt><dd>{githubRateLimitHealth?.remaining ?? "—"}</dd></div>
+        <div><dt>API limit</dt><dd>{githubRateLimitHealth?.limit ?? "—"}</dd></div>
+        <div><dt>API resource</dt><dd>{githubRateLimitHealth?.resource ?? "—"}</dd></div>
       </dl>
       {snapshot && snapshot.diagnostics.length > 0 ? (
         <details className="system-health__diagnostics">

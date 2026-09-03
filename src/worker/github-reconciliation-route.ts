@@ -18,6 +18,7 @@ import {
   type GitHubGraphqlMergeStateFailureCode,
 } from "../integrations/github/graphql-merge-state-transport.js";
 import {
+  createGitHubRestConditionalCache,
   GitHubRestReadError,
   type GitHubRestReadFailureCode,
 } from "../integrations/github/rest-read-transport.js";
@@ -30,6 +31,8 @@ type GitHubReadFailureCode = GitHubRestReadFailureCode | GitHubGraphqlMergeState
 type GitHubProjectionFailureCode = "INVALID_REQUEST" | "MALFORMED_RESPONSE";
 type GitHubTransportStage = "token-exchange" | "rest" | "graphql";
 type GitHubUpstreamStage = "rest" | "graphql";
+
+const readOnlyReconciliationCache = createGitHubRestConditionalCache();
 
 export interface LiveGitHubReconciliationInput {
   readonly bindings: CloudflareGitHubRuntimeBindings;
@@ -137,11 +140,14 @@ export async function executeLiveGitHubReconciliation(
 ): Promise<AuthoritativeReconciliationResult> {
   const createRuntime =
     dependencies.createRuntime ??
-    ((bindings: CloudflareGitHubRuntimeBindings) => createCloudflareGitHubReadRuntime({ bindings }));
+    ((bindings: CloudflareGitHubRuntimeBindings) =>
+      createCloudflareGitHubReadRuntime({ bindings, conditionalCache: readOnlyReconciliationCache }));
   const reconcile = dependencies.reconcile ?? reconcileAuthoritativePullRequestDecision;
 
   const runtime = createRuntime(input.bindings);
-  const context = runtime.createRepositoryReadContext(input.repository, input.observedAt);
+  const context = runtime.createRepositoryReadContext(input.repository, input.observedAt, {
+    purpose: "READ_ONLY_CONDITIONAL",
+  });
 
   return reconcile({
     provider: context.provider,

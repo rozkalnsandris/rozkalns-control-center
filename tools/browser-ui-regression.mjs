@@ -123,13 +123,14 @@ async function runAgedSnapshotRegression(sessionId) {
 
 async function runOperationalObservabilityRegression(sessionId) {
   await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=actions`);
-  const healthy = await waitForBrowser(sessionId, `const card=document.querySelector('.system-health'); if(!card||!card.textContent.includes('HEALTHY'))return null; return {counts:card.textContent.includes('Non-terminal')&&card.textContent.includes('Dead-lettered'),observed:card.textContent.includes('Observed'),mutationControls:Array.from(card.querySelectorAll('button')).length};`, "healthy reconciliation evidence");
+  const healthy = await waitForBrowser(sessionId, `const card=document.querySelector('.system-health'); if(!card||!card.textContent.includes('HEALTHY'))return null; return {counts:card.textContent.includes('Non-terminal')&&card.textContent.includes('Dead-lettered'),observed:card.textContent.includes('Observed'),rateLimit:card.textContent.includes('GitHub API')&&card.textContent.includes('4500'),mutationControls:Array.from(card.querySelectorAll('button')).length};`, "healthy reconciliation evidence");
   assert.equal(healthy.counts, true);
   assert.equal(healthy.observed, true);
+  assert.equal(healthy.rateLimit, true);
   assert.equal(healthy.mutationControls, 0);
 
   await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=observability-failure`);
-  const unavailable = await waitForBrowser(sessionId, `const card=document.querySelector('.system-health'); if(!card||!card.textContent.includes('Delivery health unavailable'))return null; return {attention:card.textContent.includes('ATTENTION'),healthy:card.textContent.includes('HEALTHY'),mutationControls:Array.from(card.querySelectorAll('button')).length};`, "failed reconciliation observability");
+  const unavailable = await waitForBrowser(sessionId, `const card=document.querySelector('.system-health'); if(!card||!card.textContent.includes('Delivery health unavailable'))return null; const status=card.querySelector('.status-pill')?.textContent?.trim(); return {attention:status==='ATTENTION',healthy:status==='HEALTHY',mutationControls:Array.from(card.querySelectorAll('button')).length};`, "failed reconciliation observability");
   assert.equal(unavailable.attention, true);
   assert.equal(unavailable.healthy, false);
   assert.equal(unavailable.mutationControls, 0);

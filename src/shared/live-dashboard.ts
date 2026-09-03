@@ -20,12 +20,14 @@ import type {
   SourceControlReadProvider,
   WorkflowRunRead,
 } from "./source-control-read.js";
+import type { GitHubRateLimitHealth } from "./github-rate-limit-health.js";
 
 export interface LiveDashboardRepositoryReadContext {
   readonly provider: SourceControlReadProvider;
 }
 
 export interface LiveDashboardReadContextFactory {
+  readonly githubRateLimitHealth?: GitHubRateLimitHealth;
   createRepositoryReadContext(repository: string, observedAt: string): LiveDashboardRepositoryReadContext;
 }
 
@@ -214,5 +216,8 @@ export async function readLiveDashboardSnapshot(factory: LiveDashboardReadContex
     projects: results.map((result) => result.project),
     decisions: results.flatMap((result) => result.decisions),
     productionVisibility: [],
+    ...(factory.githubRateLimitHealth === undefined
+      ? {}
+      : { githubRateLimitHealth: factory.githubRateLimitHealth }),
   };
 }
