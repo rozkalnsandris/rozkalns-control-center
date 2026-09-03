@@ -17,7 +17,7 @@ The receipt binds the exact repository, SHA, Cloudflare account/Worker target, p
 - D1: zero mutations until a separately reviewed migration-evidence path exists.
 - Queue preparation: at most one Queue create, one pause/config update, and one Worker-consumer write; the receipt records which of those are actually required by the observed topology.
 - Secrets: at most two named secret-binding mutations (`CONTROL_TELEGRAM_BOT_TOKEN`, `CONTROL_TELEGRAM_CHAT_ID`); values are never printed or stored.
-- Worker rollout: reuse `.github/workflows/production-worker-composite-live.yml` with exactly one strict version upload, one 0%-candidate attachment deployment, GET-only exact-candidate smoke, and one 100% promotion deployment.
+- Worker rollout: execute the dedicated `.github/workflows/phase4-telegram-preprovider-live.yml` Gate A controller with exactly one strict version upload, one 0%-candidate attachment deployment, GET-only exact-candidate smoke, and one 100% promotion deployment while keeping the Queue paused.
 - Provider delivery: remains a separate boundary. The pre-LIVE controller performs zero Telegram API requests; any final Queue resume/provider-delivery activation requires separate explicit authorization after backlog evidence is reviewed.
 
 Queue delete/purge, arbitrary D1 writes, secret export, permission changes, DNS/Access/route/binding changes, rollback, cleanup and every unlisted mutation are excluded.
