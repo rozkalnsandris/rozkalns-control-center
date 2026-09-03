@@ -3,44 +3,8 @@ name: Phase 3 Later one-shot canary
 on:
   workflow_dispatch:
     inputs:
-      approved_sha:
-        description: Exact post-merge control main SHA
-        required: true
-        type: string
-      expected_ci_run_id:
-        description: Exact successful push CI run ID for approved_sha
-        required: true
-        type: string
-      expected_preflight_run_id:
-        description: Exact successful Later read-only preflight run ID for approved_sha
-        required: true
-        type: string
-      expected_deployment:
-        description: Exact currently active Worker deployment ID
-        required: true
-        type: string
-      expected_version:
-        description: Exact currently active Worker version ID
-        required: true
-        type: string
-      pr_number:
-        description: Exact disposable ops-workflows canary PR number
-        required: true
-        type: string
-      expected_pr_head:
-        description: Exact disposable canary PR head SHA
-        required: true
-        type: string
-      expected_target_main:
-        description: Exact ops-workflows main SHA
-        required: true
-        type: string
-      expected_fingerprint:
-        description: Exact later-v1 material-state fingerprint
-        required: true
-        type: string
       owner_authorization:
-        description: Exact one-shot owner authorization string
+        description: Exact one-shot owner authorization envelope; all bound tuple values are derived from it
         required: true
         type: string
 
@@ -69,25 +33,66 @@ jobs:
       CONTROL_ORIGIN: https://control.rozkalns.net
       TARGET_REPOSITORY: rozkalnsandris/ops-workflows
       TARGET_PROJECT_ID: ops-workflows
-      APPROVED_SHA: ${{ inputs.approved_sha }}
-      EXPECTED_CI_RUN_ID: ${{ inputs.expected_ci_run_id }}
-      EXPECTED_PREFLIGHT_RUN_ID: ${{ inputs.expected_preflight_run_id }}
-      EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
-      EXPECTED_VERSION: ${{ inputs.expected_version }}
-      PR_NUMBER: ${{ inputs.pr_number }}
-      EXPECTED_PR_HEAD: ${{ inputs.expected_pr_head }}
-      EXPECTED_TARGET_MAIN: ${{ inputs.expected_target_main }}
-      EXPECTED_FINGERPRINT: ${{ inputs.expected_fingerprint }}
-      OWNER_AUTHORIZATION: ${{ inputs.owner_authorization }}
-      GITHUB_TOKEN: ${{ github.token }}
-      CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
-      CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
-      CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
 
     steps:
+      - name: Bind and mask owner authorization envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          fail_bind() {
+            {
+              printf 'LATER_CANARY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=NO\n'
+              printf 'LATER_POST_STARTED=NO\n'
+              printf 'LATER_POST_SENT=NO\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          command -v jq >/dev/null 2>&1 || fail_bind MISSING_JQ
+          [ -n "${GITHUB_EVENT_PATH:-}" ] || fail_bind MISSING_GITHUB_EVENT_PATH
+
+          owner_authorization="$(jq -er '.inputs.owner_authorization | select(type == "string" and length > 0)' "$GITHUB_EVENT_PATH" 2>/dev/null)" || fail_bind OWNER_AUTHORIZATION_MISSING
+          printf '::add-mask::%s\n' "$owner_authorization"
+
+          authorization_pattern='^AUTHORIZE_LATER_CANARY:([0-9a-f]{40}):([1-9][0-9]*):([1-9][0-9]*):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):([1-9][0-9]*):([0-9a-f]{40}):([0-9a-f]{40}):(later-v1-[0-9a-f]{16}):POST1$'
+          [[ "$owner_authorization" =~ $authorization_pattern ]] || fail_bind OWNER_AUTHORIZATION_INVALID
+
+          APPROVED_SHA="${BASH_REMATCH[1]}"
+          EXPECTED_CI_RUN_ID="${BASH_REMATCH[2]}"
+          EXPECTED_PREFLIGHT_RUN_ID="${BASH_REMATCH[3]}"
+          EXPECTED_DEPLOYMENT="${BASH_REMATCH[4]}"
+          EXPECTED_VERSION="${BASH_REMATCH[5]}"
+          PR_NUMBER="${BASH_REMATCH[6]}"
+          EXPECTED_PR_HEAD="${BASH_REMATCH[7]}"
+          EXPECTED_TARGET_MAIN="${BASH_REMATCH[8]}"
+          EXPECTED_FINGERPRINT="${BASH_REMATCH[9]}"
+
+          {
+            printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+            printf 'EXPECTED_CI_RUN_ID=%s\n' "$EXPECTED_CI_RUN_ID"
+            printf 'EXPECTED_PREFLIGHT_RUN_ID=%s\n' "$EXPECTED_PREFLIGHT_RUN_ID"
+            printf 'EXPECTED_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+            printf 'EXPECTED_VERSION=%s\n' "$EXPECTED_VERSION"
+            printf 'PR_NUMBER=%s\n' "$PR_NUMBER"
+            printf 'EXPECTED_PR_HEAD=%s\n' "$EXPECTED_PR_HEAD"
+            printf 'EXPECTED_TARGET_MAIN=%s\n' "$EXPECTED_TARGET_MAIN"
+            printf 'EXPECTED_FINGERPRINT=%s\n' "$EXPECTED_FINGERPRINT"
+            printf 'OWNER_AUTHORIZATION=%s\n' "$owner_authorization"
+          } >> "$GITHUB_ENV"
+
       - name: Revalidate and execute one authorized Later POST
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+          CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+          CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           umask 077

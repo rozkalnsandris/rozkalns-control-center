@@ -19,6 +19,64 @@ test("Later canary workflow is manual, main-only, attempt-one and least privileg
   assert.match(text, /GITHUB_RUN_ATTEMPT:-}" = "1"/);
   assert.match(text, /GITHUB_SHA:-}" = "\$\{APPROVED_SHA:-\}"/);
   assert.match(text, /cancel-in-progress: false/);
+
+  const dispatchStart = text.indexOf("  workflow_dispatch:");
+  const permissionsStart = text.indexOf("\npermissions:", dispatchStart);
+  assert.ok(dispatchStart >= 0 && permissionsStart > dispatchStart);
+  const dispatch = text.slice(dispatchStart, permissionsStart);
+  assert.match(dispatch, /\n\s+owner_authorization:\s*\n/);
+  for (const removedInput of [
+    "approved_sha",
+    "expected_ci_run_id",
+    "expected_preflight_run_id",
+    "expected_deployment",
+    "expected_version",
+    "pr_number",
+    "expected_pr_head",
+    "expected_target_main",
+    "expected_fingerprint",
+  ]) assert.doesNotMatch(dispatch, new RegExp(`\\n\\s+${removedInput}:`));
+});
+
+test("Later canary derives the exact tuple from one masked owner envelope", async () => {
+  const text = await source();
+  const bindStart = text.indexOf("- name: Bind and mask owner authorization envelope");
+  const executeStart = text.indexOf("- name: Revalidate and execute one authorized Later POST", bindStart);
+  assert.ok(bindStart >= 0 && executeStart > bindStart);
+  const bind = text.slice(bindStart, executeStart);
+
+  assert.match(bind, /GITHUB_EVENT_PATH/);
+  assert.match(bind, /\.inputs\.owner_authorization/);
+  assert.match(bind, /printf '::add-mask::%s\\n' "\$owner_authorization"/);
+  assert.match(bind, /authorization_pattern='\^AUTHORIZE_LATER_CANARY:/);
+  assert.match(bind, /:POST1\$'/);
+  assert.match(bind, /OWNER_AUTHORIZATION_INVALID/);
+
+  const mask = bind.indexOf("printf '::add-mask::%s\\n'");
+  const exportAuthorization = bind.indexOf("printf 'OWNER_AUTHORIZATION=%s\\n'");
+  assert.ok(mask >= 0 && exportAuthorization > mask);
+
+  for (const name of [
+    "APPROVED_SHA",
+    "EXPECTED_CI_RUN_ID",
+    "EXPECTED_PREFLIGHT_RUN_ID",
+    "EXPECTED_DEPLOYMENT",
+    "EXPECTED_VERSION",
+    "PR_NUMBER",
+    "EXPECTED_PR_HEAD",
+    "EXPECTED_TARGET_MAIN",
+    "EXPECTED_FINGERPRINT",
+    "OWNER_AUTHORIZATION",
+  ]) assert.ok(bind.includes(`printf '${name}=%s\\n'`), `missing bound ${name}`);
+
+  assert.doesNotMatch(text, /\$\{\{ inputs\.(?:approved_sha|expected_ci_run_id|expected_preflight_run_id|expected_deployment|expected_version|pr_number|expected_pr_head|expected_target_main|expected_fingerprint) \}\}/);
+  assert.doesNotMatch(text, /OWNER_AUTHORIZATION:\s*\$\{\{ inputs\.owner_authorization \}\}/);
+  assert.doesNotMatch(bind, /secrets\.|github\.token/);
+
+  const execution = text.slice(executeStart);
+  assert.match(execution, /GITHUB_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.match(execution, /CLOUDFLARE_WORKERS_READ_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+  assert.match(execution, /CLOUDFLARE_D1_READ_TOKEN: \$\{\{ secrets\.CLOUDFLARE_D1_READ_TOKEN \}\}/);
 });
 
 test("Later canary binds exact source, CI, supported read-only preflight event and target evidence", async () => {
