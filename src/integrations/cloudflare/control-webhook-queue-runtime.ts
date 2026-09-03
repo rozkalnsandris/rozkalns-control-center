@@ -1,10 +1,21 @@
 import type { CloudflareGitHubRuntimeBindings } from "../github/cloudflare-worker-runtime.js";
 import { createCloudflareGitHubReadRuntime } from "../github/cloudflare-worker-runtime.js";
+import { createTelegramNotificationDeliveryDispatchAdapter } from "../telegram/notification-delivery-dispatch-adapter.js";
 import { NOTIFICATION_DELIVERY_INTENT_MAX_TARGETS } from "../../shared/notification-delivery-intent-materialization.js";
+import type { NotificationDeliveryRetryPolicy } from "../../shared/notification-delivery-retry-policy.js";
 import type { NotificationDeliveryTargetKey } from "../../shared/notification-delivery.js";
 import {
+  createCloudflareNotificationDispatchQueueRuntime,
+  NOTIFICATION_DISPATCH_QUEUE_NAME,
+  type CloudflareNotificationDispatchQueueRuntime,
+  type NotificationDispatchQueueBatchLike,
+  type NotificationDispatchQueueConsumeResult,
+} from "./cloudflare-notification-dispatch-queue-runtime.js";
+import {
   createCloudflareReconciliationBatchHandler,
+  type CloudflareNotificationDeliveryRuntimeOptions,
   type CloudflareReconciliationBatchRuntimeOptions,
+  type NotificationDispatchQueueProducerLike,
 } from "./cloudflare-reconciliation-batch-runtime.js";
 import {
   D1DeliveryClaimStore,
@@ -22,14 +33,19 @@ import {
   type ReconciliationDeadLetterResult,
   type ReconciliationQueueConsumeResult,
 } from "./reconciliation-queue-consumer.js";
-import {
-  WebhookReconciliationAcceptor,
-  type ReconciliationQueueProducerLike,
-} from "./webhook-reconciliation-acceptor.js";
+import { WebhookReconciliationAcceptor } from "./webhook-reconciliation-acceptor.js";
 
 export const CONTROL_WEBHOOK_RUNTIME_FLAG = "CONTROL_WEBHOOK_RUNTIME_ENABLED" as const;
 export const CONTROL_NOTIFICATION_TRANSITIONS_FLAG = "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED" as const;
 export const CONTROL_NOTIFICATION_TARGET_KEYS_BINDING = "CONTROL_NOTIFICATION_TARGET_KEYS" as const;
+export const CONTROL_NOTIFICATION_DISPATCH_FLAG = "CONTROL_NOTIFICATION_DISPATCH_ENABLED" as const;
+export const CONTROL_NOTIFICATION_RETRY_POLICY_BINDING = "CONTROL_NOTIFICATION_RETRY_POLICY" as const;
+export const CONTROL_TELEGRAM_TARGET_KEY_BINDING = "CONTROL_TELEGRAM_TARGET_KEY" as const;
+export const CONTROL_TELEGRAM_BOT_TOKEN_BINDING = "CONTROL_TELEGRAM_BOT_TOKEN" as const;
+export const CONTROL_TELEGRAM_CHAT_ID_BINDING = "CONTROL_TELEGRAM_CHAT_ID" as const;
+export const CONTROL_NOTIFICATION_CONTROL_ORIGIN_BINDING =
+  "CONTROL_NOTIFICATION_CONTROL_ORIGIN" as const;
+export const NOTIFICATION_DISPATCH_QUEUE_BINDING = "NOTIFICATION_DISPATCH_QUEUE" as const;
 export const RECONCILIATION_QUEUE_BINDING = "RECONCILIATION_QUEUE" as const;
 export const GITHUB_WEBHOOK_SECRET_BINDING = "GITHUB_WEBHOOK_SECRET" as const;
 export const RECONCILIATION_QUEUE_NAME = "rozkalns-control-reconciliation" as const;
@@ -39,6 +55,13 @@ export interface ControlWebhookQueueRuntimeBindings {
   readonly CONTROL_WEBHOOK_RUNTIME_ENABLED?: unknown;
   readonly CONTROL_NOTIFICATION_TRANSITIONS_ENABLED?: unknown;
   readonly CONTROL_NOTIFICATION_TARGET_KEYS?: unknown;
+  readonly CONTROL_NOTIFICATION_DISPATCH_ENABLED?: unknown;
+  readonly CONTROL_NOTIFICATION_RETRY_POLICY?: unknown;
+  readonly CONTROL_TELEGRAM_TARGET_KEY?: unknown;
+  readonly CONTROL_TELEGRAM_BOT_TOKEN?: unknown;
+  readonly CONTROL_TELEGRAM_CHAT_ID?: unknown;
+  readonly CONTROL_NOTIFICATION_CONTROL_ORIGIN?: unknown;
+  readonly NOTIFICATION_DISPATCH_QUEUE?: unknown;
   readonly GITHUB_WEBHOOK_SECRET?: unknown;
   readonly CONTROL_DB?: unknown;
   readonly RECONCILIATION_QUEUE?: unknown;
@@ -68,7 +91,13 @@ export interface ControlWebhookQueueRuntime {
   readonly observabilityReader: WebhookDeliveryObservabilityReader;
   consumeQueueBatch(
     batch: QueueMessageBatchLike,
-  ): Promise<readonly (ReconciliationQueueConsumeResult | ReconciliationDeadLetterResult)[]>;
+  ): Promise<
+    readonly (
+      | ReconciliationQueueConsumeResult
+      | ReconciliationDeadLetterResult
+      | NotificationDispatchQueueConsumeResult
+    )[]
+  >;
 }
 
 export type ControlWebhookQueueRuntimeResolution =
@@ -85,7 +114,13 @@ export function notificationTransitionsEnabled(value: unknown): boolean {
   return value === "true";
 }
 
+export function notificationDispatchEnabled(value: unknown): boolean {
+  return value === "true";
+}
+
 const TARGET_KEY_PATTERN = /^[a-z0-9](?:[a-z0-9._:-]{0,63})$/;
+const NOTIFICATION_MAX_ATTEMPTS = 8;
+const NOTIFICATION_MAX_RETRY_DELAY_SECONDS = 86_400;
 
 export function notificationTargetKeys(value: unknown): readonly NotificationDeliveryTargetKey[] {
   if (typeof value !== "string" || value.length === 0) {
@@ -124,6 +159,58 @@ export function notificationTargetKeys(value: unknown): readonly NotificationDel
   return targetKeys;
 }
 
+export function notificationRetryPolicy(value: unknown): NotificationDeliveryRetryPolicy {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+  }
+
+  const candidate = parsed as {
+    readonly schemaVersion?: unknown;
+    readonly maxAttempts?: unknown;
+    readonly retryDelaysSeconds?: unknown;
+  };
+  if (
+    candidate.schemaVersion !== 1 ||
+    typeof candidate.maxAttempts !== "number" ||
+    !Number.isSafeInteger(candidate.maxAttempts) ||
+    candidate.maxAttempts < 1 ||
+    candidate.maxAttempts > NOTIFICATION_MAX_ATTEMPTS ||
+    !Array.isArray(candidate.retryDelaysSeconds) ||
+    candidate.retryDelaysSeconds.length !== candidate.maxAttempts - 1
+  ) {
+    throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+  }
+
+  const retryDelaysSeconds: number[] = [];
+  for (const delay of candidate.retryDelaysSeconds) {
+    if (
+      typeof delay !== "number" ||
+      !Number.isSafeInteger(delay) ||
+      delay < 1 ||
+      delay > NOTIFICATION_MAX_RETRY_DELAY_SECONDS
+    ) {
+      throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+    }
+    retryDelaysSeconds.push(delay);
+  }
+
+  return {
+    schemaVersion: 1,
+    maxAttempts: candidate.maxAttempts,
+    retryDelaysSeconds,
+  };
+}
+
 function bindingString(value: unknown): string {
   if (typeof value !== "string" || value.length === 0) {
     throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
@@ -142,7 +229,11 @@ function databaseBinding(value: unknown): D1DatabaseLike {
   return value as D1DatabaseLike;
 }
 
-function queueProducerBinding(value: unknown): ReconciliationQueueProducerLike {
+interface QueueProducerBindingLike {
+  send(message: unknown): Promise<void>;
+}
+
+function queueProducerBinding(value: unknown): QueueProducerBindingLike {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -150,7 +241,7 @@ function queueProducerBinding(value: unknown): ReconciliationQueueProducerLike {
   ) {
     throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
   }
-  return value as ReconciliationQueueProducerLike;
+  return value as QueueProducerBindingLike;
 }
 
 function githubBindings(bindings: ControlWebhookQueueRuntimeBindings): CloudflareGitHubRuntimeBindings {
@@ -195,14 +286,14 @@ async function finalizeDeadLetterBatch(
 }
 
 /**
- * Resolve the Phase 2 webhook/Queue runtime plus an optional dormant-by-default
- * Phase 4 notification transition→delivery-intent path.
+ * Resolve the Phase 2 webhook/Queue runtime plus optional dormant-by-default
+ * Phase 4 notification intent and Telegram dispatch paths.
  *
- * The webhook feature flag is checked before any other binding is inspected.
- * Notification durability is enabled only by the exact literal "true" and then
- * additionally requires an explicit provider-neutral JSON target-key array.
- * When the notification flag is absent/off, the target binding is not inspected.
- * Merging this source does not add either binding to production configuration.
+ * Provider dispatch requires two exact opt-ins: transition durability and
+ * dispatch. When dispatch is absent/off, no Telegram credential/destination or
+ * dispatch Queue binding is inspected. Even when source is merged, production
+ * remains dormant until those bindings and Queue topology are separately
+ * configured and deployed.
  */
 export function resolveControlWebhookQueueRuntime(
   bindings: ControlWebhookQueueRuntimeBindings,
@@ -215,7 +306,7 @@ export function resolveControlWebhookQueueRuntime(
   try {
     const secret = bindingString(bindings.GITHUB_WEBHOOK_SECRET);
     const database = databaseBinding(bindings.CONTROL_DB);
-    const queue = queueProducerBinding(bindings.RECONCILIATION_QUEUE);
+    const reconciliationQueue = queueProducerBinding(bindings.RECONCILIATION_QUEUE);
     const github = githubBindings(bindings);
 
     // Validate the already-live read credentials before enabling any webhook
@@ -224,18 +315,65 @@ export function resolveControlWebhookQueueRuntime(
 
     const now = options.now ?? (() => new Date().toISOString());
     const deliveryStore = new D1DeliveryClaimStore(database);
-    const notificationDelivery = notificationTransitionsEnabled(
+    const transitionsEnabled = notificationTransitionsEnabled(
       bindings.CONTROL_NOTIFICATION_TRANSITIONS_ENABLED,
-    )
-      ? {
-          transitionStore: new D1NotificationTransitionStore(database),
-          intentStore: new D1NotificationDeliveryIntentStore(database),
-          targetKeys: notificationTargetKeys(bindings.CONTROL_NOTIFICATION_TARGET_KEYS),
+    );
+    const dispatchEnabled = notificationDispatchEnabled(
+      bindings.CONTROL_NOTIFICATION_DISPATCH_ENABLED,
+    );
+    if (dispatchEnabled && !transitionsEnabled) {
+      throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+    }
+
+    let notificationDelivery: CloudflareNotificationDeliveryRuntimeOptions | undefined;
+    let notificationDispatchRuntime: CloudflareNotificationDispatchQueueRuntime | undefined;
+
+    if (transitionsEnabled) {
+      const targetKeys = notificationTargetKeys(bindings.CONTROL_NOTIFICATION_TARGET_KEYS);
+      const transitionStore = new D1NotificationTransitionStore(database);
+      const intentStore = new D1NotificationDeliveryIntentStore(database);
+
+      notificationDelivery = {
+        transitionStore,
+        intentStore,
+        targetKeys,
+      };
+
+      if (dispatchEnabled) {
+        const targetKey = bindingString(bindings.CONTROL_TELEGRAM_TARGET_KEY);
+        if (targetKeys.length !== 1 || targetKeys[0] !== targetKey) {
+          throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
         }
-      : undefined;
+
+        const dispatchQueue = queueProducerBinding(
+          bindings.NOTIFICATION_DISPATCH_QUEUE,
+        ) as NotificationDispatchQueueProducerLike;
+        const retryPolicy = notificationRetryPolicy(
+          bindings.CONTROL_NOTIFICATION_RETRY_POLICY,
+        );
+        const adapter = createTelegramNotificationDeliveryDispatchAdapter({
+          targetKey,
+          botToken: bindingString(bindings.CONTROL_TELEGRAM_BOT_TOKEN),
+          chatId: bindingString(bindings.CONTROL_TELEGRAM_CHAT_ID),
+          controlOrigin: bindingString(bindings.CONTROL_NOTIFICATION_CONTROL_ORIGIN),
+        });
+
+        notificationDelivery = {
+          ...notificationDelivery,
+          dispatchQueue,
+        };
+        notificationDispatchRuntime = createCloudflareNotificationDispatchQueueRuntime({
+          database,
+          adapter,
+          retryPolicy,
+          now,
+        });
+      }
+    }
+
     const webhookAcceptor = new WebhookReconciliationAcceptor({
       deliveryStore,
-      queue,
+      queue: reconciliationQueue,
       now,
     });
     const observabilityReader = new D1WebhookDeliveryObservabilityReader(database);
@@ -260,6 +398,14 @@ export function resolveControlWebhookQueueRuntime(
           }
           if (batch.queue === RECONCILIATION_DLQ_NAME) {
             return finalizeDeadLetterBatch(batch, deliveryStore, now);
+          }
+          if (batch.queue === NOTIFICATION_DISPATCH_QUEUE_NAME) {
+            if (!notificationDispatchRuntime) {
+              throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
+            }
+            return notificationDispatchRuntime.consumeQueueBatch(
+              batch as unknown as NotificationDispatchQueueBatchLike,
+            );
           }
           throw new ControlWebhookQueueRuntimeError("UNEXPECTED_QUEUE");
         },
