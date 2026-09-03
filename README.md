@@ -2,9 +2,9 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Status:** Phase 2 live read-only GitHub integration — the Metadata active-branch-rules reader is merged through issue #44 / PR #46, and current issue #47 / PR #48 adds the source-only fail-closed authoritative reconciliation composition. No live GitHub App, permission mutation, credential minting, Cloudflare production binding, RPi5 mutation or deployment is authorized by the current work.
+> **Current source state:** Phase 3 is active. The repository now contains a Cloudflare Worker and React application with live GitHub read composition, D1-backed control state, webhook-to-Queue reconciliation, and guarded human decision routes. Repository source and configuration describe the intended runtime; they do not, by themselves, prove what is currently deployed or enabled in production.
 
-The canonical product contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. Read it before starting implementation work.
+The canonical product and phase contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. GitHub issue **#278** is the canonical operational handoff for changing current phase or live state. Read both before work that depends on runtime status or crosses a trust boundary.
 
 ## What this product is for
 
@@ -12,27 +12,26 @@ The normal daily flow should become:
 
 `work progresses → Needs Andris → phone notification → review evidence → Merge / Needs changes / Later → close phone → safe automation continues`
 
-The first useful release is intentionally focused on approvals and visibility rather than AI-provider integration.
+The first useful release is focused on trustworthy approvals and visibility rather than AI-provider integration.
 
 ### MVP
 
 - Android-first `Needs Andris` queue;
 - project, issue, PR, CI and review visibility;
-- safe deterministic `Merge`, `Needs changes` and `Later` actions;
-- stale-head/SHA and CI revalidation before mutations;
+- deterministic `Merge`, `Needs changes` and `Later` actions;
+- fresh exact-head/SHA, CI, review and policy revalidation before mutations;
 - quiet notifications with deep links to the exact decision;
-- existing GitHub/RPi5 automation remains authoritative after merge;
-- no OpenAI/Claude API requirement.
+- existing GitHub and RPi5 automation remains authoritative after merge;
+- no OpenAI or Claude API requirement.
 
 ### Not MVP
 
 - autonomous AI coding workers;
-- Cloudflare Sandbox SDK;
-- AI Gateway/provider routing;
-- direct RPi5 SSH/sudo or production mutation;
-- production DB writes from the control plane.
+- Cloudflare Sandbox SDK or AI Gateway;
+- direct RPi5 SSH, sudo or production mutation;
+- bypasses around repository rules, exact-head checks or owner live gates.
 
-## Initial managed projects
+## Managed project scope
 
 - `rozkalnsandris/hermes-tech`
 - `rozkalnsandris/hermes-deals`
@@ -45,129 +44,109 @@ The first useful release is intentionally focused on approvals and visibility ra
 
 ## Trust boundaries
 
-- **GitHub** — source of truth for repository, SHA, issues, PRs, reviews and CI.
-- **Rozkalns Control** — approval/orchestration projection, notification state and audit evidence.
-- **ChatGPT** — current reasoning/operator layer through the connected GitHub app where supported; not a canonical state store.
-- **RPi5** — production trust boundary, exact-SHA deploy rules, health and rollback authority.
+- **GitHub** is canonical for repositories, commits, issues, PRs, reviews, rules and CI.
+- **Rozkalns Control** stores bounded normalized projections, decision audit/idempotency records, deferrals, notification state and reconciliation evidence. It must re-read GitHub before state-dependent GitHub mutations.
+- **Cloudflare** hosts the Worker/static application and supplies D1, Queue/DLQ, Access and runtime observability boundaries described by source configuration.
+- **ChatGPT** may be the reasoning/operator layer through connected tools, but chat memory is never canonical continuation state.
+- **RPi5** remains the production trust boundary for exact-SHA deployment, health and rollback. Control must not create a direct host shortcut.
 
-**Merge authorization is not deploy authorization.**
+**Merge authorization is not deployment authorization. Source readiness is not production evidence.**
 
-## Phase 1 UI baseline
+## Current source architecture
 
-Phase 1 proved the phone UX with deterministic fixture data before adding integration permissions.
+### Browser and Worker boundary
 
-The fixture dashboard contains:
+- React + TypeScript + Vite provide the mobile-first dashboard and decision UI.
+- Cloudflare Workers Static Assets serve the SPA; `/api/*` is routed through the Worker first.
+- [`public/_headers`](public/_headers) defines the static-asset CSP and browser security headers. Worker-generated API responses receive the corresponding centralized policy in `src/worker/response-security.ts` and sensitive/live responses remain `Cache-Control: no-store`.
+- The client uses one bounded read-only fetch contract for health, dashboard and webhook-observability reads. Timeout, navigation abort, network/server failure and invalid payloads are distinct outcomes; the last successful snapshot may remain visible but loses fresh authority.
+- Dashboard timestamps have explicit maximum-age and clock-skew limits. Invalid, future or over-age evidence is visibly stale/unknown and keeps all mutation-capable UI disabled.
 
-- `Needs Andris` first;
-- Working / Waiting;
-- CI Failed;
-- Merge Ready;
-- Projects overview;
-- decision cards with PR/CI/review/SHA/deploy evidence;
-- mock-only `Merge`, `Needs changes`, `Later` and `Open PR` controls;
-- explicit `Fixture mode` labeling so demo data cannot be confused with live state.
+### GitHub reads and operator evidence
 
-Mock actions change only local React notice state. They do not call GitHub, Cloudflare or RPi5.
+The Worker registers read paths for:
 
-Accessibility/mobile baseline:
+- `GET /api/health`;
+- `GET /api/github/dashboard`;
+- `GET /api/github/reconcile`;
+- `GET /api/github/needs-changes/preflight`;
+- `GET /api/github/webhook-deliveries`.
 
-- Samsung Galaxy A55-class compact portrait layout is first-class without device sniffing or physical-pixel hardcoding;
-- semantic landmarks/headings;
-- visible keyboard focus;
-- skip-to-content navigation;
-- status meaning in text, not color alone;
-- primary actions at least 52 CSS px high;
-- safe-area/dynamic-viewport handling;
-- mobile-first single-column layout with wider-screen enhancement.
+The GitHub App integration uses short-lived installation credentials inside a dedicated credential boundary, repository-scoped REST GET sessions, and a fixed GraphQL merge-state query. Read results are normalized into exact-head PR, CI, review and branch-policy evidence; incomplete or contradictory evidence fails closed.
 
-See [`docs/PHASE1_UI_NOTES.md`](docs/PHASE1_UI_NOTES.md).
+Read-only reconciliation may opt into bounded conditional REST requests. Cached bodies and `ETag` validators are bound to the installation identity, selected repository scope, permissions, exact repository, endpoint and query. `304 Not Modified` is an explicit typed outcome. Merge, Needs changes and other state-dependent mutation preflights remain unconditional authoritative reads.
 
-## Current Phase 2 source preflight
+The dashboard exposes sanitized GitHub rate-limit evidence as `HEALTHY`, `ATTENTION`, `EXHAUSTED` or `UNKNOWN`. Missing or malformed headers are `UNKNOWN`; the Worker does not sleep or automatically retry inside a user request.
 
-Phase 2 replaces fixture state with trustworthy live GitHub projections, but the current implementation remains deliberately source-only until the separately governed live-rollout gate opens.
+### Webhook, Queue and D1 durability
 
-Current source contracts now cover:
+- `POST /api/github/webhook` verifies the webhook HMAC over raw bytes before trusting repository or event identity.
+- Accepted deliveries are claimed in D1 by delivery ID and enqueue a bounded identity-only reconciliation message.
+- The main Queue consumer performs authoritative GitHub rereads and records the delivery lifecycle; the DLQ consumer persists bounded terminal evidence. Queue messages are triggers, never canonical decision evidence.
+- `GET /api/github/webhook-deliveries` projects bounded, sanitized `HEALTHY | ACTIVE | ATTENTION` evidence. It exposes counts and diagnostics only—no retry, requeue, delete or cleanup control.
+- Migrations `0001`–`0009` define reconciliation, decision-audit, notification, continuation and Later state. Migration `0010_webhook_observability_hot_index.sql` adds one planner-proven partial observability index. It is source-controlled but was not applied to remote D1 by issue #529.
 
-- configuration-driven managed-repository allow-list;
-- provider-neutral GitHub read boundary with no mutation methods;
-- exact-head PR, merge-state, Check Run, commit-status and workflow evidence binding;
-- fail-closed REST/GraphQL payload mappers for consumed fields;
-- conservative CI aggregation across required Checks and commit statuses;
-- GitHub required-Check semantics for `success`, `neutral` and `skipped`;
-- Check Run producer GitHub App identity for App-bound required checks;
-- latest-provable Check Run selection per case-insensitive context + producer App, with ambiguous ordering kept conservative;
-- latest effective commit-status selection per case-insensitive context;
-- latest-provable workflow-run selection per workflow identity/run number/attempt, with missing identity never silently collapsed;
-- latest-effective review aggregation with explicit policy requirements;
-- exact-head `MERGEABLE/CLEAN` readiness gate;
-- branch-policy provenance across active rulesets and classic branch protection;
-- classic branch-protection `app_id`, approval and complex-review semantics;
-- fail-closed webhook HMAC verification where repository identity is derived from the same authenticated payload;
-- delivery-ID deduplication abstraction and reconciliation triggers requiring a fresh authoritative GitHub read;
-- versioned minimal reconciliation Queue-message contract with unknown-field rejection;
-- explicit durable delivery lifecycle and terminal `DEAD_LETTERED` state;
-- source-controlled initial D1 migration with `delivery_id` primary-key idempotency and no secret/payload columns;
-- type-aware `@typescript-eslint/no-floating-promises` enforcement for production `src/` TypeScript before live async handlers are introduced;
-- source-only GitHub App installation-read scope, short-lived credential-lease evidence and GET-only REST request contracts with no raw credential material in domain/business interfaces;
-- concrete bounded GitHub REST GET transport under the dedicated integration path, with fixed origin/API media/version metadata, manual redirect policy, repository-bound Link pagination, request-budget/cycle protection and sanitized rate-limit evidence;
-- typed fail-closed REST outcomes for auth/status/rate-limit/pagination/malformed-response failures, without automatic retry loops;
-- source-only GitHub App JWT / installation-token boundary with deterministic `RS256` signing input, explicit repository/read-permission narrowing, exact returned-scope verification and raw JWT/token material confined to the dedicated integration layer;
-- separate authorized REST GET and fixed GraphQL merge-state sessions that reuse the same private credential-acquisition boundary without exposing raw tokens or widening the REST interface;
-- bounded GraphQL merge-state transport fixed to `https://api.github.com/graphql`, one named query, exact repository/PR variables and only `number`, `headRefOid`, `mergeable`, `mergeStateStatus`, `isDraft` fields;
-- strict GraphQL partial-data/error handling plus sanitized HTTP-200 primary/secondary rate-limit evidence with no automatic retry loop;
-- machine-readable staged GitHub App rollout plan derived from managed-project policy, beginning with Metadata-only repository/rules canaries and expanding read permissions one stage at a time;
-- conditional `Commit statuses: read` activation only when repository evidence proves legacy status reads are required, while `Administration: read` remains outside the rollout source contract;
-- explicit authoritative snapshot commit-status coverage: `OBSERVED` means the source was actually read; `NOT_REQUESTED` skips the endpoint and remains fail-closed for required status-check contexts;
-- concrete source-only authoritative GitHub provider adapter that composes only the bounded REST and fixed GraphQL transports, binds fixed endpoint→permission pairs, excludes PR entries returned by the Issues API, requests Check rerun evidence with `filter=all`, and reuses one explicit observation time per provider/snapshot;
-- source-only active branch-rules reader fixed to `/rules/branches/{branch}` with `Metadata: read`, pagination flattening and one observation time; its combined policy evidence remains explicitly `PARTIAL` until classic branch protection is separately authorized and observed;
-- source-only authoritative reconciliation composition that joins the normalized PR snapshot and branch-policy evidence at one observation time, returns typed `BLOCKED` for incomplete/unrepresentable policy, and creates a `DecisionReadModel` only for complete representable policy;
-- documented future endpoint → minimum GitHub App permission requirements.
+Operational D1 query shapes and `EXPLAIN QUERY PLAN` evidence are documented in [`docs/D1_HOT_QUERY_AUDIT.md`](docs/D1_HOT_QUERY_AUDIT.md). The schema deliberately excludes raw webhook bodies and credentials.
 
-Phase 2 application projection still exposes only `OPEN_PR`; it does **not** expose a live Merge mutation.
+### Human decisions
 
-There are still **no live GitHub API calls from Worker routes, real credentials, dedicated Control GitHub App installation, Cloudflare secret binding, D1/Queue/Workflow bindings or production deploy path** in the current repository. REST/GraphQL credential sessions, transports, the concrete provider, active branch-rules reader and authoritative reconciliation composition remain disconnected from `src/worker/index.ts` and use deterministic source/test dependencies only.
+The Worker source registers Access-authenticated routes for:
 
-`RPi5_main#163` is complete. The current RPi5 Phase 3 first incomplete gate remains issue #140. Current CV main is newer than the last proven production baseline, but the complete production→current-main range is `NO_DEPLOY`, so it is not an `AUTO_DEPLOY_SAFE` one-shot canary candidate. A later genuine AUTO-safe full range still requires fresh exact-main CI and a separately authorized one-shot canary while the recurring timer remains disabled. This does not authorize Control live rollout; a real GitHub App/permission/credential step still requires a separate owner gate and fresh sequencing reconciliation.
+- `POST /api/github/needs-changes`;
+- `POST /api/github/merge`;
+- `POST /api/github/later`.
 
-See:
+Decision execution is project-capability gated and binds the actor, expected head, fresh observed head and idempotency/audit state. Merge and Needs changes re-resolve live GitHub evidence before their writes; Later revalidates a deterministic material-state fingerprint before D1 persistence.
 
-- [`docs/PHASE2_GITHUB_READ_CONTRACT.md`](docs/PHASE2_GITHUB_READ_CONTRACT.md)
-- [`docs/PHASE2_GITHUB_PROJECTION_CONTRACT.md`](docs/PHASE2_GITHUB_PROJECTION_CONTRACT.md)
-- [`docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md`](docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md)
-- [`docs/PHASE2_GITHUB_POLICY_EVIDENCE.md`](docs/PHASE2_GITHUB_POLICY_EVIDENCE.md)
-- [`docs/PHASE2_RECONCILIATION_DURABILITY.md`](docs/PHASE2_RECONCILIATION_DURABILITY.md)
-- [`docs/PHASE2_ASYNC_SAFETY.md`](docs/PHASE2_ASYNC_SAFETY.md)
-- [`docs/PHASE2_GITHUB_APP_AUTH_CONTRACT.md`](docs/PHASE2_GITHUB_APP_AUTH_CONTRACT.md)
-- [`docs/PHASE2_GITHUB_REST_READ_TRANSPORT.md`](docs/PHASE2_GITHUB_REST_READ_TRANSPORT.md)
-- [`docs/PHASE2_GITHUB_APP_SESSION.md`](docs/PHASE2_GITHUB_APP_SESSION.md)
-- [`docs/PHASE2_GITHUB_APP_ROLLOUT_PLAN.md`](docs/PHASE2_GITHUB_APP_ROLLOUT_PLAN.md)
-- [`docs/PHASE2_GITHUB_GRAPHQL_MERGE_STATE_TRANSPORT.md`](docs/PHASE2_GITHUB_GRAPHQL_MERGE_STATE_TRANSPORT.md)
-- [`docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md`](docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md)
-- [`docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md`](docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md)
-- [`docs/PHASE2_GITHUB_ACTIVE_BRANCH_RULES_READER.md`](docs/PHASE2_GITHUB_ACTIVE_BRANCH_RULES_READER.md)
-- [`docs/PHASE2_AUTHORITATIVE_RECONCILIATION_COMPOSITION.md`](docs/PHASE2_AUTHORITATIVE_RECONCILIATION_COMPOSITION.md)
+The existence of these routes or their bindings in source does not grant standing authority to invoke them. Current live state and any next activation/canary are governed by #1, #278 and the relevant focused tracker.
 
-## Bootstrap runtime
+### Notifications, continuation and production visibility
 
-The executable foundation provides:
+- Notification transitions, intents, attempts and dispatch claims have D1 contracts and Queue-oriented runtime composition, but no notification-provider secret/transport is configured by this repository baseline.
+- Deterministic continuation planning, reservation, persistence and recovery exist in source. The continuation runtime is not registered on a Worker route, Queue handler or scheduler and remains explicitly opt-in.
+- Production visibility has a sanitized source model and dashboard projection. A GET-only preflight workflow can compare exact source and Worker evidence, but no Control-to-RPi5 production adapter is connected; fixtures and repository source do not prove current host state.
 
-- React + TypeScript + Vite;
-- Cloudflare Vite plugin;
-- native Cloudflare Worker API;
-- deterministic `GET /api/health` endpoint;
-- generated Worker types through Wrangler;
-- locked dependencies;
-- read-only GitHub CI for policy checks, runtime dependency audit, typecheck, typed production-source Promise lint, unit tests, build and Wrangler dry-run.
+## Runtime configuration versus deployed state
 
-There is intentionally **no deploy script** and no Cloudflare account, route, Access, D1, Queue, Workflow or GitHub App binding in the current configuration.
+[`wrangler.jsonc`](wrangler.jsonc) declares the production-shaped source contract:
 
-### Local validation
+- Worker/static-assets routing and version metadata;
+- the `CONTROL_DB` D1 binding;
+- reconciliation Queue producer, consumer and DLQ consumer settings;
+- live-read and webhook-runtime feature flags;
+- Access issuer/audience identifiers for decision routes;
+- required secret names, never secret values;
+- persisted logs sampled at `0.10` and traces sampled at `0.05`.
 
-Requires Node.js `>=22.12.0`.
+These declarations are deploy inputs, not proof that a particular version, migration, binding, permission or capability is active. Before any live action, use the current #278 handoff and focused tracker to perform fresh GET-only preflight and obtain the exact authorization required by the repository contract.
+
+Structured Worker and Queue logs use fixed route/outcome/error fields and safe correlation/version evidence. They exclude query values, request/response bodies, Access credentials, GitHub tokens/JWTs/private keys, webhook signatures and protected configuration. See [`docs/WORKER_OBSERVABILITY.md`](docs/WORKER_OBSERVABILITY.md).
+
+## Phase summary
+
+- **Phase 0:** repository, policy and architecture contracts complete.
+- **Phase 1:** mobile-first deterministic UI baseline complete.
+- **Phase 2:** live-read, GitHub App, webhook, D1 and Queue source architecture implemented; production facts remain separately evidenced.
+- **Phase 3:** authenticated human decisions active as the current product phase; each production capability/action remains independently gated.
+- **Phase 4:** notification and deterministic-continuation source foundations implemented; activation/transport remains gated.
+- **Phase 5:** sanitized production-visibility model and UI implemented; RPi5 adapter/runtime evidence remains gated.
+- **Optional AI/runtime phase:** deferred.
+
+See [`docs/ROADMAP_CURRENT_CHECKPOINT.md`](docs/ROADMAP_CURRENT_CHECKPOINT.md) for the durable current checkpoint. Historical phase documents preserve the design and evidence applicable when each slice was delivered; where wording conflicts with current source, the current source, issue #1 and issue #278 take precedence.
+
+## Local development and validation
+
+The repository requires Node.js `24.19.0`.
 
 ```bash
 npm ci
 npm run check
+```
+
+For the browser regression suite, provide Chromium and ChromeDriver, then run:
+
+```bash
+npm run test:browser
 ```
 
 For local development:
@@ -176,57 +155,32 @@ For local development:
 npm run dev
 ```
 
-`worker-configuration.d.ts` is generated by `wrangler types` and is intentionally not committed.
-
-## Planned platform
-
-- React + TypeScript + Vite;
-- Cloudflare Vite plugin + Workers Static Assets;
-- Cloudflare Worker API;
-- Cloudflare Access for human authentication;
-- D1 for structured control state;
-- Queues + DLQ for webhook reconciliation;
-- Workflows only where durable waits/state machines add value.
-
-The initial design targets Cloudflare Free-compatible components where practical. Paid AI/Sandbox infrastructure is deferred.
+`worker-configuration.d.ts` is generated by `wrangler types` and is intentionally not committed. There is intentionally no ordinary deploy script; production/live work uses separately reviewed, fail-closed gates.
 
 ## Repository map
 
-- [`AGENTS.md`](AGENTS.md) — mandatory worker/assistant rules;
+- [`AGENTS.md`](AGENTS.md) — mandatory repository operating rules;
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution and PR workflow;
 - [`SECURITY.md`](SECURITY.md) — security policy;
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system boundaries and component architecture;
 - [`docs/STATE_MODEL.md`](docs/STATE_MODEL.md) — deterministic task/approval state contract;
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — threats and required mitigations;
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — phase gates and exit criteria;
-- [`docs/PHASE1_UI_NOTES.md`](docs/PHASE1_UI_NOTES.md) — Phase 1 read-only/mobile verification contract;
-- [`docs/PHASE2_GITHUB_READ_CONTRACT.md`](docs/PHASE2_GITHUB_READ_CONTRACT.md) — Phase 2 source-only GitHub read/reconciliation contract;
-- [`docs/PHASE2_GITHUB_PROJECTION_CONTRACT.md`](docs/PHASE2_GITHUB_PROJECTION_CONTRACT.md) — authoritative projection/CI/review parity contract;
-- [`docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md`](docs/PHASE2_GITHUB_MERGE_STATE_CONTRACT.md) — exact-head GitHub merge-state readiness contract;
-- [`docs/PHASE2_GITHUB_POLICY_EVIDENCE.md`](docs/PHASE2_GITHUB_POLICY_EVIDENCE.md) — ruleset/classic policy provenance contract;
-- [`docs/PHASE2_RECONCILIATION_DURABILITY.md`](docs/PHASE2_RECONCILIATION_DURABILITY.md) — delivery/D1/Queue/DLQ source-only durability contract;
-- [`docs/PHASE2_ASYNC_SAFETY.md`](docs/PHASE2_ASYNC_SAFETY.md) — typed production-source Promise handling contract;
-- [`docs/PHASE2_GITHUB_APP_AUTH_CONTRACT.md`](docs/PHASE2_GITHUB_APP_AUTH_CONTRACT.md) — short-lived GitHub App credential and read-request source contract;
-- [`docs/PHASE2_GITHUB_REST_READ_TRANSPORT.md`](docs/PHASE2_GITHUB_REST_READ_TRANSPORT.md) — bounded repository-scoped REST GET/pagination/rate-limit transport contract;
-- [`docs/PHASE2_GITHUB_APP_SESSION.md`](docs/PHASE2_GITHUB_APP_SESSION.md) — source-only JWT, installation-token exchange and authorized-session boundary;
-- [`docs/PHASE2_GITHUB_APP_ROLLOUT_PLAN.md`](docs/PHASE2_GITHUB_APP_ROLLOUT_PLAN.md) — exact selected-repository and staged read-permission/canary rollout contract;
-- [`docs/PHASE2_GITHUB_GRAPHQL_MERGE_STATE_TRANSPORT.md`](docs/PHASE2_GITHUB_GRAPHQL_MERGE_STATE_TRANSPORT.md) — bounded fixed-query GraphQL merge-state transport/session contract;
-- [`docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md`](docs/PHASE2_COMMIT_STATUS_EVIDENCE_COVERAGE.md) — observed-vs-unrequested commit-status evidence and fail-closed CI semantics;
-- [`docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md`](docs/PHASE2_GITHUB_AUTHORITATIVE_READ_PROVIDER.md) — source-only concrete GitHub provider composition, endpoint/permission binding and observation-time contract;
-- [`docs/PHASE2_GITHUB_ACTIVE_BRANCH_RULES_READER.md`](docs/PHASE2_GITHUB_ACTIVE_BRANCH_RULES_READER.md) — Metadata-only active-rules read path and deliberately partial policy-coverage contract;
-- [`docs/PHASE2_AUTHORITATIVE_RECONCILIATION_COMPOSITION.md`](docs/PHASE2_AUTHORITATIVE_RECONCILIATION_COMPOSITION.md) — provider-neutral fail-closed composition from authoritative snapshot + policy evidence to blocked/projected decision result;
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — long-form phase gates and exit criteria;
+- [`docs/ROADMAP_CURRENT_CHECKPOINT.md`](docs/ROADMAP_CURRENT_CHECKPOINT.md) — durable current source/gate checkpoint;
+- [`docs/D1_HOT_QUERY_AUDIT.md`](docs/D1_HOT_QUERY_AUDIT.md) — operational query-plan and index evidence;
+- [`docs/WORKER_OBSERVABILITY.md`](docs/WORKER_OBSERVABILITY.md) — structured logging and sampling contract;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
 
 ## Development rule
 
 Before every task:
 
-1. re-read master issue #1;
+1. re-read master issue #1 and current handoff #278;
 2. identify the current phase and first incomplete exit criterion;
-3. inspect repository instructions and current diff/state;
-4. work only that scope and necessary prerequisites;
-5. validate narrowly first, then broader as required;
-6. use a task branch and Draft PR;
-7. never interpret merge as production authorization.
+3. inspect repository instructions, canonical GitHub state and the local worktree;
+4. work only the authorized scope and necessary prerequisites;
+5. validate narrowly first, then run the required broader checks;
+6. use a task branch and focused Draft PR;
+7. never interpret merge or source configuration as production authorization.
 
 No secrets belong in this public repository.

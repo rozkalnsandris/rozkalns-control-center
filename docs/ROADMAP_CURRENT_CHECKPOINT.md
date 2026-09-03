@@ -1,137 +1,99 @@
 # Rozkalns Control — Current Roadmap Checkpoint
 
-Last reconciled: **2026-09-01**.
+Last reconciled: **2026-09-03**.
 
-Master issue #1 remains the canonical product/architecture contract. `docs/ROADMAP.md` is the long-form roadmap. This checkpoint records the current source baseline and the strongest separately evidenced runtime facts without treating repository source as proof of production deployment.
+Master issue #1 remains the canonical product/architecture contract, and `docs/ROADMAP.md` remains the long-form roadmap. Issue #278 is the canonical operational handoff for changing current phase or live state. This checkpoint records durable current architecture and gates; it deliberately omits transient CI runs, deployment identifiers and authorization receipts.
 
 ## Evidence boundary
 
-- Canonical source baseline: `main=f3fbcd30db23b0347a628fcfdb293778813e1f21`.
-- Exact-main CI: run `33487681494` / CI #698 — **SUCCESS**.
-- Exact-main FAST-LANE policy drift: run `33487682507` / #126 — **SUCCESS**.
-- Exact-main GITHUB-ONLY policy drift: run `33487682515` / #114 — **SUCCESS**.
-- Source/config/docs on `main` prove intended implementation only. They do **not** by themselves prove the current production Worker version, bindings, secrets, D1/Queue state, GitHub App permissions, Cloudflare routes, live authorization state, or host/runtime state.
-- Live/runtime claims below are made only where canonical continuity records an executed and reconciled gate. Any future live action still requires fresh GET-only preflight and its own explicit owner authorization.
+- `main` source, tests and configuration prove the intended repository baseline only.
+- They do **not** independently prove the active Worker version, traffic allocation, applied D1 migrations, Queue state, secret values, GitHub App grants, Cloudflare Access/routes, project capability activation or RPi5 runtime state.
+- Historical live canaries prove only their bounded completed actions. Their authority is consumed and does not become standing permission.
+- Any future live mutation requires fresh canonical state, GET-only preflight, an exact target/SHA/baseline, and the authority required by #1, #278 and the focused tracker.
+- A source-controlled migration or `wrangler.jsonc` change is a deploy input, not an apply/deploy authorization.
 
 ## Current phase classification
 
-- Phase 0 — repository/contracts: **COMPLETE**.
-- Phase 1 — mobile-first decision UI: **COMPLETE**.
-- Phase 2 — read-only GitHub/control-plane foundation: **SOURCE + historical live-read foundation established; not re-certified here as a current production snapshot**.
-- Phase 3 — authenticated human decision actions: **ACTIVE / SUBSTANTIALLY SOURCE-IMPLEMENTED**. Merge, Needs changes and Later all exist in current source; their production/live readiness differs and remains independently gated.
-- Phase 4 — notifications + deterministic continuation: **SUBSTANTIAL SOURCE IMPLEMENTATION; runtime activation/transport still gated**.
-- Phase 5 — production visibility: **SANITIZED SOURCE MODEL + DASHBOARD PROJECTION IMPLEMENTED; production adapter/transport and runtime evidence remain gated**.
+- **Phase 0 — repository/contracts:** complete.
+- **Phase 1 — mobile-first decision UI:** complete.
+- **Phase 2 — read-only GitHub/control-plane foundation:** live-read, GitHub App, webhook, D1 and Queue source architecture implemented; current production facts remain separately evidenced.
+- **Phase 3 — authenticated human decision actions:** current active product phase. Merge, Needs changes and Later are source-wired, but each production capability and action remains independently gated.
+- **Phase 4 — notifications and deterministic continuation:** substantial source implementation; notification transport and continuation activation remain gated.
+- **Phase 5 — production visibility:** sanitized model and dashboard projection implemented; RPi5 adapter/runtime evidence remains gated.
+- **Optional AI/runtime phase:** deferred.
 
-## Phase 3 — authenticated human decision actions
+## Durable current architecture
 
-### Merge
+### Worker and browser surface
 
-Current source contains the guarded Merge stack:
+- A React/Vite mobile-first SPA is served through Cloudflare Workers Static Assets, with `/api/*` routed through the Worker first.
+- Static assets and Worker-generated API responses share a compatibility-tested security policy: CSP, content-type protection, referrer policy, frame protection and minimal permissions policy. Sensitive/live API responses remain `Cache-Control: no-store`.
+- One reusable read-only client contract serves health, dashboard and webhook-delivery reads with a bounded timeout and distinct timeout, navigation-abort, network/server and invalid-payload outcomes.
+- The last successful snapshot can remain visible during failure, but explicit age and clock-skew checks remove fresh authority. Invalid, future or over-age evidence disables mutation-capable UI.
 
-- exact-head decision model and authoritative revalidation;
-- D1 `merge_decisions` audit/idempotency store and migration `0008_merge_decision_audit.sql`;
-- one-repository installation write session and exact-head Merge writer;
-- Access-authenticated `/api/github/merge` route/runtime registered in `src/worker/index.ts`;
-- typed React caller with second confirmation and exact decision evidence binding;
-- read-only preflight, access-classification, one-shot canary and post-canary reconciliation workflows/tests.
+### GitHub authoritative reads
 
-Canonical #278 continuity records the bounded Phase 3 Merge canary lifecycle as **COMPLETE / PASS**: the reviewed one-shot backend canary merged the disposable `ops-workflows` PR #24, paired issue #25 was closed/completed, and post-canary reconciliation run `33383001360` completed successfully with GitHub evidence plus D1 SELECT-only audit. Those historical authorizations are consumed/non-replayable and do not authorize another Merge.
+- The Worker source registers health, dashboard, reconciliation, Needs changes preflight and webhook-delivery observability GET routes.
+- The GitHub App read runtime keeps JWTs, installation tokens and private keys inside the credential layer, narrows installation sessions to the selected repository/permissions, and exposes normalized evidence only.
+- Bounded REST pagination, redirect/origin controls, fixed GraphQL merge-state reads and repository-scope validation preserve exact-head evidence and fail closed on ambiguity.
+- Read-only reconciliation may use bounded conditional GETs. Validators and cached bodies are bound to installation identity, repository selection, permissions, repository, endpoint and query; `304 Not Modified` is explicit and page-local.
+- State-dependent Merge, Needs changes and decision preflights do not use cached authority. They perform unconditional fresh GitHub reads.
+- Sanitized rate-limit headers become `HEALTHY`, `ATTENTION`, `EXHAUSTED` or `UNKNOWN` operator evidence. Missing/malformed evidence is never inferred healthy, and requests do not auto-sleep or auto-retry.
 
-Current source readiness is therefore materially beyond “not started”. Every future real Merge remains separately owner-authorized and freshly revalidated; source presence or the historical canary does not grant standing live authority.
+### Webhook, Queue and D1 reconciliation
 
-### Needs changes
+- The webhook route authenticates raw bytes before trusting payload identity, claims the delivery ID in D1 and enqueues a bounded identity-only message.
+- The reconciliation Queue consumer treats messages as at-least-once triggers, performs an authoritative GitHub reread and advances a durable D1 lifecycle.
+- The DLQ consumer persists bounded terminal evidence. Unknown or contradictory delivery state fails closed rather than being silently acknowledged.
+- The dashboard's compact system-health view reads only sanitized, bounded webhook-delivery counts/diagnostics and provides no requeue, retry, delete or cleanup control.
+- Migrations cover reconciliation, Needs changes/Merge audit and idempotency, notification state, continuation campaigns and Later deferrals.
+- Migration `0010_webhook_observability_hot_index.sql` contains the single new planner-proven partial index for active delivery diagnostics. Issue #529 did not apply it to remote D1.
+- The operational query inventory and local D1-compatible planner evidence live in `docs/D1_HOT_QUERY_AUDIT.md`; existing primary/unique indexes remain preferred where their plans are already bounded.
 
-Current source contains:
+### Human decision actions
 
-- guarded `REQUEST_CHANGES` decision/write contract;
-- exact `commit_id` binding and authoritative fresh revalidation;
-- D1 audit/idempotency implementation plus `0002_needs_changes_audit.sql`;
-- installation review session;
-- Access-authenticated `/api/github/needs-changes` route/runtime and GET-only preflight route registered in the Worker entrypoint;
-- project capability gating and failure mapping;
-- typed UI decision-action caller.
+- Access-authenticated Worker routes exist for Needs changes, Merge and Later.
+- Project capability checks occur before protected persistence or GitHub writes.
+- Merge and Needs changes bind the actor and expected head, re-read current GitHub state, and write bounded D1 audit/idempotency evidence.
+- Later recomputes a deterministic material-state fingerprint before a compare-and-swap deferral write.
+- The UI requires explicit confirmation and sends exact decision evidence. Stale/invalid dashboard state cannot authorize an action.
+- Backend canary success is not standing authorization for UI activation, a second action or a different target. #278 and the focused tracker remain authoritative for the next live gate.
 
-Older phase documentation still describes this path as detached, but current `src/worker/index.ts` is stronger evidence for present source wiring. This checkpoint does **not** claim that the required production GitHub App write permission, exact project capability, Worker deployment or live canary is currently active. Those remain separate trust-boundary/live gates unless freshly proven otherwise.
+### Notifications, continuation and production visibility
 
-### Later
+- D1 contracts exist for notification transitions, delivery intents, attempts and dispatch claims, with deterministic deep links and Queue-oriented runtime composition.
+- No notification-provider transport or corresponding secret is configured by this baseline; source support must not be described as live delivery.
+- Continuation planning, reservation, persistence and recovery exist, but the continuation runtime is not attached to a Worker route, Queue consumer or scheduler and remains opt-in.
+- Production visibility normalizes main/production SHA, drift, deploy impact, runtime, health, rollback and blocker evidence for the dashboard.
+- No live Control-to-RPi5 adapter is connected. Repository fixtures, source and GET-only workflow definitions cannot establish current host state.
 
-Current source contains:
+### Operational observability
 
-- deterministic Later material-state fingerprinting;
-- D1 deferral persistence and migration `0009_later_deferrals.sql`;
-- Access-authenticated `/api/github/later` route/runtime;
-- source capability preparation for the selected canary repository;
-- typed React caller with second confirmation;
-- GET/read-only preflight and bounded one-shot-canary workflow source.
+- Worker request and Queue entrypoints emit structured events with fixed route, method, status/outcome, duration, Worker-version and safe correlation fields.
+- Logs omit query values, bodies, Access cookies/JWTs, Authorization headers, GitHub credentials, webhook secrets/signatures and protected configuration; protected failures use stable codes.
+- Source configuration explicitly samples persisted logs at `0.10` and traces at `0.05`, with invocation logs disabled. The pinned Wrangler schema does not support query-redaction configuration, so source-level query omission is enforced and tested.
+- GitHub rate-limit health and webhook lifecycle health are read-only operator evidence. Neither creates automatic retry/requeue behavior.
 
-`Later` remains a deferral only; it grants no Merge, review, deploy, DB, permission or host authority. Production activation and any new live Later action remain separately gated.
+## Issue #529 hardening baseline
 
-## Phase 4 — notifications + deterministic continuation
+The non-button hardening work added durable contracts in four areas:
 
-The phase is no longer purely future in source.
+1. **Browser/read safety:** centralized static/API security headers, fail-closed dashboard freshness and one bounded client-read timeout/offline fallback policy.
+2. **Operational observability:** mobile webhook/reconciliation health, sanitized structured Worker/Queue logs and explicit cost-bounded log/trace sampling.
+3. **Data/API efficiency:** a planner-evidenced D1 hot-query audit and partial index, identity-bound conditional GitHub reads, and normalized rate-limit health.
+4. **Documentation freshness:** README and this checkpoint now describe the current Worker/D1/Queue/live-read source architecture without treating it as deployment evidence.
 
-### Notification source implemented
+These changes add no retry/requeue/delete UI, no permissive CORS, no new GitHub permission, no production decision invocation, no remote D1 apply and no deployment authority.
 
-Current `main` includes:
+## Current gates
 
-- notification transition, delivery-intent, delivery-attempt and dispatch-claim migrations (`0003`–`0006`);
-- D1 notification transition/delivery/dispatch stores;
-- transition/delivery/retry/dispatch shared contracts;
-- Queue-runtime composition and focused source-boundary/runtime tests;
-- deterministic deep-link source support.
+- Re-read #1 and #278 before selecting the next phase/live action; historical phase documents may preserve older source-only snapshots and cannot override current canonical state.
+- Revalidate exact current `main`, required checks, expected head, reviews, rules and target state immediately before every state-dependent GitHub write.
+- Apply of migration `0010`, Worker deployment/promotion, Queue mutation, decision-route invocation, capability activation, GitHub App grant/repository-selection change, Access/DNS/Tunnel mutation, secrets and credentials all require separately scoped authority.
+- Merge never authorizes deployment, D1 writes, Queue writes, production decision POSTs or host mutation.
+- RPi5 exact-SHA deploy, health and rollback authority remains outside this repository. No direct SSH/sudo/root shortcut is permitted.
+- AI APIs, AI Gateway, Sandbox SDK and autonomous coding workers remain deferred to the final optional phase.
 
-The notification runtime is deliberately dormant by default: source-boundary tests require the notification transition bindings to be absent from `wrangler.jsonc`, and current notification composition contains no Telegram API/Web Push/VAPID transport or corresponding secrets. Therefore “notification state/delivery intent source exists” must not be rewritten as “notifications are live”.
+## Next safe step
 
-### Deterministic continuation source implemented
-
-Current `main` includes:
-
-- continuation campaign persistence (`0007_continuation_campaigns.sql`);
-- deterministic continuation coordinator/planner;
-- current-ready, next-task and post-merge transition/reselection logic;
-- D1 continuation readers/stores;
-- recovery coordinator and Cloudflare continuation runtime composition;
-- focused tests for recovery, reservation, persistence and post-merge reselection.
-
-`resolveContinuationRuntime()` remains a source-only composition point. `CONTROL_CONTINUATION_RUNTIME_ENABLED` is not set by current `wrangler.jsonc`, and the Worker has no route/queue/scheduler that invokes continuation methods in the current source slice. Activation remains a separate reviewed/live gate.
-
-## Phase 5 — production visibility
-
-Phase 5 now has a concrete sanitized source contract and read-only dashboard projection, but it does not yet have a production evidence transport.
-
-Current `main` includes:
-
-- `.github/workflows/daily-mvp-production-preflight.yml`, which uses GET-only GitHub/Cloudflare reads to verify exact-main CI, active Worker deployment/version, 100% traffic, selected bindings and custom-domain identity while explicitly denying deploy authorization;
-- `src/shared/production-visibility.ts`, a pure bounded normalization contract for managed RPi5-backed projects;
-- normalized main SHA and production SHA evidence with exact drift derivation;
-- deploy-impact, runtime, health, rollback and bounded blocker-code evidence;
-- fail-closed rejection for malformed, stale, contradictory, unsupported or identity-mismatched evidence;
-- dashboard read-model support and fixture-backed project projection;
-- React payload validation and project UI for runtime/health/rollback, main-vs-production SHA, drift and blocker count;
-- explicit live-dashboard `productionVisibility: []`, so current GitHub-only live composition does not invent production evidence when no production adapter is connected.
-
-The remaining Phase 5 gap is therefore narrower than the earlier checkpoint stated. Current source still does **not** evidence:
-
-- a sanitized RPi5 production adapter/transport that obtains the normalized evidence from the production trust boundary;
-- live Control-plane composition that supplies that evidence to the dashboard;
-- separately verified current runtime/health/rollback/production-SHA facts for managed projects.
-
-Those remaining items cross the RPi5/production trust boundary and must preserve the canonical production flow and separate owner/live authorization. Repository source, fixtures, or the GET-only preflight workflow do not prove current production state.
-
-Treat Phase 5 as **source-model/dashboard ready but production-adapter/runtime incomplete** until that separately reviewed transport exists and current runtime evidence is independently proven.
-
-## Current safety boundary
-
-This reconciliation changes documentation only. It does not authorize or perform:
-
-- GitHub Merge/review/Later actions;
-- production Worker deploy or Cloudflare mutation;
-- D1/DB write or migration apply;
-- Queue mutation;
-- GitHub App permission/repository-selection change;
-- secrets/credentials/tokens;
-- repository settings/rulesets/branch protection;
-- RPi5/root/systemd/Docker/network/host mutation;
-- P9/P10 work.
-
-For current execution continuity, issue #497 and controller #499 govern the active AUTO-RUN FULL source-only queue. Each source PR stops at its owner MERGE gate; merge never implies live/deploy authority.
+Use issue #1 to identify the first incomplete phase exit criterion and issue #278 to establish current operational state. If the next step crosses a live boundary, create or resume the focused tracker, perform fresh GET-only preflight, bind the exact target/SHA/baseline and obtain the required explicit owner authorization before the first mutation.
