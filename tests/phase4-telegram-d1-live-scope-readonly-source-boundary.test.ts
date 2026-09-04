@@ -80,8 +80,8 @@ test("Telegram D1 LIVE-scope review is manual, main-only and read-only", () => {
   assert.match(workflow, /backlog_bytes/);
   assert.match(workflow, /oldest_message_timestamp_ms/);
   assert.match(workflow, /DISPATCH_QUEUE_METRICS=BEST_EFFORT_POINT_IN_TIME/);
-  assert.match(workflow, /gate_b_eligibility=BACKLOG_POLICY_REVIEW_REQUIRED/);
-  assert.match(workflow, /gate_b_eligibility=SOURCE_EXECUTOR_REQUIRED/);
+  assert.match(workflow, /gate_b_eligibility=REPLAY_SAFE_DURABLE_INTENT_DRAIN_READY/);
+  assert.match(workflow, /gate_b_eligibility=GATE_B_LIVE_AUTHORIZATION_REQUIRED/);
   assert.match(workflow, /GATE_B_ELIGIBILITY=%s/);
 
   assert.match(workflow, /EXPECTED_BATCH_SIZE:\s*'10'/);
@@ -116,11 +116,11 @@ test("Telegram D1 LIVE-scope review is manual, main-only and read-only", () => {
     workflow,
     /PROVIDER_RESUME_PRECONDITION=FRESH_QUEUE_PAUSED_AND_BACKLOG_RECHECK_REQUIRED/,
   );
-  assert.match(workflow, /GATE_B_EXECUTOR=NOT_PRESENT_REVIEW_REQUIRED/);
+  assert.match(workflow, /GATE_B_EXECUTOR=SOURCE_PRESENT_SEPARATE_LIVE_AUTHORIZATION_REQUIRED/);
   assert.match(workflow, /LIVE_AUTHORIZATION=NOT_GRANTED/);
   assert.match(
     workflow,
-    /NEXT_GATE=SOURCE_GATE_B_EXECUTOR_AND_SEPARATE_LIVE_AUTHORIZATION/,
+    /NEXT_GATE=SEPARATE_EXACT_GATE_B_LIVE_AUTHORIZATION/,
   );
 
   assert.match(workflow, /TELEGRAM_PROVIDER_REQUEST=NO/);
