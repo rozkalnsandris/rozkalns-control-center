@@ -307,9 +307,9 @@ jobs:
           printf 'DISPATCH_QUEUE_OLDEST_MESSAGE_TIMESTAMP_MS=%s\n' "$oldest_message_ms"
           printf 'DISPATCH_QUEUE_METRICS=BEST_EFFORT_POINT_IN_TIME\n'
           if [ "$backlog_count" -eq 0 ]; then
-            gate_b_eligibility=SOURCE_EXECUTOR_REQUIRED
+            gate_b_eligibility=GATE_B_LIVE_AUTHORIZATION_REQUIRED
           else
-            gate_b_eligibility=BACKLOG_POLICY_REVIEW_REQUIRED
+            gate_b_eligibility=REPLAY_SAFE_DURABLE_INTENT_DRAIN_READY
           fi
           printf 'GATE_B_ELIGIBILITY=%s\n' "$gate_b_eligibility"
 
@@ -343,7 +343,7 @@ jobs:
           printf 'PROVIDER_DELIVERY_RESUME_MUTATION_MAX=1\n'
           printf 'DIRECT_TELEGRAM_API_REQUEST_MAX=0\n'
           printf 'PROVIDER_RESUME_PRECONDITION=FRESH_QUEUE_PAUSED_AND_BACKLOG_RECHECK_REQUIRED\n'
-          printf 'GATE_B_EXECUTOR=NOT_PRESENT_REVIEW_REQUIRED\n'
+          printf 'GATE_B_EXECUTOR=SOURCE_PRESENT_SEPARATE_LIVE_AUTHORIZATION_REQUIRED\n'
           printf 'TELEGRAM_PROVIDER_REQUEST=NO\n'
           printf 'QUEUE_MUTATION=NO\n'
           printf 'REMOTE_D1_MUTATION=NO\n'
@@ -352,4 +352,4 @@ jobs:
           printf 'SECRET_MUTATION=NO\n'
           printf 'CLOUDFLARE_MUTATION=NO\n'
           printf 'LIVE_AUTHORIZATION=NOT_GRANTED\n'
-          printf 'NEXT_GATE=SOURCE_GATE_B_EXECUTOR_AND_SEPARATE_LIVE_AUTHORIZATION\n'
+          printf 'NEXT_GATE=SEPARATE_EXACT_GATE_B_LIVE_AUTHORIZATION\n'

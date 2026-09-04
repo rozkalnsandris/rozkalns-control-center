@@ -1,0 +1,486 @@
+name: Phase 4 Telegram Gate B provider delivery resume
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact 40-character current main SHA containing the reviewed Gate B executor
+        required: true
+        type: string
+      expected_ci_run:
+        description: Exact successful main push CI run on approved_sha
+        required: true
+        type: string
+      expected_readonly_run:
+        description: Exact successful D1 and LIVE-scope read-only run on approved_sha
+        required: true
+        type: string
+      expected_deployment:
+        description: Exact currently active Worker deployment
+        required: true
+        type: string
+      expected_version:
+        description: Exact currently active Worker version
+        required: true
+        type: string
+      expected_queue_id:
+        description: Exact paused notification dispatch Queue ID
+        required: true
+        type: string
+      expected_consumer_id:
+        description: Exact notification dispatch Worker consumer ID
+        required: true
+        type: string
+      expected_transition_rows:
+        description: Exact notification transition row count from fresh evidence
+        required: true
+        type: string
+      expected_intent_rows:
+        description: Exact notification delivery intent row count from fresh evidence
+        required: true
+        type: string
+      expected_backlog_count:
+        description: Exact fresh pre-resume Queue backlog message count
+        required: true
+        type: string
+      expected_backlog_bytes:
+        description: Exact fresh pre-resume Queue backlog byte count
+        required: true
+        type: string
+      owner_authorization:
+        description: Exact one-shot Gate B LIVE authorization text
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase4-telegram-gate-b-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: exact replay-safe paused Queue resume
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: production-worker-deploy
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      DB_NAME: rozkalns-control-production
+      DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
+      DB_JURISDICTION: eu
+      DISPATCH_QUEUE_NAME: rozkalns-control-notification-dispatch
+      CONTROL_ORIGIN: https://control.rozkalns.net
+      EXPECTED_TARGET_KEY: primary
+      EXPECTED_RETRY_POLICY_JSON: '{"schemaVersion":1,"maxAttempts":2,"retryDelaysSeconds":[60]}'
+      EXPECTED_BATCH_SIZE: '10'
+      EXPECTED_BATCH_TIMEOUT_MS: '5000'
+      EXPECTED_MAX_RETRIES: '3'
+      EXPECTED_RETRY_DELAY: '60'
+      EXPECTED_MAX_CONCURRENCY: '1'
+      BACKLOG_POLICY: REPLAY_SAFE_DURABLE_INTENT_DRAIN
+      APPROVED_SHA: ${{ inputs.approved_sha }}
+      EXPECTED_CI_RUN: ${{ inputs.expected_ci_run }}
+      EXPECTED_READONLY_RUN: ${{ inputs.expected_readonly_run }}
+      EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+      EXPECTED_QUEUE_ID: ${{ inputs.expected_queue_id }}
+      EXPECTED_CONSUMER_ID: ${{ inputs.expected_consumer_id }}
+      EXPECTED_TRANSITION_ROWS: ${{ inputs.expected_transition_rows }}
+      EXPECTED_INTENT_ROWS: ${{ inputs.expected_intent_rows }}
+      EXPECTED_BACKLOG_COUNT: ${{ inputs.expected_backlog_count }}
+      EXPECTED_BACKLOG_BYTES: ${{ inputs.expected_backlog_bytes }}
+      OWNER_AUTHORIZATION: ${{ inputs.owner_authorization }}
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+
+    steps:
+      - name: Reconcile exact Gate B envelope and resume delivery once
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          mutation_started=NO
+          queue_resume_count=0
+
+          emit_stop_receipt() {
+            local reason="$1"
+            {
+              printf 'PHASE4_TELEGRAM_GATE_B=STOP\n'
+              printf 'STOP=%s\n' "$reason"
+              printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+              printf 'EXPECTED_CI_RUN=%s\n' "$EXPECTED_CI_RUN"
+              printf 'EXPECTED_READONLY_RUN=%s\n' "$EXPECTED_READONLY_RUN"
+              printf 'EXPECTED_DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+              printf 'EXPECTED_VERSION=%s\n' "$EXPECTED_VERSION"
+              printf 'EXPECTED_QUEUE_ID=%s\n' "$EXPECTED_QUEUE_ID"
+              printf 'EXPECTED_CONSUMER_ID=%s\n' "$EXPECTED_CONSUMER_ID"
+              printf 'BACKLOG_POLICY=%s\n' "$BACKLOG_POLICY"
+              printf 'QUEUE_RESUME_COUNT=%s\n' "$queue_resume_count"
+              printf 'D1_MUTATION_COUNT=0\n'
+              printf 'QUEUE_CREATE_COUNT=0\n'
+              printf 'QUEUE_PAUSE_COUNT=0\n'
+              printf 'QUEUE_CONSUMER_MUTATION_COUNT=0\n'
+              printf 'WORKER_VERSION_UPLOAD_COUNT=0\n'
+              printf 'WORKER_DEPLOYMENT_WRITE_COUNT=0\n'
+              printf 'SECRET_MUTATION_COUNT=0\n'
+              printf 'DIRECT_TELEGRAM_API_REQUEST_COUNT=0\n'
+              printf 'FIRST_MUTATION_STARTED=%s\n' "$mutation_started"
+              if [ "$mutation_started" = YES ]; then
+                printf 'AUTHORIZATION_CONSUMED=YES\n'
+              else
+                printf 'AUTHORIZATION_CONSUMED=NO\n'
+              fi
+              printf 'AUTOMATIC_RETRY=NO\n'
+              printf 'AUTOMATIC_ROLLBACK=NO\n'
+              printf 'AUTOMATIC_CLEANUP=NO\n'
+              printf 'NEXT_ACTION=STOP_OWNER_REVIEW\n'
+            } >&2
+          }
+
+          stop() {
+            emit_stop_receipt "$1"
+            exit 1
+          }
+
+          require_nonnegative_integer() {
+            [[ "$1" =~ ^(0|[1-9][0-9]*)$ ]] || stop "$2"
+          }
+
+          for cmd in curl jq; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]] || stop APPROVED_SHA_INVALID
+          [[ "$EXPECTED_CI_RUN" =~ ^[0-9]+$ ]] || stop EXPECTED_CI_RUN_INVALID
+          [[ "$EXPECTED_READONLY_RUN" =~ ^[0-9]+$ ]] || stop EXPECTED_READONLY_RUN_INVALID
+          [[ "$EXPECTED_DEPLOYMENT" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_DEPLOYMENT_INVALID
+          [[ "$EXPECTED_VERSION" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_VERSION_INVALID
+          [[ "$EXPECTED_QUEUE_ID" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || stop EXPECTED_QUEUE_ID_INVALID
+          [[ "$EXPECTED_CONSUMER_ID" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || stop EXPECTED_CONSUMER_ID_INVALID
+          require_nonnegative_integer "$EXPECTED_TRANSITION_ROWS" EXPECTED_TRANSITION_ROWS_INVALID
+          require_nonnegative_integer "$EXPECTED_INTENT_ROWS" EXPECTED_INTENT_ROWS_INVALID
+          require_nonnegative_integer "$EXPECTED_BACKLOG_COUNT" EXPECTED_BACKLOG_COUNT_INVALID
+          require_nonnegative_integer "$EXPECTED_BACKLOG_BYTES" EXPECTED_BACKLOG_BYTES_INVALID
+          [ "$EXPECTED_TRANSITION_ROWS" = "$EXPECTED_INTENT_ROWS" ] || stop EXPECTED_D1_CARDINALITY_MISMATCH
+
+          [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ] || stop WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = main ] || stop WORKFLOW_REF_NOT_MAIN
+          [ "${GITHUB_SHA:-}" = "$APPROVED_SHA" ] || stop WORKFLOW_SHA_NOT_APPROVED_SHA
+          [ "${GITHUB_RUN_ATTEMPT:-}" = 1 ] || stop WORKFLOW_RERUN_FORBIDDEN
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_API_TOKEN
+          [ -n "${CLOUDFLARE_D1_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_D1_READ_TOKEN
+
+          expected_authorization="AUTHORIZE PHASE4 TELEGRAM GATE B LIVE — MAIN ${APPROVED_SHA} — CI ${EXPECTED_CI_RUN} — READONLY ${EXPECTED_READONLY_RUN} — DEPLOYMENT ${EXPECTED_DEPLOYMENT} — VERSION ${EXPECTED_VERSION} — QUEUE ${EXPECTED_QUEUE_ID} — CONSUMER ${EXPECTED_CONSUMER_ID} — D1 TRANSITIONS ${EXPECTED_TRANSITION_ROWS} INTENTS ${EXPECTED_INTENT_ROWS} ATTEMPTS 0 CLAIMS 0 — BACKLOG ${EXPECTED_BACKLOG_COUNT} MESSAGES ${EXPECTED_BACKLOG_BYTES} BYTES — POLICY ${BACKLOG_POLICY} — QUEUE RESUME 1 — DIRECT TELEGRAM REQUEST 0 — NO RETRY — NO ROLLBACK — NO CLEANUP"
+          [ "$OWNER_AUTHORIZATION" = "$expected_authorization" ] || stop OWNER_AUTHORIZATION_MISMATCH
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          gh_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
+          }
+
+          cf_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_RESPONSE_INVALID
+          }
+
+          cf_d1_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_D1_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_D1_RESPONSE_INVALID
+          }
+
+          cf_d1_select() {
+            local sql="$1" out="$2"
+            [[ "$sql" == SELECT\ * ]] || stop D1_QUERY_NOT_SELECT
+            [[ "$sql" != *';'* ]] || stop D1_QUERY_MULTISTATEMENT_FORBIDDEN
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X POST \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$(jq -cn --arg sql "$sql" '{sql:$sql}')" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${DB_ID}/query" > "$out" || stop CLOUDFLARE_D1_SELECT_FAILED
+            jq -e '
+              .success == true and
+              (.result | type == "array") and
+              (.result | length == 1) and
+              .result[0].success == true and
+              (.result[0].results | type == "array") and
+              ((.result[0].meta.changed_db // false) == false) and
+              (((.result[0].meta.rows_written // 0) | tonumber) == 0) and
+              (((.result[0].meta.changes // 0) | tonumber) == 0)
+            ' "$out" >/dev/null || stop D1_SELECT_REPORTED_MUTATION_OR_FAILURE
+          }
+
+          cf_write_json() {
+            local method="$1" path="$2" data="$3" out="$4"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X "$method" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$data" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_WRITE_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_WRITE_RESPONSE_INVALID
+          }
+
+          verify_deployment() {
+            local file="$1" reason="$2"
+            jq -e --arg deployment "$EXPECTED_DEPLOYMENT" --arg version "$EXPECTED_VERSION" '
+              (.result.deployments | type == "array") and
+              (.result.deployments | length >= 1) and
+              .result.deployments[0].id == $deployment and
+              (.result.deployments[0].versions | type == "array") and
+              (.result.deployments[0].versions | length == 1) and
+              .result.deployments[0].versions[0].version_id == $version and
+              .result.deployments[0].versions[0].percentage == 100
+            ' "$file" >/dev/null || stop "$reason"
+          }
+
+          verify_d1_counts() {
+            local file="$1" prefix="$2"
+            local sql="SELECT (SELECT COUNT(*) FROM notification_transitions) AS notification_transitions, (SELECT COUNT(*) FROM notification_delivery_intents) AS notification_delivery_intents, (SELECT COUNT(*) FROM notification_delivery_attempts) AS notification_delivery_attempts, (SELECT COUNT(*) FROM notification_delivery_dispatch_claims) AS notification_delivery_dispatch_claims"
+            cf_d1_select "$sql" "$file"
+            jq -e '.result[0].results | length == 1' "$file" >/dev/null || stop "${prefix}_D1_COUNTS_INVALID"
+            local transitions intents attempts claims
+            transitions="$(jq -r '.result[0].results[0].notification_transitions // empty' "$file")"
+            intents="$(jq -r '.result[0].results[0].notification_delivery_intents // empty' "$file")"
+            attempts="$(jq -r '.result[0].results[0].notification_delivery_attempts // empty' "$file")"
+            claims="$(jq -r '.result[0].results[0].notification_delivery_dispatch_claims // empty' "$file")"
+            [ "$transitions" = "$EXPECTED_TRANSITION_ROWS" ] || stop "${prefix}_D1_TRANSITION_COUNT_DRIFT"
+            [ "$intents" = "$EXPECTED_INTENT_ROWS" ] || stop "${prefix}_D1_INTENT_COUNT_DRIFT"
+            [ "$transitions" = "$intents" ] || stop "${prefix}_D1_CARDINALITY_MISMATCH"
+            [ "$attempts" = 0 ] || stop "${prefix}_D1_ATTEMPTS_NOT_PRISTINE"
+            [ "$claims" = 0 ] || stop "${prefix}_D1_CLAIMS_NOT_PRISTINE"
+          }
+
+          verify_queue_paused() {
+            local file="$1" reason="$2"
+            jq -e --arg id "$EXPECTED_QUEUE_ID" --arg name "$DISPATCH_QUEUE_NAME" '
+              .result.queue_id == $id and .result.queue_name == $name and
+              (.result.settings | type == "object") and .result.settings.delivery_paused == true
+            ' "$file" >/dev/null || stop "$reason"
+          }
+
+          verify_consumer() {
+            local file="$1" reason="$2"
+            jq -e \
+              --arg id "$EXPECTED_CONSUMER_ID" \
+              --arg worker "$WORKER_NAME" \
+              --arg queue "$DISPATCH_QUEUE_NAME" \
+              --argjson batch "$EXPECTED_BATCH_SIZE" \
+              --argjson wait "$EXPECTED_BATCH_TIMEOUT_MS" \
+              --argjson retries "$EXPECTED_MAX_RETRIES" \
+              --argjson delay "$EXPECTED_RETRY_DELAY" \
+              --argjson concurrency "$EXPECTED_MAX_CONCURRENCY" '
+                (.result | type == "array") and (.result | length == 1) and
+                .result[0].consumer_id == $id and
+                .result[0].type == "worker" and .result[0].queue_name == $queue and
+                ((.result[0].script_name == null) or (.result[0].script_name == $worker)) and
+                .result[0].settings.batch_size == $batch and
+                .result[0].settings.max_wait_time_ms == $wait and
+                .result[0].settings.max_retries == $retries and
+                .result[0].settings.retry_delay == $delay and
+                .result[0].settings.max_concurrency == $concurrency and
+                ((.result[0].dead_letter_queue // "") == "")
+              ' "$file" >/dev/null || stop "$reason"
+          }
+
+          verify_backlog() {
+            local file="$1" prefix="$2"
+            jq -e '
+              (.result.backlog_count | type == "number" and . >= 0) and
+              (.result.backlog_bytes | type == "number" and . >= 0) and
+              (.result.oldest_message_timestamp_ms | type == "number" and . >= 0)
+            ' "$file" >/dev/null || stop "${prefix}_QUEUE_METRICS_INVALID"
+            [ "$(jq -r '.result.backlog_count' "$file")" = "$EXPECTED_BACKLOG_COUNT" ] || stop "${prefix}_BACKLOG_COUNT_DRIFT"
+            [ "$(jq -r '.result.backlog_bytes' "$file")" = "$EXPECTED_BACKLOG_BYTES" ] || stop "${prefix}_BACKLOG_BYTES_DRIFT"
+          }
+
+          printf '%s\n' STAGE=GITHUB_EXACT_SOURCE_AND_EVIDENCE
+          gh_get '/branches/main' "$tmp/main-before.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-before.json" >/dev/null || stop MAIN_SHA_DRIFT
+
+          gh_get "/actions/runs/${EXPECTED_CI_RUN}" "$tmp/ci.json"
+          jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_CI_RUN" '
+            .id == $id and .name == "CI" and .path == ".github/workflows/ci.yml" and
+            .head_branch == "main" and .head_sha == $sha and .event == "push" and
+            .status == "completed" and .conclusion == "success"
+          ' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+
+          gh_get "/actions/runs/${EXPECTED_READONLY_RUN}" "$tmp/readonly.json"
+          jq -e --arg sha "$APPROVED_SHA" --argjson id "$EXPECTED_READONLY_RUN" '
+            .id == $id and
+            .name == "Phase 4 Telegram D1 and LIVE scope read-only review" and
+            .path == ".github/workflows/phase4-telegram-d1-live-scope-readonly.yml" and
+            .head_branch == "main" and .head_sha == $sha and .event == "workflow_dispatch" and
+            .status == "completed" and .conclusion == "success"
+          ' "$tmp/readonly.json" >/dev/null || stop READONLY_RUN_DRIFT
+
+          printf '%s\n' STAGE=PRODUCTION_WORKER_BASELINE
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments.json"
+          verify_deployment "$tmp/deployments.json" PRODUCTION_BASELINE_DRIFT
+
+          cf_get "/workers/scripts/${WORKER_NAME}/versions/${EXPECTED_VERSION}" "$tmp/version.json"
+          jq -e \
+            --arg version "$EXPECTED_VERSION" \
+            --arg target "$EXPECTED_TARGET_KEY" \
+            --arg retry "$EXPECTED_RETRY_POLICY_JSON" \
+            --arg origin "$CONTROL_ORIGIN" \
+            --arg queue "$DISPATCH_QUEUE_NAME" '
+              .result.id == $version and
+              (.result.resources.bindings // [] | type == "array") and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED")][0] | .type == "plain_text" and .text == "true") and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_DISPATCH_ENABLED")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_DISPATCH_ENABLED")][0] | .type == "plain_text" and .text == "true") and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TARGET_KEYS")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_TARGET_KEY")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TARGET_KEYS")][0] | .type == "plain_text" and ((.text | fromjson) == [$target])) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_TARGET_KEY")][0] | .type == "plain_text" and .text == $target) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY")][0] | .type == "plain_text" and ((.text | fromjson) == ($retry | fromjson))) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_BOT_TOKEN")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_BOT_TOKEN")][0] | (.type == "secret_text" or .type == "secret_key")) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_CHAT_ID")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_CHAT_ID")][0] | (.type == "secret_text" or .type == "secret_key")) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_CONTROL_ORIGIN")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_CONTROL_ORIGIN")][0] | .type == "plain_text" and .text == $origin) and
+              ([.result.resources.bindings[]? | select(.name == "NOTIFICATION_DISPATCH_QUEUE")] | length == 1) and
+              ([.result.resources.bindings[]? | select(.name == "NOTIFICATION_DISPATCH_QUEUE")][0] | .type == "queue" and ((.queue_name // "") == $queue))
+            ' "$tmp/version.json" >/dev/null || stop NOTIFICATION_BINDINGS_INVALID
+
+          printf '%s\n' STAGE=D1_PRISTINE_PREPROVIDER_EVIDENCE
+          cf_d1_get "/d1/database/${DB_ID}" "$tmp/db.json"
+          jq -e --arg id "$DB_ID" --arg name "$DB_NAME" --arg jurisdiction "$DB_JURISDICTION" '
+            .result.uuid == $id and .result.name == $name and .result.jurisdiction == $jurisdiction
+          ' "$tmp/db.json" >/dev/null || stop D1_RESOURCE_IDENTITY_INVALID
+
+          migration_sql="SELECT id, name FROM d1_migrations WHERE name IN ('0003_notification_transitions.sql','0004_notification_delivery_intents.sql','0005_notification_delivery_attempts.sql','0006_notification_delivery_dispatch_claims.sql') ORDER BY id"
+          cf_d1_select "$migration_sql" "$tmp/migrations.json"
+          jq -e '
+            [.result[0].results[]?.name] == [
+              "0003_notification_transitions.sql",
+              "0004_notification_delivery_intents.sql",
+              "0005_notification_delivery_attempts.sql",
+              "0006_notification_delivery_dispatch_claims.sql"
+            ] and ([.result[0].results[]?.id] | length == 4)
+          ' "$tmp/migrations.json" >/dev/null || stop D1_NOTIFICATION_MIGRATION_HISTORY_INVALID
+
+          schema_sql="SELECT type, name, tbl_name FROM sqlite_schema WHERE name IN ('notification_transitions','notification_delivery_intents','notification_delivery_attempts','notification_delivery_dispatch_claims') ORDER BY name"
+          cf_d1_select "$schema_sql" "$tmp/schema.json"
+          jq -e '
+            [.result[0].results[]? | {type,name,tbl_name}] == [
+              {type:"table",name:"notification_delivery_attempts",tbl_name:"notification_delivery_attempts"},
+              {type:"table",name:"notification_delivery_dispatch_claims",tbl_name:"notification_delivery_dispatch_claims"},
+              {type:"table",name:"notification_delivery_intents",tbl_name:"notification_delivery_intents"},
+              {type:"table",name:"notification_transitions",tbl_name:"notification_transitions"}
+            ]
+          ' "$tmp/schema.json" >/dev/null || stop D1_NOTIFICATION_SCHEMA_INVALID
+          verify_d1_counts "$tmp/counts-before.json" PREWRITE
+          printf 'D1_NOTIFICATION_TRANSITION_ROWS=%s\n' "$EXPECTED_TRANSITION_ROWS"
+          printf 'D1_NOTIFICATION_INTENT_ROWS=%s\n' "$EXPECTED_INTENT_ROWS"
+          printf 'D1_NOTIFICATION_ATTEMPT_ROWS=0\n'
+          printf 'D1_NOTIFICATION_DISPATCH_CLAIM_ROWS=0\n'
+          printf 'D1_PREPROVIDER_STATE=PRISTINE\n'
+
+          printf '%s\n' STAGE=PAUSED_QUEUE_AND_BACKLOG_POLICY
+          cf_get '/queues?per_page=100&page=1' "$tmp/queues.json"
+          [ "$(jq -r '.result_info.total_pages // 1' "$tmp/queues.json")" = 1 ] || stop QUEUE_INVENTORY_PAGINATION_AMBIGUOUS
+          jq -e --arg name "$DISPATCH_QUEUE_NAME" --arg id "$EXPECTED_QUEUE_ID" '
+            [.result[]? | select(.queue_name == $name)] | length == 1 and .[0].queue_id == $id
+          ' "$tmp/queues.json" >/dev/null || stop DISPATCH_QUEUE_IDENTITY_DRIFT
+
+          cf_get "/queues/${EXPECTED_QUEUE_ID}" "$tmp/queue-before.json"
+          verify_queue_paused "$tmp/queue-before.json" DISPATCH_QUEUE_NOT_PAUSED
+          cf_get "/queues/${EXPECTED_QUEUE_ID}/consumers" "$tmp/consumers-before.json"
+          verify_consumer "$tmp/consumers-before.json" DISPATCH_QUEUE_CONSUMER_DRIFT
+          cf_get "/queues/${EXPECTED_QUEUE_ID}/metrics" "$tmp/metrics-before.json"
+          verify_backlog "$tmp/metrics-before.json" PREWRITE
+          printf 'DISPATCH_QUEUE_BACKLOG_COUNT=%s\n' "$EXPECTED_BACKLOG_COUNT"
+          printf 'DISPATCH_QUEUE_BACKLOG_BYTES=%s\n' "$EXPECTED_BACKLOG_BYTES"
+          printf 'DISPATCH_QUEUE_OLDEST_MESSAGE_TIMESTAMP_MS=%s\n' "$(jq -r '.result.oldest_message_timestamp_ms' "$tmp/metrics-before.json")"
+          printf 'BACKLOG_POLICY=%s\n' "$BACKLOG_POLICY"
+          printf 'BACKLOG_COUNT_IS_PROVIDER_SEND_AUTHORITY=NO\n'
+
+          printf '%s\n' STAGE=FINAL_PREWRITE_REVALIDATION
+          gh_get '/branches/main' "$tmp/main-prewrite.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-prewrite.json" >/dev/null || stop FINAL_MAIN_SHA_DRIFT
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-prewrite.json"
+          verify_deployment "$tmp/deployments-prewrite.json" FINAL_PRODUCTION_BASELINE_DRIFT
+          verify_d1_counts "$tmp/counts-prewrite.json" FINAL_PREWRITE
+          cf_get "/queues/${EXPECTED_QUEUE_ID}" "$tmp/queue-prewrite.json"
+          verify_queue_paused "$tmp/queue-prewrite.json" FINAL_QUEUE_PAUSE_DRIFT
+          cf_get "/queues/${EXPECTED_QUEUE_ID}/consumers" "$tmp/consumers-prewrite.json"
+          verify_consumer "$tmp/consumers-prewrite.json" FINAL_QUEUE_CONSUMER_DRIFT
+          cf_get "/queues/${EXPECTED_QUEUE_ID}/metrics" "$tmp/metrics-prewrite.json"
+          verify_backlog "$tmp/metrics-prewrite.json" FINAL_PREWRITE
+
+          printf '%s\n' STAGE=RESUME_DISPATCH_QUEUE
+          mutation_started=YES
+          queue_resume_count=1
+          cf_write_json PATCH "/queues/${EXPECTED_QUEUE_ID}" '{"settings":{"delivery_paused":false}}' "$tmp/queue-resume-write.json"
+
+          printf '%s\n' STAGE=POST_RESUME_READONLY_CONFIRMATION
+          cf_get "/queues/${EXPECTED_QUEUE_ID}" "$tmp/queue-after.json"
+          jq -e --arg id "$EXPECTED_QUEUE_ID" --arg name "$DISPATCH_QUEUE_NAME" '
+            .result.queue_id == $id and .result.queue_name == $name and
+            .result.settings.delivery_paused == false
+          ' "$tmp/queue-after.json" >/dev/null || stop POST_RESUME_QUEUE_STATE_UNCONFIRMED
+          gh_get '/branches/main' "$tmp/main-after.json"
+          jq -e --arg sha "$APPROVED_SHA" '.commit.sha == $sha' "$tmp/main-after.json" >/dev/null || stop POST_RESUME_MAIN_SHA_DRIFT
+          cf_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-after.json"
+          verify_deployment "$tmp/deployments-after.json" POST_RESUME_PRODUCTION_BASELINE_DRIFT
+          cf_get "/queues/${EXPECTED_QUEUE_ID}/consumers" "$tmp/consumers-after.json"
+          verify_consumer "$tmp/consumers-after.json" POST_RESUME_QUEUE_CONSUMER_DRIFT
+
+          printf 'PHASE4_TELEGRAM_GATE_B=RESUMED\n'
+          printf 'APPROVED_SHA=%s\n' "$APPROVED_SHA"
+          printf 'CI_RUN_ID=%s\n' "$EXPECTED_CI_RUN"
+          printf 'READONLY_RUN_ID=%s\n' "$EXPECTED_READONLY_RUN"
+          printf 'DEPLOYMENT=%s\n' "$EXPECTED_DEPLOYMENT"
+          printf 'VERSION=%s\n' "$EXPECTED_VERSION"
+          printf 'DISPATCH_QUEUE_ID=%s\n' "$EXPECTED_QUEUE_ID"
+          printf 'DISPATCH_QUEUE_CONSUMER_ID=%s\n' "$EXPECTED_CONSUMER_ID"
+          printf 'DISPATCH_QUEUE_DELIVERY=RESUMED\n'
+          printf 'BACKLOG_POLICY=%s\n' "$BACKLOG_POLICY"
+          printf 'AUTHORIZED_PREWRITE_BACKLOG_COUNT=%s\n' "$EXPECTED_BACKLOG_COUNT"
+          printf 'AUTHORIZED_PREWRITE_BACKLOG_BYTES=%s\n' "$EXPECTED_BACKLOG_BYTES"
+          printf 'QUEUE_RESUME_COUNT=1\n'
+          printf 'D1_MUTATION_COUNT=0\n'
+          printf 'QUEUE_CREATE_COUNT=0\n'
+          printf 'QUEUE_PAUSE_COUNT=0\n'
+          printf 'QUEUE_CONSUMER_MUTATION_COUNT=0\n'
+          printf 'WORKER_VERSION_UPLOAD_COUNT=0\n'
+          printf 'WORKER_DEPLOYMENT_WRITE_COUNT=0\n'
+          printf 'SECRET_MUTATION_COUNT=0\n'
+          printf 'DIRECT_TELEGRAM_API_REQUEST_COUNT=0\n'
+          printf 'QUEUE_CONSUMER_PROVIDER_DELIVERY=MAY_BEGIN_AFTER_RESUME\n'
+          printf 'POST_RESUME_D1_PRISTINE_CHECK=NOT_APPLICABLE_PROVIDER_MAY_BE_ACTIVE\n'
+          printf 'AUTHORIZATION_CONSUMED=YES\n'
+          printf 'AUTOMATIC_RETRY=NO\n'
+          printf 'AUTOMATIC_ROLLBACK=NO\n'
+          printf 'AUTOMATIC_CLEANUP=NO\n'
+          printf 'NEXT_ACTION=READ_ONLY_POST_RESUME_OBSERVATION\n'

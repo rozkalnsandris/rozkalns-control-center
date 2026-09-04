@@ -80,12 +80,12 @@ The workflow deliberately records:
 - `PROVIDER_DELIVERY_RESUME_MUTATION_MAX=1`
 - `DIRECT_TELEGRAM_API_REQUEST_MAX=0`
 - `PROVIDER_RESUME_PRECONDITION=FRESH_QUEUE_PAUSED_AND_BACKLOG_RECHECK_REQUIRED`
-- `GATE_B_EXECUTOR=NOT_PRESENT_REVIEW_REQUIRED`
+- `GATE_B_EXECUTOR=SOURCE_PRESENT_SEPARATE_LIVE_AUTHORIZATION_REQUIRED`
 - `LIVE_AUTHORIZATION=NOT_GRANTED`
 
-If the observed backlog is non-zero, the receipt classifies Gate B as `BACKLOG_POLICY_REVIEW_REQUIRED`; otherwise it remains `SOURCE_EXECUTOR_REQUIRED`. Neither result permits Queue resume.
+If the observed backlog is non-zero, the receipt classifies Gate B as `REPLAY_SAFE_DURABLE_INTENT_DRAIN_READY`; otherwise it remains `GATE_B_LIVE_AUTHORIZATION_REQUIRED`. Neither result permits Queue resume.
 
-A future Gate B source slice must separately define the fail-closed executor and the consequences of resuming Queue delivery. Only after that source reaches its own reviewed/merged state, fresh exact-main CI and a fresh read-only preflight may the owner consider a separate exact LIVE authorization.
+The source-present Gate B executor defines the fail-closed `REPLAY_SAFE_DURABLE_INTENT_DRAIN` policy and the consequences of resuming Queue delivery. A fresh exact-main CI plus a fresh successful read-only run on that same merged SHA are still required before the owner may consider the separate exact Gate B LIVE authorization.
 
 ## Explicit exclusions
 
