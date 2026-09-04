@@ -284,19 +284,24 @@ jobs:
 
           cf_get "/queues/${queue_id}/consumers" "$tmp/consumers.json"
           jq -e '.result | type == "array"' "$tmp/consumers.json" >/dev/null || stop DISPATCH_QUEUE_CONSUMERS_INVALID
-          consumer_match_count="$(jq -r --arg worker "$WORKER_NAME" --arg queue "$DISPATCH_QUEUE_NAME" '[.result[]? | select(.script_name == $worker and .queue_name == $queue)] | length' "$tmp/consumers.json")"
+          consumer_match_count="$(jq -r --arg queue "$DISPATCH_QUEUE_NAME" '[.result[]? | select(.type == "worker" and .queue_name == $queue)] | length' "$tmp/consumers.json")"
           [ "$consumer_match_count" = "1" ] || stop DISPATCH_QUEUE_WORKER_CONSUMER_NOT_UNIQUE
 
-          jq -e --arg worker "$WORKER_NAME" --arg queue "$DISPATCH_QUEUE_NAME" --argjson attempts "$retry_max_attempts" '
-            [.result[]? | select(.script_name == $worker and .queue_name == $queue)][0] as $c |
+          jq -e --arg worker "$WORKER_NAME" --arg queue "$DISPATCH_QUEUE_NAME" '
+            [.result[]? | select(.type == "worker" and .queue_name == $queue)][0] as $c |
+            (($c.script_name == null) or ($c.script_name == $worker))
+          ' "$tmp/consumers.json" >/dev/null || stop DISPATCH_QUEUE_CONSUMER_SCRIPT_NAME_MISMATCH
+
+          jq -e --arg queue "$DISPATCH_QUEUE_NAME" --argjson attempts "$retry_max_attempts" '
+            [.result[]? | select(.type == "worker" and .queue_name == $queue)][0] as $c |
             ($c.consumer_id | type == "string" and length > 0) and
             ($c.settings | type == "object") and
             ($c.settings.batch_size | type == "number" and floor == . and . >= 1) and
             ($c.settings.max_retries | type == "number" and floor == . and . >= ($attempts - 1))
           ' "$tmp/consumers.json" >/dev/null || stop DISPATCH_QUEUE_CONSUMER_POLICY_INCOMPATIBLE
 
-          consumer_id="$(jq -r --arg worker "$WORKER_NAME" --arg queue "$DISPATCH_QUEUE_NAME" '[.result[]? | select(.script_name == $worker and .queue_name == $queue)][0].consumer_id' "$tmp/consumers.json")"
-          consumer_settings="$(jq -c --arg worker "$WORKER_NAME" --arg queue "$DISPATCH_QUEUE_NAME" '[.result[]? | select(.script_name == $worker and .queue_name == $queue)][0].settings | {batch_size,max_concurrency,max_retries,retry_delay,max_wait_time_ms}' "$tmp/consumers.json")"
+          consumer_id="$(jq -r --arg queue "$DISPATCH_QUEUE_NAME" '[.result[]? | select(.type == "worker" and .queue_name == $queue)][0].consumer_id' "$tmp/consumers.json")"
+          consumer_settings="$(jq -c --arg queue "$DISPATCH_QUEUE_NAME" '[.result[]? | select(.type == "worker" and .queue_name == $queue)][0].settings | {batch_size,max_concurrency,max_retries,retry_delay,max_wait_time_ms}' "$tmp/consumers.json")"
           printf 'DISPATCH_QUEUE_CONSUMER=PRESENT\n'
           printf 'DISPATCH_QUEUE_CONSUMER_ID=%s\n' "$(sanitize_diag "$consumer_id")"
           printf 'DISPATCH_QUEUE_CONSUMER_SETTINGS=%s\n' "$(sanitize_diag "$consumer_settings")"

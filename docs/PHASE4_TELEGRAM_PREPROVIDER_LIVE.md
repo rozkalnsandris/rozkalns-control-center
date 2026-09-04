@@ -38,7 +38,7 @@ Only then may it perform the bounded mutations, in this order:
 7. GET `/api/health` through Cloudflare Access while forcing the exact candidate via `Cloudflare-Workers-Version-Overrides`, and require the returned version ID to equal the uploaded candidate;
 8. re-prove `main`, the split deployment and paused Queue before promotion;
 9. promote that exact candidate to 100% in exactly one second deployment write;
-10. reconcile read-only: candidate is the sole 100% version, health reports the candidate ID, Queue remains paused, one consumer remains present, and `main` has not moved.
+10. reconcile read-only: candidate is the sole 100% version, the normal hostname converges to exact service + candidate version identity within at most six GET probes separated by 5 seconds, Queue remains paused, one consumer remains present, and `main` has not moved.
 
 ## Bounded mutation ceiling
 
@@ -63,7 +63,9 @@ The workflow never accepts Telegram values as `workflow_dispatch` inputs and nev
 
 ## One-shot/fail-closed semantics
 
-Authorization is consumed when the Queue creation begins, which is the first live mutation. From that point onward, any error, timeout, response ambiguity, state drift or verification failure produces a STOP receipt and **no automatic retry, rollback or cleanup**.
+Authorization is consumed when the Queue creation begins, which is the first live mutation. From that point onward, any error, timeout, response ambiguity, state drift or verification failure produces a STOP receipt and **no automatic mutation retry, rollback or cleanup**.
+
+The post-promotion normal-host health check is a bounded read-only convergence exception, not a retry of any mutation: Gate A may issue at most six GET probes with 5 seconds between probes. PASS still requires exact `.status == "ok"`, `.service == rozkalns-control` and `.workerVersion == candidate_version`. If that identity does not converge inside the bounded window, Gate A fails closed with `FINAL_HEALTH_CONVERGENCE_TIMEOUT` and performs no alternate deployment, rollback or cleanup.
 
 A failed run must never be rerun. Reconcile actual production state read-only and obtain a new exact authorization for any recovery or continuation.
 

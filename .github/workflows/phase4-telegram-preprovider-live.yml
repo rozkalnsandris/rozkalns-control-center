@@ -383,9 +383,21 @@ jobs:
           [[ "$final_deployment" =~ ^[0-9a-f-]{36}$ ]] || stop FINAL_DEPLOYMENT_ID_MISSING
           jq -e --arg candidate "$candidate_version" '(.result.deployments[0].versions | length == 1) and .result.deployments[0].versions[0].version_id == $candidate and .result.deployments[0].versions[0].percentage == 100' "$tmp/deployments-after.json" >/dev/null || stop FINAL_DEPLOYMENT_IDENTITY_MISMATCH
 
-          access_health_get "" "$tmp/health-after.json" "$tmp/health-after.code" || stop FINAL_HEALTH_GET_FAILED
-          [[ "$(cat "$tmp/health-after.code")" == 200 ]] || stop FINAL_HEALTH_HTTP_NOT_200
-          jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '.status == "ok" and .service == $service and .workerVersion == $version' "$tmp/health-after.json" >/dev/null || stop FINAL_HEALTH_IDENTITY_MISMATCH
+          final_health_converged=NO
+          for final_health_attempt in 1 2 3 4 5 6; do
+            final_health_body="$tmp/health-after-${final_health_attempt}.json"
+            final_health_code="$tmp/health-after-${final_health_attempt}.code"
+            if access_health_get "" "$final_health_body" "$final_health_code"; then
+              if [[ "$(cat "$final_health_code")" == 200 ]] && jq -e --arg service "$WORKER_NAME" --arg version "$candidate_version" '.status == "ok" and .service == $service and .workerVersion == $version' "$final_health_body" >/dev/null; then
+                final_health_converged=YES
+                break
+              fi
+            fi
+            if [[ "$final_health_attempt" -lt 6 ]]; then
+              sleep 5
+            fi
+          done
+          [[ "$final_health_converged" == YES ]] || stop FINAL_HEALTH_CONVERGENCE_TIMEOUT
 
           cf_get "/queues/${queue_id}" "$tmp/queue-after.json"
           jq -e --arg queue "$DISPATCH_QUEUE_NAME" --arg id "$queue_id" '.result.queue_name == $queue and .result.queue_id == $id and .result.settings.delivery_paused == true' "$tmp/queue-after.json" >/dev/null || stop FINAL_QUEUE_NOT_PAUSED
