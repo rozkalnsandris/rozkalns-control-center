@@ -50,7 +50,9 @@ function normalizeResult(result) {
 }
 
 export function buildAuditEnv(env = process.env) {
-  const { GITHUB_TOKEN: _githubToken, GH_TOKEN: _ghToken, ...auditEnv } = env;
+  const auditEnv = { ...env };
+  delete auditEnv.GITHUB_TOKEN;
+  delete auditEnv.GH_TOKEN;
   return auditEnv;
 }
 
