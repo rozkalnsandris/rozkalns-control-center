@@ -76,6 +76,8 @@ jobs:
 
       - name: Audit runtime dependencies
         if: steps.scope.outputs.full == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: npm run audit:runtime
 
       - name: Typecheck and generate Worker types
