@@ -80,8 +80,9 @@ test("Telegram D1 LIVE-scope review is manual, main-only and read-only", () => {
   assert.match(workflow, /backlog_bytes/);
   assert.match(workflow, /oldest_message_timestamp_ms/);
   assert.match(workflow, /DISPATCH_QUEUE_METRICS=BEST_EFFORT_POINT_IN_TIME/);
-  assert.match(workflow, /GATE_B_ELIGIBILITY=BACKLOG_POLICY_REVIEW_REQUIRED/);
-  assert.match(workflow, /GATE_B_ELIGIBILITY=SOURCE_EXECUTOR_REQUIRED/);
+  assert.match(workflow, /gate_b_eligibility=BACKLOG_POLICY_REVIEW_REQUIRED/);
+  assert.match(workflow, /gate_b_eligibility=SOURCE_EXECUTOR_REQUIRED/);
+  assert.match(workflow, /GATE_B_ELIGIBILITY=%s/);
 
   assert.match(workflow, /EXPECTED_BATCH_SIZE:\s*'10'/);
   assert.match(workflow, /EXPECTED_BATCH_TIMEOUT_MS:\s*'5000'/);
