@@ -5,7 +5,9 @@ import test from "node:test";
 
 import {
   normalizeProductionVisibility,
+  normalizeSanitizedProductionVisibility,
   ProductionVisibilityError,
+  SANITIZED_PRODUCTION_VISIBILITY_FIELDS,
   type ProductionVisibilityEvidence,
 } from "../src/shared/production-visibility.js";
 
@@ -45,6 +47,64 @@ test("normalizes bounded sanitized RPi5 production evidence and derives drift", 
     productionAdapter: "rpi5",
     drift: "DRIFTED",
   });
+});
+
+test("strict sanitized ingestion accepts only the reviewed production evidence shape", () => {
+  const input: unknown = JSON.parse(JSON.stringify(evidence()));
+  const result = normalizeSanitizedProductionVisibility(input, NOW);
+
+  assert.equal(result.projectId, "hermes-tech");
+  assert.equal(result.productionAdapter, "rpi5");
+  assert.equal(result.drift, "DRIFTED");
+  assert.deepEqual(SANITIZED_PRODUCTION_VISIBILITY_FIELDS, [
+    "projectId",
+    "repository",
+    "mainSha",
+    "productionSha",
+    "deployImpact",
+    "runtime",
+    "health",
+    "rollback",
+    "blockerCodes",
+    "observedAt",
+  ]);
+});
+
+test("strict sanitized ingestion rejects extra host, log and secret-like fields", () => {
+  for (const [key, value] of [
+    ["hostname", "rpi5"],
+    ["serviceLogs", "raw logs"],
+    ["filesystemPath", "/srv/app"],
+    ["sshTarget", "user@host"],
+    ["secret", "do-not-accept"],
+  ] as const) {
+    expectError("UNEXPECTED_FIELD", () =>
+      normalizeSanitizedProductionVisibility({ ...evidence(), [key]: value }, NOW),
+    );
+  }
+});
+
+test("strict sanitized ingestion rejects malformed, missing and inherited input", () => {
+  expectError("INVALID_INPUT", () => normalizeSanitizedProductionVisibility(null, NOW));
+  expectError("INVALID_INPUT", () => normalizeSanitizedProductionVisibility([], NOW));
+
+  const missing = { ...evidence() } as Record<string, unknown>;
+  delete missing.productionSha;
+  expectError("INVALID_INPUT", () => normalizeSanitizedProductionVisibility(missing, NOW));
+
+  const inherited = Object.create({ observedAt: OBSERVED_AT }) as Record<string, unknown>;
+  Object.assign(inherited, evidence());
+  delete inherited.observedAt;
+  expectError("INVALID_INPUT", () => normalizeSanitizedProductionVisibility(inherited, NOW));
+});
+
+test("typed normalizer fails closed on malformed repository runtime input", () => {
+  expectError("INVALID_INPUT", () =>
+    normalizeProductionVisibility(
+      { ...evidence(), repository: 42 as unknown as string },
+      NOW,
+    ),
+  );
 });
 
 test("derives in-sync only from exact main and production SHA equality", () => {
