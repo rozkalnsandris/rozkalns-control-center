@@ -227,20 +227,33 @@ jobs:
           [[ "$ci_run_id" =~ ^[0-9]+$ ]] || stop EXACT_MAIN_CI_NOT_SUCCESS
 
           gh_get "/actions/runs/${EXPECTED_GATE_B_RUN}" "$tmp/gate-b.json"
-          jq -e --arg sha "$run_sha" --argjson id "$EXPECTED_GATE_B_RUN" '
+          jq -e --argjson id "$EXPECTED_GATE_B_RUN" '
             .id == $id and
             .name == "Phase 4 Telegram Gate B provider delivery resume" and
             .path == ".github/workflows/phase4-telegram-gate-b-live.yml" and
-            .head_branch == "main" and .head_sha == $sha and
+            .head_branch == "main" and
             .event == "workflow_dispatch" and
             .run_attempt == 1 and
             .status == "completed" and .conclusion == "success"
           ' "$tmp/gate-b.json" >/dev/null || stop GATE_B_RUN_INVALID
+          gate_b_sha="$(jq -r '.head_sha // empty' "$tmp/gate-b.json")"
+          [[ "$gate_b_sha" =~ ^[0-9a-f]{40}$ ]] || stop GATE_B_SHA_INVALID
           gate_b_started_at="$(jq -r '.run_started_at // empty' "$tmp/gate-b.json")"
           [[ "$gate_b_started_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || stop GATE_B_START_TIME_INVALID
+
+          gh_get "/compare/${gate_b_sha}...${run_sha}" "$tmp/gate-b-to-observer.json"
+          jq -e --arg base "$gate_b_sha" --arg head "$run_sha" '
+            .base_commit.sha == $base and
+            .merge_base_commit.sha == $base and
+            .status == "ahead" and
+            .commits[-1].sha == $head
+          ' "$tmp/gate-b-to-observer.json" >/dev/null || stop GATE_B_NOT_ANCESTOR_OF_OBSERVER
+
           printf 'SOURCE_SHA=%s\n' "$run_sha"
           printf 'CI_RUN_ID=%s\n' "$ci_run_id"
           printf 'GATE_B_RUN_ID=%s\n' "$EXPECTED_GATE_B_RUN"
+          printf 'GATE_B_SOURCE_SHA=%s\n' "$gate_b_sha"
+          printf 'GATE_B_PROVENANCE=ANCESTOR_OF_OBSERVER_MAIN\n'
           printf 'GATE_B_STARTED_AT=%s\n' "$gate_b_started_at"
 
           printf '%s\n' STAGE=PRODUCTION_WORKER_BASELINE
