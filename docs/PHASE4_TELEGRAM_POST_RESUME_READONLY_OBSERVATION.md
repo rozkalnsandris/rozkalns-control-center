@@ -25,7 +25,9 @@ The workflow freshly proves that current main has successful exact-main CI and t
 
 D1 access uses only `CLOUDFLARE_D1_READ_TOKEN`. Every remote D1 query is one guarded `SELECT` statement and must report `changed_db=false`, `rows_written=0` and `changes=0`.
 
-The observer uses the trusted Gate B completion timestamp as the cutoff for the intent set that existed at resume. It requires that this bound intent count equals the Gate B pre-resume count, then observes attempts and durable dispatch claims for that set.
+The observer uses the trusted Gate B **run start timestamp** as the cutoff for the historical intent set. Gate B revalidated the exact pre-resume intent count later in that same run before the Queue resume; therefore a successful Gate B run proves there was no intent-count drift between run start and prewrite. Using the earlier run-start boundary also excludes any new live intents created after the provider-delivery run began.
+
+It requires that this bound intent count equals the Gate B pre-resume count, then observes attempts and durable dispatch claims for that set.
 
 Structural evidence fails closed if an attempt lacks its corresponding claim or a claim lacks its corresponding attempt. The observer classifies each Gate-B-bound intent by its latest durable attempt as:
 
@@ -34,7 +36,7 @@ Structural evidence fails closed if an attempt lacks its corresponding claim or 
 - exhausted after the reviewed maximum attempts;
 - unsettled.
 
-A successful settled observation requires zero unsettled Gate-B-bound intents. Newer notification intents created after Gate B are excluded from that historical settlement classification and remain normal live traffic.
+A successful settled observation requires zero unsettled Gate-B-bound intents. Newer notification intents created after Gate B started are excluded from that historical settlement classification and remain normal live traffic.
 
 ## Queue observation
 
