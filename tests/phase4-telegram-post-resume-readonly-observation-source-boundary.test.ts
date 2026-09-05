@@ -35,6 +35,18 @@ test("Telegram post-resume observer is manual, main-only and read-only", () => {
   assert.match(workflow, /\.run_attempt == 1/);
   assert.match(workflow, /\.conclusion == "success"/);
   assert.match(workflow, /GATE_B_RUN_INVALID/);
+  assert.match(workflow, /gate_b_sha="\$\(jq -r '\.head_sha \/\/ empty'/);
+  assert.match(workflow, /GATE_B_SHA_INVALID/);
+  assert.match(workflow, /\/compare\/\$\{gate_b_sha\}\.\.\.\$\{run_sha\}/);
+  assert.match(workflow, /\.base_commit\.sha == \$base/);
+  assert.match(workflow, /\.merge_base_commit\.sha == \$base/);
+  assert.match(workflow, /\.status == "ahead"/);
+  assert.match(workflow, /GATE_B_NOT_ANCESTOR_OF_OBSERVER/);
+  assert.match(workflow, /GATE_B_PROVENANCE=ANCESTOR_OF_OBSERVER_MAIN/);
+  assert.doesNotMatch(
+    workflow,
+    /\.head_branch == "main" and \.head_sha == \$sha/,
+  );
   assert.match(workflow, /GATE_B_START_TIME_INVALID/);
 
   assert.match(workflow, /CLOUDFLARE_D1_READ_TOKEN/);
