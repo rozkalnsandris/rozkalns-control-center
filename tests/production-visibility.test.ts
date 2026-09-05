@@ -92,10 +92,23 @@ test("strict sanitized ingestion rejects malformed, missing and inherited input"
   delete missing.productionSha;
   expectError("INVALID_INPUT", () => normalizeSanitizedProductionVisibility(missing, NOW));
 
-  const inherited = Object.create({ observedAt: OBSERVED_AT }) as Record<string, unknown>;
-  Object.assign(inherited, evidence());
-  delete inherited.observedAt;
+  const inherited = Object.assign(Object.create({ secret: "hidden" }) as object, evidence());
   expectError("INVALID_INPUT", () => normalizeSanitizedProductionVisibility(inherited, NOW));
+});
+
+test("strict sanitized ingestion rejects non-enumerable and symbol extras", () => {
+  const hidden = { ...evidence() };
+  Object.defineProperty(hidden, "hiddenHost", {
+    value: "rpi5",
+    enumerable: false,
+  });
+  expectError("UNEXPECTED_FIELD", () => normalizeSanitizedProductionVisibility(hidden, NOW));
+
+  const symbolExtra = { ...evidence() } as Record<PropertyKey, unknown>;
+  symbolExtra[Symbol("secret")] = "hidden";
+  expectError("UNEXPECTED_FIELD", () =>
+    normalizeSanitizedProductionVisibility(symbolExtra, NOW),
+  );
 });
 
 test("typed normalizer fails closed on malformed repository runtime input", () => {
