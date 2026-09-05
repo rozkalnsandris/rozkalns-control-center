@@ -19,7 +19,15 @@ It requires exact identifiers from the completed Gate B envelope:
 - dispatch Queue id and consumer id;
 - exact pre-resume D1 intent count.
 
-The workflow freshly proves that current main has successful exact-main CI and that the supplied Gate B run succeeded on the same SHA with `run_attempt=1`. It then re-proves the Worker deployment/version and reviewed notification bindings.
+The observer first proves that its own `GITHUB_SHA` is current `main` and has a successful exact-main CI run.
+
+The supplied Gate B run is historical evidence and therefore retains the immutable `head_sha` on which that LIVE run actually executed. The observer does **not** require this historical SHA to equal the later observer `main` SHA. Instead it validates the exact Gate B run identity, path, `main` branch, `workflow_dispatch`, `run_attempt=1`, and successful terminal conclusion; captures its `head_sha`; then uses GitHub's read-only Compare commits endpoint to prove that Gate B SHA is an ancestor of the observer's current `main` SHA. The comparison must report the Gate B SHA as both the base commit and merge base, with current observer `main` ahead of it.
+
+This permits legitimate source-only advancement after Gate B while failing closed if the observer is run from an unrelated or rewritten history. It also preserves exact current-main and final anti-drift checks.
+
+Observer run `33958539860` exposed the previous incorrect equality rule and stopped with `GATE_B_RUN_INVALID` before any Cloudflare, D1, Queue, Worker or Telegram mutation. That failed read-only run must not be used as evidence of delivery settlement; the corrected observer must be run fresh after the source fix is merged.
+
+After provenance is established, the workflow re-proves the Worker deployment/version and reviewed notification bindings.
 
 ## D1 observation boundary
 
