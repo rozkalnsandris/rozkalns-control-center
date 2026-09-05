@@ -144,9 +144,14 @@ function validateBlockers(blockerCodes: readonly string[]): readonly string[] {
 function requireSanitizedEvidenceObject(input: unknown): ProductionVisibilityEvidence {
   if (!input || typeof input !== "object" || Array.isArray(input)) fail("INVALID_INPUT");
 
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) fail("INVALID_INPUT");
+
   const record = input as Record<string, unknown>;
-  for (const key of Object.keys(record)) {
-    if (!SANITIZED_PRODUCTION_VISIBILITY_FIELD_SET.has(key)) fail("UNEXPECTED_FIELD");
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key !== "string" || !SANITIZED_PRODUCTION_VISIBILITY_FIELD_SET.has(key)) {
+      fail("UNEXPECTED_FIELD");
+    }
   }
   for (const key of SANITIZED_PRODUCTION_VISIBILITY_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(record, key)) fail("INVALID_INPUT");
