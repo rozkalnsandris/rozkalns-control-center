@@ -35,7 +35,7 @@ test("Telegram post-resume observer is manual, main-only and read-only", () => {
   assert.match(workflow, /\.run_attempt == 1/);
   assert.match(workflow, /\.conclusion == "success"/);
   assert.match(workflow, /GATE_B_RUN_INVALID/);
-  assert.match(workflow, /GATE_B_COMPLETION_TIME_INVALID/);
+  assert.match(workflow, /GATE_B_START_TIME_INVALID/);
 
   assert.match(workflow, /CLOUDFLARE_D1_READ_TOKEN/);
   assert.match(workflow, /cf_d1_select\(\)/);
