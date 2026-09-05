@@ -26,6 +26,7 @@ export interface ProductionVisibilityReadModel extends ProductionVisibilityEvide
 
 export type ProductionVisibilityErrorCode =
   | "INVALID_INPUT"
+  | "UNEXPECTED_FIELD"
   | "REPOSITORY_NOT_ALLOWED"
   | "PRODUCTION_ADAPTER_UNSUPPORTED"
   | "IDENTITY_MISMATCH"
@@ -47,8 +48,25 @@ export class ProductionVisibilityError extends Error {
 export const MAX_PRODUCTION_VISIBILITY_EVIDENCE_AGE_MS = 5 * 60_000;
 export const MAX_PRODUCTION_VISIBILITY_BLOCKERS = 20;
 
+export const SANITIZED_PRODUCTION_VISIBILITY_FIELDS = [
+  "projectId",
+  "repository",
+  "mainSha",
+  "productionSha",
+  "deployImpact",
+  "runtime",
+  "health",
+  "rollback",
+  "blockerCodes",
+  "observedAt",
+] as const;
+
+const SANITIZED_PRODUCTION_VISIBILITY_FIELD_SET = new Set<string>(
+  SANITIZED_PRODUCTION_VISIBILITY_FIELDS,
+);
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
+const REPOSITORY_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]{1,100}$/;
 const BLOCKER_CODE_PATTERN = /^[A-Z][A-Z0-9_:-]{0,127}$/;
 const DEPLOY_IMPACTS = new Set<DeployImpact>([
   "NO_DEPLOY",
@@ -76,6 +94,19 @@ function fail(code: ProductionVisibilityErrorCode): never {
 
 function requireIdentifier(value: unknown): string {
   if (typeof value !== "string" || !IDENTIFIER_PATTERN.test(value)) fail("INVALID_INPUT");
+  return value;
+}
+
+function requireRepository(value: unknown): string {
+  if (typeof value !== "string") fail("INVALID_INPUT");
+  const segments = value.split("/");
+  if (
+    segments.length !== 2 ||
+    !REPOSITORY_SEGMENT_PATTERN.test(segments[0] ?? "") ||
+    !REPOSITORY_SEGMENT_PATTERN.test(segments[1] ?? "")
+  ) {
+    fail("INVALID_INPUT");
+  }
   return value;
 }
 
@@ -110,6 +141,31 @@ function validateBlockers(blockerCodes: readonly string[]): readonly string[] {
   return validated;
 }
 
+function requireSanitizedEvidenceObject(input: unknown): ProductionVisibilityEvidence {
+  if (!input || typeof input !== "object" || Array.isArray(input)) fail("INVALID_INPUT");
+
+  const record = input as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!SANITIZED_PRODUCTION_VISIBILITY_FIELD_SET.has(key)) fail("UNEXPECTED_FIELD");
+  }
+  for (const key of SANITIZED_PRODUCTION_VISIBILITY_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) fail("INVALID_INPUT");
+  }
+
+  return {
+    projectId: record.projectId as string,
+    repository: record.repository as string,
+    mainSha: record.mainSha as string,
+    productionSha: record.productionSha as string,
+    deployImpact: record.deployImpact as DeployImpact,
+    runtime: record.runtime as ProductionRuntimeState,
+    health: record.health as ProductionHealthState,
+    rollback: record.rollback as ProductionRollbackState,
+    blockerCodes: record.blockerCodes as readonly string[],
+    observedAt: record.observedAt as string,
+  };
+}
+
 /**
  * Normalize bounded, sanitized production evidence for the Control read model.
  *
@@ -124,7 +180,7 @@ export function normalizeProductionVisibility(
   if (!evidence || typeof evidence !== "object") fail("INVALID_INPUT");
 
   const projectId = requireIdentifier(evidence.projectId);
-  const repository = requireIdentifier(evidence.repository.replace("/", ":")).replace(":", "/");
+  const repository = requireRepository(evidence.repository);
   const mainSha = requireSha(evidence.mainSha);
   const productionSha = requireSha(evidence.productionSha);
   const observedAt = requireTimestamp(evidence.observedAt);
@@ -167,4 +223,17 @@ export function normalizeProductionVisibility(
     productionAdapter: "rpi5",
     drift: mainSha === productionSha ? "IN_SYNC" : "DRIFTED",
   };
+}
+
+/**
+ * Control-side trust-boundary entry point for already-sanitized RPi5 evidence.
+ *
+ * Unknown fields are rejected rather than silently discarded. This function does not
+ * acquire evidence and grants no authority to read or mutate an RPi5 host.
+ */
+export function normalizeSanitizedProductionVisibility(
+  input: unknown,
+  nowInput: string,
+): ProductionVisibilityReadModel {
+  return normalizeProductionVisibility(requireSanitizedEvidenceObject(input), nowInput);
 }
