@@ -1,0 +1,365 @@
+name: Phase 4 Telegram post-resume read-only observation
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_gate_b_run:
+        description: Exact successful Gate B run to observe after resume
+        required: true
+        type: string
+      expected_deployment:
+        description: Exact Gate B Worker deployment
+        required: true
+        type: string
+      expected_version:
+        description: Exact Gate B Worker version
+        required: true
+        type: string
+      expected_queue_id:
+        description: Exact dispatch Queue ID resumed by Gate B
+        required: true
+        type: string
+      expected_consumer_id:
+        description: Exact dispatch Queue consumer ID
+        required: true
+        type: string
+      expected_pre_resume_intents:
+        description: Exact D1 intent count bound by Gate B before resume
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase4-telegram-post-resume-readonly-observation
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: observe settled provider delivery without mutation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: production-readonly-reconcile
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      WORKER_NAME: rozkalns-control
+      DB_NAME: rozkalns-control-production
+      DB_ID: 8504e986-faf0-450c-bfb5-41b5dbf8be09
+      DB_JURISDICTION: eu
+      DISPATCH_QUEUE_NAME: rozkalns-control-notification-dispatch
+      EXPECTED_TARGET_KEY: primary
+      EXPECTED_RETRY_POLICY_JSON: '{"schemaVersion":1,"maxAttempts":2,"retryDelaysSeconds":[60]}'
+      EXPECTED_BATCH_SIZE: '10'
+      EXPECTED_BATCH_TIMEOUT_MS: '5000'
+      EXPECTED_MAX_RETRIES: '3'
+      EXPECTED_RETRY_DELAY: '60'
+      EXPECTED_MAX_CONCURRENCY: '1'
+      EXPECTED_PROVIDER_MAX_ATTEMPTS: '2'
+      EXPECTED_GATE_B_RUN: ${{ inputs.expected_gate_b_run }}
+      EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+      EXPECTED_QUEUE_ID: ${{ inputs.expected_queue_id }}
+      EXPECTED_CONSUMER_ID: ${{ inputs.expected_consumer_id }}
+      EXPECTED_PRE_RESUME_INTENTS: ${{ inputs.expected_pre_resume_intents }}
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+
+    steps:
+      - name: Observe exact Gate B delivery outcome without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop() {
+            {
+              printf 'PHASE4_TELEGRAM_POST_RESUME=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'TELEGRAM_PROVIDER_REQUEST=NO\n'
+              printf 'QUEUE_MUTATION=NO\n'
+              printf 'REMOTE_D1_MUTATION=NO\n'
+              printf 'WORKER_MUTATION=NO\n'
+              printf 'SECRET_MUTATION=NO\n'
+              printf 'CLOUDFLARE_MUTATION=NO\n'
+              printf 'LIVE_AUTHORIZATION=NOT_REQUIRED_READ_ONLY\n'
+            } >&2
+            exit 1
+          }
+
+          sanitize_diag() {
+            printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:] _./:@,+{}[]"-' | cut -c1-320
+          }
+
+          require_nonnegative_integer() {
+            [[ "$1" =~ ^(0|[1-9][0-9]*)$ ]] || stop "$2"
+          }
+
+          for cmd in curl jq; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+
+          [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ] || stop WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = main ] || stop WORKFLOW_REF_NOT_MAIN
+          [[ "$EXPECTED_GATE_B_RUN" =~ ^[0-9]+$ ]] || stop EXPECTED_GATE_B_RUN_INVALID
+          [[ "$EXPECTED_DEPLOYMENT" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_DEPLOYMENT_INVALID
+          [[ "$EXPECTED_VERSION" =~ ^[0-9a-f-]{36}$ ]] || stop EXPECTED_VERSION_INVALID
+          [[ "$EXPECTED_QUEUE_ID" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || stop EXPECTED_QUEUE_ID_INVALID
+          [[ "$EXPECTED_CONSUMER_ID" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || stop EXPECTED_CONSUMER_ID_INVALID
+          require_nonnegative_integer "$EXPECTED_PRE_RESUME_INTENTS" EXPECTED_PRE_RESUME_INTENTS_INVALID
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_WORKERS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_WORKERS_READ_TOKEN
+          [ -n "${CLOUDFLARE_D1_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_D1_READ_TOKEN
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          gh_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
+          }
+
+          cf_workers_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_WORKERS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_WORKERS_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_WORKERS_RESPONSE_INVALID
+          }
+
+          cf_d1_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_D1_GET_FAILED
+            jq -e '.success == true' "$out" >/dev/null || stop CLOUDFLARE_D1_RESPONSE_INVALID
+          }
+
+          cf_d1_select() {
+            local sql="$1" out="$2"
+            [[ "$sql" == SELECT\ * ]] || stop D1_QUERY_NOT_SELECT
+            [[ "$sql" != *';'* ]] || stop D1_QUERY_MULTISTATEMENT_FORBIDDEN
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -X POST \
+              -H "Authorization: Bearer ${CLOUDFLARE_D1_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              -H 'Content-Type: application/json' \
+              --data "$(jq -cn --arg sql "$sql" '{sql:$sql}')" \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${DB_ID}/query" > "$out" || stop CLOUDFLARE_D1_SELECT_FAILED
+            jq -e '
+              .success == true and
+              (.result | type == "array") and
+              (.result | length == 1) and
+              .result[0].success == true and
+              (.result[0].results | type == "array") and
+              ((.result[0].meta.changed_db // false) == false) and
+              (((.result[0].meta.rows_written // 0) | tonumber) == 0) and
+              (((.result[0].meta.changes // 0) | tonumber) == 0)
+            ' "$out" >/dev/null || stop D1_SELECT_REPORTED_MUTATION_OR_FAILURE
+          }
+
+          verify_deployment() {
+            local file="$1" reason="$2"
+            jq -e --arg deployment "$EXPECTED_DEPLOYMENT" --arg version "$EXPECTED_VERSION" '
+              (.result.deployments | type == "array") and
+              (.result.deployments | length >= 1) and
+              .result.deployments[0].id == $deployment and
+              (.result.deployments[0].versions | type == "array") and
+              (.result.deployments[0].versions | length == 1) and
+              .result.deployments[0].versions[0].version_id == $version and
+              .result.deployments[0].versions[0].percentage == 100
+            ' "$file" >/dev/null || stop "$reason"
+          }
+
+          verify_consumer() {
+            local file="$1" reason="$2"
+            jq -e \
+              --arg id "$EXPECTED_CONSUMER_ID" \
+              --arg worker "$WORKER_NAME" \
+              --arg queue "$DISPATCH_QUEUE_NAME" \
+              --argjson batch "$EXPECTED_BATCH_SIZE" \
+              --argjson wait "$EXPECTED_BATCH_TIMEOUT_MS" \
+              --argjson retries "$EXPECTED_MAX_RETRIES" \
+              --argjson delay "$EXPECTED_RETRY_DELAY" \
+              --argjson concurrency "$EXPECTED_MAX_CONCURRENCY" '
+                (.result | type == "array") and (.result | length == 1) and
+                .result[0].consumer_id == $id and
+                .result[0].type == "worker" and .result[0].queue_name == $queue and
+                ((.result[0].script_name == null) or (.result[0].script_name == $worker)) and
+                .result[0].settings.batch_size == $batch and
+                .result[0].settings.max_wait_time_ms == $wait and
+                .result[0].settings.max_retries == $retries and
+                .result[0].settings.retry_delay == $delay and
+                .result[0].settings.max_concurrency == $concurrency and
+                ((.result[0].dead_letter_queue // "") == "")
+              ' "$file" >/dev/null || stop "$reason"
+          }
+
+          printf '%s\n' STAGE=GITHUB_GATE_B_PROVENANCE
+          run_sha="${GITHUB_SHA:-}"
+          [[ "$run_sha" =~ ^[0-9a-f]{40}$ ]] || stop WORKFLOW_SHA_INVALID
+          gh_get '/branches/main' "$tmp/main-before.json"
+          jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main-before.json" >/dev/null || stop MAIN_SHA_DRIFT
+
+          gh_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${run_sha}&per_page=10" "$tmp/ci-runs.json"
+          ci_run_id="$(
+            jq -r --arg sha "$run_sha" '
+              [.workflow_runs[]? | select(
+                .name == "CI" and
+                .path == ".github/workflows/ci.yml" and
+                .head_branch == "main" and
+                .head_sha == $sha and
+                .event == "push" and
+                .status == "completed" and
+                .conclusion == "success"
+              )] | sort_by(.run_number) | last | .id // empty
+            ' "$tmp/ci-runs.json"
+          )"
+          [[ "$ci_run_id" =~ ^[0-9]+$ ]] || stop EXACT_MAIN_CI_NOT_SUCCESS
+
+          gh_get "/actions/runs/${EXPECTED_GATE_B_RUN}" "$tmp/gate-b.json"
+          jq -e --arg sha "$run_sha" --argjson id "$EXPECTED_GATE_B_RUN" '
+            .id == $id and
+            .name == "Phase 4 Telegram Gate B provider delivery resume" and
+            .path == ".github/workflows/phase4-telegram-gate-b-live.yml" and
+            .head_branch == "main" and .head_sha == $sha and
+            .event == "workflow_dispatch" and
+            .run_attempt == 1 and
+            .status == "completed" and .conclusion == "success"
+          ' "$tmp/gate-b.json" >/dev/null || stop GATE_B_RUN_INVALID
+          gate_b_completed_at="$(jq -r '.updated_at // empty' "$tmp/gate-b.json")"
+          [[ "$gate_b_completed_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || stop GATE_B_COMPLETION_TIME_INVALID
+          printf 'SOURCE_SHA=%s\n' "$run_sha"
+          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+          printf 'GATE_B_RUN_ID=%s\n' "$EXPECTED_GATE_B_RUN"
+          printf 'GATE_B_COMPLETED_AT=%s\n' "$gate_b_completed_at"
+
+          printf '%s\n' STAGE=PRODUCTION_WORKER_BASELINE
+          cf_workers_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments.json"
+          verify_deployment "$tmp/deployments.json" PRODUCTION_BASELINE_DRIFT
+          cf_workers_get "/workers/scripts/${WORKER_NAME}/versions/${EXPECTED_VERSION}" "$tmp/version.json"
+          jq -e \
+            --arg version "$EXPECTED_VERSION" \
+            --arg target "$EXPECTED_TARGET_KEY" \
+            --arg retry "$EXPECTED_RETRY_POLICY_JSON" \
+            --arg queue "$DISPATCH_QUEUE_NAME" '
+              .result.id == $version and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TRANSITIONS_ENABLED")][0] | .type == "plain_text" and .text == "true") and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_DISPATCH_ENABLED")][0] | .type == "plain_text" and .text == "true") and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_TARGET_KEYS")][0] | .type == "plain_text" and ((.text | fromjson) == [$target])) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_TARGET_KEY")][0] | .type == "plain_text" and .text == $target) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_NOTIFICATION_RETRY_POLICY")][0] | .type == "plain_text" and ((.text | fromjson) == ($retry | fromjson))) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_BOT_TOKEN")][0] | (.type == "secret_text" or .type == "secret_key")) and
+              ([.result.resources.bindings[]? | select(.name == "CONTROL_TELEGRAM_CHAT_ID")][0] | (.type == "secret_text" or .type == "secret_key")) and
+              ([.result.resources.bindings[]? | select(.name == "NOTIFICATION_DISPATCH_QUEUE")][0] | .type == "queue" and ((.queue_name // "") == $queue))
+            ' "$tmp/version.json" >/dev/null || stop NOTIFICATION_BINDINGS_INVALID
+          printf 'NOTIFICATION_BINDINGS=VALID\n'
+
+          printf '%s\n' STAGE=D1_POST_RESUME_DELIVERY_EVIDENCE
+          cf_d1_get "/d1/database/${DB_ID}" "$tmp/db.json"
+          jq -e --arg id "$DB_ID" --arg name "$DB_NAME" --arg jurisdiction "$DB_JURISDICTION" '
+            .result.uuid == $id and .result.name == $name and .result.jurisdiction == $jurisdiction
+          ' "$tmp/db.json" >/dev/null || stop D1_RESOURCE_IDENTITY_INVALID
+
+          counts_sql="SELECT (SELECT COUNT(*) FROM notification_transitions) AS current_transitions, (SELECT COUNT(*) FROM notification_delivery_intents) AS current_intents, (SELECT COUNT(*) FROM notification_delivery_intents WHERE queued_at <= '${gate_b_completed_at}') AS gate_b_intents, (SELECT COUNT(*) FROM notification_delivery_attempts a JOIN notification_delivery_intents i ON i.delivery_id = a.delivery_id WHERE i.queued_at <= '${gate_b_completed_at}') AS gate_b_attempts, (SELECT COUNT(*) FROM notification_delivery_dispatch_claims c JOIN notification_delivery_intents i ON i.delivery_id = c.delivery_id WHERE i.queued_at <= '${gate_b_completed_at}') AS gate_b_claims"
+          cf_d1_select "$counts_sql" "$tmp/counts.json"
+          jq -e '.result[0].results | length == 1' "$tmp/counts.json" >/dev/null || stop D1_POST_RESUME_COUNTS_INVALID
+          current_transitions="$(jq -r '.result[0].results[0].current_transitions // empty' "$tmp/counts.json")"
+          current_intents="$(jq -r '.result[0].results[0].current_intents // empty' "$tmp/counts.json")"
+          gate_b_intents="$(jq -r '.result[0].results[0].gate_b_intents // empty' "$tmp/counts.json")"
+          gate_b_attempts="$(jq -r '.result[0].results[0].gate_b_attempts // empty' "$tmp/counts.json")"
+          gate_b_claims="$(jq -r '.result[0].results[0].gate_b_claims // empty' "$tmp/counts.json")"
+          for value in "$current_transitions" "$current_intents" "$gate_b_intents" "$gate_b_attempts" "$gate_b_claims"; do
+            require_nonnegative_integer "$value" D1_POST_RESUME_COUNTS_INVALID
+          done
+          [ "$gate_b_intents" = "$EXPECTED_PRE_RESUME_INTENTS" ] || stop GATE_B_INTENT_BOUNDARY_DRIFT
+          [ "$gate_b_attempts" = "$gate_b_claims" ] || stop ATTEMPT_CLAIM_COUNT_MISMATCH
+
+          structure_sql="SELECT (SELECT COUNT(*) FROM notification_delivery_attempts a JOIN notification_delivery_intents i ON i.delivery_id = a.delivery_id LEFT JOIN notification_delivery_dispatch_claims c ON c.delivery_id = a.delivery_id AND c.attempt_number = a.attempt_number WHERE i.queued_at <= '${gate_b_completed_at}' AND c.dispatch_id IS NULL) AS attempts_without_claim, (SELECT COUNT(*) FROM notification_delivery_dispatch_claims c JOIN notification_delivery_intents i ON i.delivery_id = c.delivery_id LEFT JOIN notification_delivery_attempts a ON a.delivery_id = c.delivery_id AND a.attempt_number = c.attempt_number WHERE i.queued_at <= '${gate_b_completed_at}' AND a.delivery_id IS NULL) AS claims_without_attempt"
+          cf_d1_select "$structure_sql" "$tmp/structure.json"
+          attempts_without_claim="$(jq -r '.result[0].results[0].attempts_without_claim // empty' "$tmp/structure.json")"
+          claims_without_attempt="$(jq -r '.result[0].results[0].claims_without_attempt // empty' "$tmp/structure.json")"
+          [ "$attempts_without_claim" = 0 ] || stop ATTEMPT_WITHOUT_CLAIM
+          [ "$claims_without_attempt" = 0 ] || stop CLAIM_WITHOUT_ATTEMPT
+
+          outcomes_sql="SELECT SUM(CASE WHEN latest_result = 'DELIVERED' THEN 1 ELSE 0 END) AS delivered, SUM(CASE WHEN latest_result = 'TERMINAL_FAILURE' THEN 1 ELSE 0 END) AS terminal_failure, SUM(CASE WHEN latest_result = 'RETRYABLE_FAILURE' AND latest_attempt >= ${EXPECTED_PROVIDER_MAX_ATTEMPTS} THEN 1 ELSE 0 END) AS exhausted, SUM(CASE WHEN latest_result IS NULL OR (latest_result = 'RETRYABLE_FAILURE' AND latest_attempt < ${EXPECTED_PROVIDER_MAX_ATTEMPTS}) THEN 1 ELSE 0 END) AS unsettled FROM (SELECT i.delivery_id, (SELECT a.result_kind FROM notification_delivery_attempts a WHERE a.delivery_id = i.delivery_id ORDER BY a.attempt_number DESC LIMIT 1) AS latest_result, COALESCE((SELECT MAX(a.attempt_number) FROM notification_delivery_attempts a WHERE a.delivery_id = i.delivery_id), 0) AS latest_attempt FROM notification_delivery_intents i WHERE i.queued_at <= '${gate_b_completed_at}')"
+          cf_d1_select "$outcomes_sql" "$tmp/outcomes.json"
+          delivered="$(jq -r '.result[0].results[0].delivered // 0' "$tmp/outcomes.json")"
+          terminal_failure="$(jq -r '.result[0].results[0].terminal_failure // 0' "$tmp/outcomes.json")"
+          exhausted="$(jq -r '.result[0].results[0].exhausted // 0' "$tmp/outcomes.json")"
+          unsettled="$(jq -r '.result[0].results[0].unsettled // 0' "$tmp/outcomes.json")"
+          for value in "$delivered" "$terminal_failure" "$exhausted" "$unsettled"; do
+            require_nonnegative_integer "$value" D1_POST_RESUME_OUTCOMES_INVALID
+          done
+          [ $((delivered + terminal_failure + exhausted + unsettled)) -eq "$gate_b_intents" ] || stop DELIVERY_OUTCOME_CARDINALITY_MISMATCH
+          [ "$unsettled" = 0 ] || stop GATE_B_DELIVERY_NOT_SETTLED
+
+          printf 'D1_CURRENT_TRANSITION_ROWS=%s\n' "$current_transitions"
+          printf 'D1_CURRENT_INTENT_ROWS=%s\n' "$current_intents"
+          printf 'GATE_B_BOUND_INTENT_ROWS=%s\n' "$gate_b_intents"
+          printf 'GATE_B_ATTEMPT_ROWS=%s\n' "$gate_b_attempts"
+          printf 'GATE_B_CLAIM_ROWS=%s\n' "$gate_b_claims"
+          printf 'GATE_B_DELIVERED_INTENTS=%s\n' "$delivered"
+          printf 'GATE_B_TERMINAL_FAILURE_INTENTS=%s\n' "$terminal_failure"
+          printf 'GATE_B_EXHAUSTED_INTENTS=%s\n' "$exhausted"
+          printf 'GATE_B_UNSETTLED_INTENTS=%s\n' "$unsettled"
+          printf 'GATE_B_HISTORICAL_DELIVERY=SETTLED\n'
+
+          printf '%s\n' STAGE=RESUMED_QUEUE_OBSERVATION
+          cf_workers_get "/queues/${EXPECTED_QUEUE_ID}" "$tmp/queue.json"
+          jq -e --arg id "$EXPECTED_QUEUE_ID" --arg name "$DISPATCH_QUEUE_NAME" '
+            .result.queue_id == $id and .result.queue_name == $name and
+            (.result.settings | type == "object") and .result.settings.delivery_paused == false
+          ' "$tmp/queue.json" >/dev/null || stop DISPATCH_QUEUE_NOT_RESUMED
+          cf_workers_get "/queues/${EXPECTED_QUEUE_ID}/consumers" "$tmp/consumers.json"
+          verify_consumer "$tmp/consumers.json" DISPATCH_QUEUE_CONSUMER_DRIFT
+          cf_workers_get "/queues/${EXPECTED_QUEUE_ID}/metrics" "$tmp/metrics.json"
+          jq -e '
+            (.result.backlog_count | type == "number" and . >= 0) and
+            (.result.backlog_bytes | type == "number" and . >= 0) and
+            (.result.oldest_message_timestamp_ms | type == "number" and . >= 0)
+          ' "$tmp/metrics.json" >/dev/null || stop DISPATCH_QUEUE_METRICS_INVALID
+          backlog_count="$(jq -r '.result.backlog_count' "$tmp/metrics.json")"
+          backlog_bytes="$(jq -r '.result.backlog_bytes' "$tmp/metrics.json")"
+          oldest_message_ms="$(jq -r '.result.oldest_message_timestamp_ms' "$tmp/metrics.json")"
+          printf 'DISPATCH_QUEUE_DELIVERY=RESUMED\n'
+          printf 'DISPATCH_QUEUE_BACKLOG_COUNT=%s\n' "$backlog_count"
+          printf 'DISPATCH_QUEUE_BACKLOG_BYTES=%s\n' "$backlog_bytes"
+          printf 'DISPATCH_QUEUE_OLDEST_MESSAGE_TIMESTAMP_MS=%s\n' "$oldest_message_ms"
+          printf 'DISPATCH_QUEUE_METRICS=BEST_EFFORT_POINT_IN_TIME\n'
+          if [ "$backlog_count" -eq 0 ]; then
+            printf 'QUEUE_REPLAY_BACKLOG_DRAIN=COMPLETE\n'
+          else
+            printf 'QUEUE_REPLAY_BACKLOG_DRAIN=IN_PROGRESS_OR_NEW_WORK_PRESENT\n'
+          fi
+
+          printf '%s\n' STAGE=FINAL_ANTI_DRIFT
+          gh_get '/branches/main' "$tmp/main-after.json"
+          jq -e --arg sha "$run_sha" '.commit.sha == $sha' "$tmp/main-after.json" >/dev/null || stop FINAL_MAIN_SHA_DRIFT
+          cf_workers_get "/workers/scripts/${WORKER_NAME}/deployments" "$tmp/deployments-after.json"
+          verify_deployment "$tmp/deployments-after.json" FINAL_PRODUCTION_BASELINE_DRIFT
+          cf_workers_get "/queues/${EXPECTED_QUEUE_ID}" "$tmp/queue-after.json"
+          jq -e --arg id "$EXPECTED_QUEUE_ID" --arg name "$DISPATCH_QUEUE_NAME" '
+            .result.queue_id == $id and .result.queue_name == $name and .result.settings.delivery_paused == false
+          ' "$tmp/queue-after.json" >/dev/null || stop FINAL_QUEUE_RESUME_DRIFT
+
+          printf 'PHASE4_TELEGRAM_POST_RESUME=OBSERVED_SETTLED\n'
+          printf 'GET_OR_SELECT_ONLY_OBSERVATION=PASS\n'
+          printf 'TELEGRAM_PROVIDER_REQUEST=NO\n'
+          printf 'QUEUE_MUTATION=NO\n'
+          printf 'REMOTE_D1_MUTATION=NO\n'
+          printf 'WORKER_MUTATION=NO\n'
+          printf 'SECRET_MUTATION=NO\n'
+          printf 'CLOUDFLARE_MUTATION=NO\n'
+          printf 'GATE_B_RERUN=FORBIDDEN\n'
+          printf 'LIVE_AUTHORIZATION=NOT_REQUIRED_READ_ONLY\n'
+          printf 'NEXT_GATE=SOURCE_REVIEW_AND_CANONICAL_CONTINUITY_UPDATE\n'
