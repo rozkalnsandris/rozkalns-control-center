@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the durable system boundaries for Rozkalns Control. Master issue #1 remains authoritative for current product scope and phase ordering.
+This document describes the current durable source architecture and trust boundaries for Rozkalns Control. Master issue #1 remains authoritative for product scope; issue #278 is authoritative for mutable operational continuity. Repository source/configuration is evidence of intended implementation only and must not be treated as proof of current deployment, bindings, secrets, provider state or RPi5 runtime state.
 
 ## Goals
 
@@ -11,7 +11,7 @@ This document describes the durable system boundaries for Rozkalns Control. Mast
 - production remains behind existing RPi5 trust boundaries;
 - no AI API requirement for the MVP.
 
-## High-level architecture
+## Current high-level source architecture
 
 ```text
 Android / desktop browser
@@ -22,10 +22,9 @@ Cloudflare Access
         v
 Rozkalns Control Worker + React SPA
         |
-        +--> D1: projects, campaigns/tasks, approvals, projections
-        +--> Queue/DLQ: GitHub event reconciliation
-        +--> Workflows: durable waits/state machine where needed
-        +--> Notifications: Telegram and/or web push
+        +--> D1: reconciliation, decisions, notifications, continuation, deferrals
+        +--> Queue/DLQ: GitHub reconciliation + notification dispatch triggers
+        +--> Telegram transport: source/configured notification provider boundary
         |
         v
 Dedicated Rozkalns Control GitHub App
@@ -34,11 +33,14 @@ Dedicated Rozkalns Control GitHub App
 GitHub repositories / issues / PRs / reviews / Actions
 
 RPi5 production plane remains separate and authoritative.
+Future Phase 5 flow: RPi5 strict sanitized producer -> read-only transport -> Control strict consumer.
 ```
+
+The diagram is a source architecture, not a production-state assertion. In particular it does not prove that the currently deployed Worker has every source binding/secret, that a D1 migration is applied, that Queue/provider state is healthy, or that Phase 5 producer transport exists.
 
 ## Frontend
 
-Planned stack:
+The implemented source stack is:
 
 - React;
 - TypeScript;
@@ -47,90 +49,86 @@ Planned stack:
 - Workers Static Assets;
 - Android-first responsive UI.
 
-The frontend never receives GitHub App private keys or other privileged machine credentials.
+The browser consumes normalized models only. It never receives GitHub App private keys, Telegram bot credentials or other privileged machine credentials. Stale/future/invalid evidence loses mutation authority in the UI.
 
 ## Worker API
 
-The Worker is the trusted public control-plane API.
+The Worker is the trusted public control-plane API boundary. Current source responsibilities include:
 
-Responsibilities:
+- cryptographic Cloudflare Access validation for protected human routes;
+- GitHub webhook HMAC validation over raw bytes;
+- bounded normalized GitHub read composition;
+- live GitHub re-resolution before state-dependent mutations;
+- capability/state-transition enforcement;
+- bounded decision/audit/idempotency persistence;
+- Queue-backed reconciliation and notification-dispatch composition;
+- sanitized dashboard/read observability;
+- strict consumption of already-sanitized Phase 5 production evidence.
 
-- validate Cloudflare Access identity for human routes;
-- validate GitHub HMAC for webhook ingress;
-- serve normalized read models;
-- re-resolve live GitHub state before mutations;
-- enforce capability/state transition rules;
-- create immutable-ish approval/event evidence;
-- enqueue reconciliation work;
-- emit notifications.
+A source route/configuration flag does not create standing authorization to invoke a production action.
 
 ## Authentication split
 
 ### Human routes
 
-`control.rozkalns.net` is protected by Cloudflare Access. Worker authorization validates the signed JWT, expected issuer/JWKS/audience and authenticated identity.
+Human mutation routes are protected by Cloudflare Access. Worker authorization validates the signed JWT against the expected issuer/JWKS/audience and authenticated identity; trusted header presence alone is insufficient.
 
 ### Machine webhook route
 
-A separate route such as `hooks.control.rozkalns.net/github` accepts GitHub deliveries. It authenticates the raw request with GitHub webhook HMAC, not human Access identity.
+GitHub webhook ingress authenticates the original request bytes with `X-Hub-Signature-256` HMAC before repository/event identity is trusted. Webhook payloads are triggers, not canonical mutation evidence.
+
+### Provider/credential boundaries
+
+GitHub App JWTs/installation tokens and Telegram provider credentials remain inside dedicated server-side credential/provider boundaries. Raw secret/token material must not reach domain models, D1, logs, fixtures or browser payloads.
 
 ## GitHub integration
 
-Use a dedicated GitHub App named approximately `Rozkalns Control`.
+Use the dedicated **Rozkalns Control** GitHub App; do not broaden the RPi5 **Rozkalns Automation** App for this product.
 
-Permission rollout:
+The source contains least-privilege read sessions and exact human-decision write boundaries introduced through the completed phases. GitHub remains canonical for:
 
-1. read-only state ingestion;
-2. exact writes required by human decision buttons;
-3. future source-write permissions only if a later phase authorizes autonomous/source editing.
-
-Do not broaden the existing RPi5 `Rozkalns Automation` verifier app.
-
-GitHub remains canonical for:
-
-- repository;
+- repository and default branch;
 - branch/SHA;
 - issue;
-- pull request;
-- review;
-- Actions/check state.
+- pull request and merge state;
+- review state;
+- Actions/check/status state and policy evidence.
 
-The Control Center stores normalized references/projections and decisions, not a competing canonical Git history.
+Control stores bounded projections/references and decision evidence, not a competing canonical Git history.
 
-## Data plane
+## D1 data plane
 
-D1 stores bounded structured state such as:
+D1 stores bounded structured control state, including:
 
-- projects/integrations;
-- campaigns/tasks;
-- runs/events;
-- approvals;
-- GitHub entity projections;
-- deploy-state projections;
-- notification deliveries;
-- webhook delivery deduplication.
+- reconciliation delivery lifecycle/deduplication;
+- normalized project/GitHub projection state;
+- Merge / Needs changes audit and idempotency records;
+- Later deferrals;
+- notification transitions/intents/attempts/dispatch claims;
+- deterministic continuation state.
 
 Secrets are never stored in D1.
 
-Large logs/evidence should use bounded retention and, when needed, object storage rather than unbounded D1 growth.
+A source-controlled migration is only a deploy input. It does not prove remote application. D1 daily Free-plan row-read/row-write limits are enforced; if persistence/reconciliation reads or writes fail because quota/service availability is exhausted, protected actions must fail closed on unavailable evidence rather than continue from incomplete state.
 
-## Event ingestion
+## Queue and event ingestion
 
-Webhook flow:
+Current source flow:
 
 ```text
 raw GitHub request
   -> verify HMAC
   -> reject invalid
-  -> dedupe delivery ID
-  -> enqueue normalized event
-  -> fast response
-  -> queue consumer reconciles live GitHub state
-  -> update projections/state
+  -> durable delivery-ID claim
+  -> enqueue bounded reconciliation identity
+  -> Queue consumer re-reads authoritative GitHub state
+  -> advance durable lifecycle/projection
   -> notify only on meaningful transition
 ```
 
-Retries are bounded and exhausted messages go to a Dead Letter Queue.
+Cloudflare Queues provides at-least-once delivery. Messages may therefore be duplicated, and publication/delivery ordering is not guaranteed. `max_concurrency = 1` bounds concurrent processing but is **not** an ordering contract. Domain sequencing depends on D1 lifecycle/state transitions, idempotency, exact identities and authoritative rereads.
+
+Retries are bounded and exhausted reconciliation messages remain observable through the DLQ path. Queue messages themselves never authorize Merge, deployment or host mutation.
 
 ## Human decision flow
 
@@ -138,30 +136,55 @@ Retries are bounded and exhausted messages go to a Dead Letter Queue.
 NEEDS_ANDRIS card
   -> user chooses Merge / Needs changes / Later
   -> Worker validates Access identity
-  -> Worker reloads live PR
-  -> verify expected head SHA + CI + review/policy
-  -> fail closed if stale/invalid
-  -> execute exact GitHub action
-  -> record decision/result
+  -> Worker re-resolves the required current evidence
+  -> verify exact expected state (including head/CI/review/policy where applicable)
+  -> fail closed if stale/invalid/partial
+  -> execute only the exact authorized decision mutation
+  -> record bounded decision/result evidence
   -> reconcile resulting state
 ```
 
+Direct Worker decision routes are the current Phase 3 human-action path. [`CONTROL_AUTHORIZATION.md`](CONTROL_AUTHORIZATION.md) describes a separate privileged-adapter authorization contract and must not be confused with these decision routes.
+
 `Merge` does not imply deployment.
 
-## Background continuation
+## Notifications and deterministic continuation
 
-The MVP may use ChatGPT + connected GitHub app and a pilot-proven Scheduled Task bridge. Control Center persists deterministic campaign state so continuation never relies on old chat memory.
+Notification transition, delivery-intent, attempt and dispatch-claim state exists in source. Telegram provider/target configuration and notification dispatch Queue composition are also present in source/configuration. Canonical #278 records the bounded Phase 4 Gate B chain as completed.
 
-Control Center must distinguish `READY` from actually executing work. It must never claim background execution merely because work is eligible.
+Those facts do not prove the current Telegram bot secret, chat target, provider availability, Queue backlog or active Worker version. Completed Gate receipts are terminal/non-reusable.
 
-## Production boundary
+Deterministic continuation planning/reservation/persistence/recovery exists in source. Continuation remains governed by explicit deterministic state and current authorization; Phase 4 completion is not blanket autonomous authority.
+
+## Phase 5 production visibility boundary
+
+Phase 5 is **active**.
+
+The Control consumer is already merged and accepts only an exact allowlist of **already-sanitized** RPi5 production evidence. It validates project/repository identity, source/main and production SHA values, freshness/state fields, deploy impact, runtime/health/rollback/blockers, and rejects over-broad input before projection.
+
+The Control consumer is observational only. Normalized Phase 5 evidence never becomes authority to deploy, mutate production data, invoke rollback, alter permissions or access credentials.
+
+The producer side is deliberately separate:
+
+```text
+RPi5 canonical source
+  -> capability-specific producer
+  -> strict allowlist + sanitization
+  -> bounded read-only transport
+  -> Control strict consumer
+  -> dashboard projection
+```
+
+The producer must be defined/reviewed in `RPi5_main` and must be equivalent-or-tighter than the Control allowlist. Control must **not** implement the producer by direct SSH, sudo, generic helper execution, arbitrary filesystem reads, protected runtime/config inspection, database access or host credentials. Canonical #278 currently blocks starting a parallel producer lane until RPi5 continuity explicitly permits it.
+
+## Production authority
 
 The production path remains:
 
-`PR -> CI -> merge -> exact-SHA verification -> deploy-impact classification -> trusted RPi5 controller -> authorized helper -> health/evidence/rollback`
+`PR -> CI -> merge -> exact-SHA verification -> deploy-impact classification -> trusted RPi5 controller -> separately authorized helper/action -> health/evidence/rollback`
 
-Rozkalns Control initially receives only sanitized/read-only production projections once that integration phase is explicitly approved.
+RPi5 is the production trust boundary. Repository source or Phase 5 normalized evidence cannot replace that authority. Merge authorization is never deployment authorization.
 
 ## Future AI extension
 
-Future optional architecture may add a provider-neutral agent runtime and isolated execution. That runtime must remain replaceable and must never receive production credentials. It is deliberately outside the MVP.
+A future optional phase may add a provider-neutral agent runtime and isolated execution. It is deliberately outside the MVP and must not receive production credentials or weaken the existing deterministic/owner gates.
