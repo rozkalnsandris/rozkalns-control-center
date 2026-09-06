@@ -1,6 +1,6 @@
 # Rozkalns Control — Current Roadmap Checkpoint
 
-Last reconciled: **2026-09-03**.
+Last reconciled: **2026-09-06**.
 
 Master issue #1 remains the canonical product/architecture contract, and `docs/ROADMAP.md` remains the long-form roadmap. Issue #278 is the canonical operational handoff for changing current phase or live state. This checkpoint records durable current architecture and gates; it deliberately omits transient CI runs, deployment identifiers and authorization receipts.
 
@@ -16,10 +16,10 @@ Master issue #1 remains the canonical product/architecture contract, and `docs/R
 
 - **Phase 0 — repository/contracts:** complete.
 - **Phase 1 — mobile-first decision UI:** complete.
-- **Phase 2 — read-only GitHub/control-plane foundation:** live-read, GitHub App, webhook, D1 and Queue source architecture implemented; current production facts remain separately evidenced.
-- **Phase 3 — authenticated human decision actions:** current active product phase. Merge, Needs changes and Later are source-wired, but each production capability and action remains independently gated.
-- **Phase 4 — notifications and deterministic continuation:** substantial source implementation; notification transport and continuation activation remain gated.
-- **Phase 5 — production visibility:** sanitized model and dashboard projection implemented; RPi5 adapter/runtime evidence remains gated.
+- **Phase 2 — read-only GitHub/control-plane foundation:** live-read, GitHub App, webhook, D1 and Queue architecture established; current production facts remain separately evidenced.
+- **Phase 3 — authenticated human decision actions:** complete for the bounded Merge, Needs changes and Later capability/canary chain recorded by canonical #278. Completed canaries create no standing mutation authority, and project capabilities remain independently fail-closed.
+- **Phase 4 — notifications and deterministic continuation:** complete for the bounded Telegram transport/continuation gate chain recorded by canonical #278. Historical Gate A/Gate B/Later receipts are terminal evidence only and must never be replayed; no completed canary creates standing Queue, notification or decision authority.
+- **Phase 5 — production visibility:** active. The Control-side strict sanitized RPi5 evidence consumer boundary is merged; the producer-side RPi5 contract and any read-only live transport remain pending and must wait for the canonical RPi5 lane.
 - **Optional AI/runtime phase:** deferred.
 
 ## Durable current architecture
@@ -57,15 +57,17 @@ Master issue #1 remains the canonical product/architecture contract, and `docs/R
 - Merge and Needs changes bind the actor and expected head, re-read current GitHub state, and write bounded D1 audit/idempotency evidence.
 - Later recomputes a deterministic material-state fingerprint before a compare-and-swap deferral write.
 - The UI requires explicit confirmation and sends exact decision evidence. Stale/invalid dashboard state cannot authorize an action.
-- Backend canary success is not standing authorization for UI activation, a second action or a different target. #278 and the focused tracker remain authoritative for the next live gate.
+- Canonical #278 records the bounded Phase 3 canary chain as complete. Those completed actions are historical evidence only; they do not authorize another action, another target or capability expansion.
 
 ### Notifications, continuation and production visibility
 
 - D1 contracts exist for notification transitions, delivery intents, attempts and dispatch claims, with deterministic deep links and Queue-oriented runtime composition.
-- No notification-provider transport or corresponding secret is configured by this baseline; source support must not be described as live delivery.
-- Continuation planning, reservation, persistence and recovery exist, but the continuation runtime is not attached to a Worker route, Queue consumer or scheduler and remains opt-in.
-- Production visibility normalizes main/production SHA, drift, deploy impact, runtime, health, rollback and blocker evidence for the dashboard.
-- No live Control-to-RPi5 adapter is connected. Repository fixtures, source and GET-only workflow definitions cannot establish current host state.
+- Telegram notification transport is implemented in source/configuration, and canonical #278 records the bounded Phase 4 Gate B delivery/resume chain as completed. Repository source alone does not prove the current provider secret, Queue backlog or live delivery state.
+- Continuation planning, reservation, persistence and recovery exist, and Phase 4 completion does not imply blanket autonomous continuation or a reusable authorization. Any future continuation action remains bound to its explicit deterministic state and current gate.
+- Phase 5 production visibility normalizes main/production SHA, drift, deploy impact, runtime, health, rollback and blocker evidence for the dashboard.
+- The merged Control consumer accepts only an exact, fail-closed allowlist of already-sanitized RPi5 evidence and rejects extra object keys/fields before the existing project/SHA/freshness/state validation.
+- No live Control-to-RPi5 producer/transport is connected by this checkpoint. Control must not synthesize production evidence or obtain it through SSH, sudo, generic helpers, protected host inspection, arbitrary filesystem/runtime reads or host credentials.
+- A future RPi5 producer must define an equivalent-or-tighter strict allowlist and sanitization contract in the canonical RPi5 repository before a separately reviewed read-only transport may be considered.
 
 ### Operational observability
 
@@ -81,13 +83,15 @@ The non-button hardening work added durable contracts in four areas:
 1. **Browser/read safety:** centralized static/API security headers, fail-closed dashboard freshness and one bounded client-read timeout/offline fallback policy.
 2. **Operational observability:** mobile webhook/reconciliation health, sanitized structured Worker/Queue logs and explicit cost-bounded log/trace sampling.
 3. **Data/API efficiency:** a planner-evidenced D1 hot-query audit and partial index, identity-bound conditional GitHub reads, and normalized rate-limit health.
-4. **Documentation freshness:** README and this checkpoint now describe the current Worker/D1/Queue/live-read source architecture without treating it as deployment evidence.
+4. **Documentation freshness:** README and this checkpoint describe the Worker/D1/Queue/live-read architecture without treating repository source as current deployment evidence.
 
 These changes add no retry/requeue/delete UI, no permissive CORS, no new GitHub permission, no production decision invocation, no remote D1 apply and no deployment authority.
 
 ## Current gates
 
-- Re-read #1 and #278 before selecting the next phase/live action; historical phase documents may preserve older source-only snapshots and cannot override current canonical state.
+- Canonical #278 is authoritative for the mutable Phase 5 operational gate. Do not use historical phase issue bodies or old RPi5 SHA/PR snapshots as current authority.
+- The current Phase 5 gate is `PHASE5_RPI5_PRODUCER_CONTRACT_WAIT_FOR_RPI5_CANONICAL_LANE`: do not start a parallel RPi5 production-visibility lane while the canonical RPi5 migration/control-plane objective remains active.
+- When the RPi5 canonical lane permits the producer work, define the producer allowlist/sanitization source contract first; only after review/merge and fresh exact-main evidence may a separate read-only transport slice be considered.
 - Revalidate exact current `main`, required checks, expected head, reviews, rules and target state immediately before every state-dependent GitHub write.
 - Apply of migration `0010`, Worker deployment/promotion, Queue mutation, decision-route invocation, capability activation, GitHub App grant/repository-selection change, Access/DNS/Tunnel mutation, secrets and credentials all require separately scoped authority.
 - Merge never authorizes deployment, D1 writes, Queue writes, production decision POSTs or host mutation.
@@ -96,4 +100,4 @@ These changes add no retry/requeue/delete UI, no permissive CORS, no new GitHub 
 
 ## Next safe step
 
-Use issue #1 to identify the first incomplete phase exit criterion and issue #278 to establish current operational state. If the next step crosses a live boundary, create or resume the focused tracker, perform fresh GET-only preflight, bind the exact target/SHA/baseline and obtain the required explicit owner authorization before the first mutation.
+Keep the Control Phase 5 consumer boundary stable while the canonical RPi5 lane is occupied. Re-read #278 and the current RPi5 continuation before attempting any producer-side work. Once RPi5 continuity explicitly permits the Phase 5 producer contract, proceed source-first through a focused RPi5 issue/branch/tests/Draft PR/exact-head CI/review/Ready flow. Any later live transport or host/runtime work remains a separate read-only/live gate under the owning repository policy.
