@@ -8,6 +8,10 @@ import {
   type ControlWebhookQueueRuntimeBindings,
 } from "../integrations/cloudflare/control-webhook-queue-runtime";
 import type { QueueMessageBatchLike } from "../integrations/cloudflare/reconciliation-queue-batch-consumer";
+import {
+  resolveRpi5ObservationRuntime,
+  type Rpi5ObservationRuntimeBindings,
+} from "../integrations/cloudflare/rpi5-observation-runtime";
 import { buildHealthPayload } from "../shared/health";
 import { handleGitHubDashboardRequest } from "./github-dashboard-route";
 import {
@@ -44,6 +48,10 @@ import {
   handleGitHubWebhookObservabilityRequest,
 } from "./github-webhook-observability-route";
 import { handleGitHubWebhookRequest } from "./github-webhook-route";
+import {
+  handleRpi5ObservationRequest,
+  RPI5_OBSERVATION_ROUTE_PATH,
+} from "./rpi5-observation-route";
 import { applyApiResponseSecurityHeaders } from "./response-security";
 import {
   withWorkerQueueLogging,
@@ -67,6 +75,10 @@ function resolveWebhookQueueRuntime(env: Env) {
   return resolveControlWebhookQueueRuntime(
     env as unknown as ControlWebhookQueueRuntimeBindings,
   );
+}
+
+function resolveRpi5Runtime(env: Env) {
+  return resolveRpi5ObservationRuntime(env as unknown as Rpi5ObservationRuntimeBindings);
 }
 
 function resolveNeedsChangesRuntime(env: Env) {
@@ -94,6 +106,15 @@ async function routeWorkerRequest(request: Request, env: Env): Promise<Response>
       return Response.json(buildHealthPayload(env.CF_VERSION_METADATA.id), {
         headers: NO_STORE_HEADERS,
       });
+    }
+
+    if (url.pathname === RPI5_OBSERVATION_ROUTE_PATH) {
+      const resolution = resolveRpi5Runtime(env);
+      return handleRpi5ObservationRequest(
+        request,
+        new Date().toISOString(),
+        resolution.status === "READY" ? resolution.runtime : null,
+      );
     }
 
     if (url.pathname === "/api/github/dashboard") {
