@@ -81,7 +81,8 @@ class FakeAtomicDatabase implements Rpi5ObservationAtomicD1DatabaseLike {
     return statement;
   }
 
-  async batch(_statements: D1PreparedStatementLike[]): Promise<D1RunResultLike[]> {
+  async batch(statements: D1PreparedStatementLike[]): Promise<D1RunResultLike[]> {
+    assert.equal(statements.length, 2);
     this.batchCalls += 1;
     return [...this.batchResults];
   }
