@@ -226,18 +226,16 @@ function requireClaimToken(factory: Rpi5ObservationClaimTokenFactory): string {
   return token;
 }
 
-function requireBatchResult(
-  result: D1RunResultLike | undefined,
-): number {
+function requireBatchResult(result: D1RunResultLike | undefined): number {
+  const changes = result?.meta?.changes;
   if (
     !result ||
     result.success !== true ||
-    !result.meta ||
-    !Number.isSafeInteger(result.meta.changes)
+    typeof changes !== "number" ||
+    !Number.isSafeInteger(changes)
   ) {
     fail("D1_FAILURE");
   }
-  const changes = result.meta.changes as number;
   if (changes !== 0 && changes !== 1) fail("D1_FAILURE");
   return changes;
 }
