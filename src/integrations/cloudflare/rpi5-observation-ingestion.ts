@@ -34,7 +34,7 @@ function fail(code: Rpi5ObservationIngestionErrorCode): never {
 
 function parseSignedPayload(payload: Uint8Array): unknown {
   try {
-    const json = new TextDecoder("utf-8", { fatal: true }).decode(payload);
+    const json = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(payload);
     return JSON.parse(json) as unknown;
   } catch {
     fail("INVALID_PAYLOAD");
