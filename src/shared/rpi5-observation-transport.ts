@@ -74,6 +74,12 @@ function requirePayloadBytes(payload: Uint8Array): Uint8Array {
   return payload;
 }
 
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 function decodeEd25519Signature(value: string): Uint8Array {
   if (!ED25519_SIGNATURE_PATTERN.test(value)) fail("INVALID_INPUT");
 
@@ -194,7 +200,12 @@ export async function verifyRpi5ObservationDeliverySignature(
 
   let verified = false;
   try {
-    verified = await crypto.subtle.verify("Ed25519", publicKey, signature, signingInput);
+    verified = await crypto.subtle.verify(
+      "Ed25519",
+      publicKey,
+      copyToArrayBuffer(signature),
+      copyToArrayBuffer(signingInput),
+    );
   } catch {
     fail("INVALID_SIGNATURE");
   }
