@@ -52,6 +52,12 @@ function transportError(code: string): (error: unknown) => boolean {
   return (error: unknown) => error instanceof Rpi5ObservationTransportError && error.code === code;
 }
 
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 async function generateKeyPair(): Promise<CryptoKeyPair> {
   return (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
 }
@@ -64,7 +70,7 @@ async function sign(
   const signature = await crypto.subtle.sign(
     "Ed25519",
     privateKey,
-    buildRpi5ObservationSigningInput(metadata, payloadBytes),
+    copyToArrayBuffer(buildRpi5ObservationSigningInput(metadata, payloadBytes)),
   );
   return Buffer.from(signature).toString("base64url");
 }
