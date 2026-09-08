@@ -19,7 +19,7 @@ Master issue #1 remains the canonical product/architecture contract, and `docs/R
 - **Phase 2 — read-only GitHub/control-plane foundation:** live-read, GitHub App, webhook, D1 and Queue architecture established; current production facts remain separately evidenced.
 - **Phase 3 — authenticated human decision actions:** complete for the bounded Merge, Needs changes and Later capability/canary chain recorded by canonical #278. Completed canaries create no standing mutation authority, and project capabilities remain independently fail-closed.
 - **Phase 4 — notifications and deterministic continuation:** complete for the bounded Telegram transport/continuation gate chain recorded by canonical #278. Historical Gate A/Gate B/Later receipts are terminal evidence only and must never be replayed; no completed canary creates standing Queue, notification or decision authority.
-- **Phase 5 — production visibility:** active. The Control-side strict sanitized evidence consumer and the RPi5 producer sanitization/provenance source contract are merged/source-ready. Read-only observation/transport and live production evidence remain pending and separately gated.
+- **Phase 5 — production visibility:** active. The Control strict sanitized evidence consumer and RPi5 producer sanitization/provenance source contract are merged/source-ready. The authenticated one-way RPi5 -> Control observation delivery boundary is the current source lane; public-key provisioning, replay persistence, runtime wiring and live production evidence remain pending and separately gated.
 - **Optional AI/runtime phase:** deferred.
 
 ## Durable current architecture
@@ -66,8 +66,10 @@ Master issue #1 remains the canonical product/architecture contract, and `docs/R
 - Continuation planning, reservation, persistence and recovery exist, and Phase 4 completion does not imply blanket autonomous continuation or a reusable authorization. Any future continuation action remains bound to its explicit deterministic state and current gate.
 - Phase 5 production visibility normalizes main/production SHA, drift, deploy impact, runtime, health, rollback and blocker evidence for the dashboard.
 - The merged Control consumer accepts only an exact, fail-closed allowlist of already-sanitized RPi5 evidence and rejects extra object keys/fields before the existing project/SHA/freshness/state validation.
-- No live Control-to-RPi5 producer/transport is connected by this checkpoint. Control must not synthesize production evidence or obtain it through SSH, sudo, generic helpers, protected host inspection, arbitrary filesystem/runtime reads or host credentials.
-- The canonical `RPi5_main` repository now contains the equivalent-or-tighter strict producer allowlist/sanitization/provenance source contract. It acquires no production evidence and grants no host/runtime authority; a separately reviewed read-only observation/transport boundary is still required.
+- The canonical `RPi5_main` repository contains the equivalent-or-tighter strict producer allowlist/sanitization/provenance source contract. It acquires no production evidence and grants no host/runtime authority.
+- Issue #576 defines the Control outer authenticated-delivery source boundary without changing the ten-field payload: delivery metadata remains separate, Ed25519 verification binds domain/version/delivery ID/send time/key ID and exact raw payload bytes, and Control is verifier-only.
+- Signature verification returns a bounded replay identity and expiry but does not itself prove uniqueness. A later separately reviewed durable replay claim is required before trusting a delivery; this source lane adds no replay-store binding or production write.
+- No live RPi5 producer/transport is connected by this checkpoint. Control must not synthesize production evidence or obtain it through SSH, sudo, generic helpers, protected host inspection, arbitrary filesystem/runtime reads or host credentials.
 
 ### Operational observability
 
@@ -90,8 +92,9 @@ These changes add no retry/requeue/delete UI, no permissive CORS, no new GitHub 
 ## Current gates
 
 - Canonical #278 is authoritative for the mutable Phase 5 operational gate. Do not use historical phase issue bodies or old RPi5 SHA/PR snapshots as current authority.
-- The current Control work item is `PHASE5_CONTROL_DOCS_RECONCILE_AFTER_RPI5_PRODUCER_SOURCE_MERGE` in issue #574: reconcile current docs to producer-source COMPLETE / observation-transport PENDING and stop at Ready for explicit MERGE.
-- After issue #574 merges, the next Phase 5 implementation problem is `PHASE5_READ_ONLY_OBSERVATION_TRANSPORT_BOUNDARY_PENDING`: define/review only the bounded read-only source boundary first. Any later protected-host observation/transport execution remains a separate gate under current RPi5 continuity and policy.
+- The current Control work item is `PHASE5_READ_ONLY_OBSERVATION_TRANSPORT_BOUNDARY` in issue #576: define/review the one-way authenticated delivery source boundary and stop at Ready for explicit MERGE.
+- Issue #576 may add source primitives, fail-closed tests and documentation only. It must not add Worker route/binding wiring, public/private key provisioning, replay-store persistence, live evidence acquisition or RPi5 host/runtime/network mutation.
+- After issue #576 merges, fresh canonical #278 and current RPi5 continuity must determine the exact next bounded public-key/replay/runtime observation lane. Source readiness must not be treated as LIVE authority.
 - Revalidate exact current `main`, required checks, expected head, reviews, rules and target state immediately before every state-dependent GitHub write.
 - Apply of migration `0010`, Worker deployment/promotion, Queue mutation, decision-route invocation, capability activation, GitHub App grant/repository-selection change, Access/DNS/Tunnel mutation, secrets and credentials all require separately scoped authority.
 - Merge never authorizes deployment, D1 writes, Queue writes, production decision POSTs or host mutation.
@@ -100,4 +103,4 @@ These changes add no retry/requeue/delete UI, no permissive CORS, no new GitHub 
 
 ## Next safe step
 
-Complete issue #574 documentation/continuity reconciliation and stop at its Ready PR for explicit MERGE. After that merge, keep the merged Control consumer and RPi5 producer source contracts stable and separately define/review the bounded read-only observation/transport source boundary using fresh canonical #278 and current RPi5 continuity. Repository source still does not prove protected-host/runtime/live production state; any later host/runtime execution remains separately gated.
+Complete issue #576 through focused source/test/documentation validation, Draft PR, exact-head CI/review and Ready, then stop for explicit MERGE. No GET-only production preflight is required for this source-only gate. After merge, re-read canonical #278 and current RPi5 continuity before selecting any key provisioning, durable replay, runtime transport or production observation step; repository source still does not prove protected-host/runtime/live production state.
