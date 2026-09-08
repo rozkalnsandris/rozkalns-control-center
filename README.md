@@ -2,7 +2,7 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Current source state:** Phase 5 is active. Phases 0–4 are complete for the bounded chains recorded by canonical handoff #278. The repository contains the Cloudflare Worker/React control plane, live GitHub read composition, D1-backed control state, webhook/Queue reconciliation, guarded Merge / Needs changes / Later routes, Telegram notification transport source/configuration, deterministic continuation source, and the strict Phase 5 consumer for already-sanitized RPi5 production evidence. Repository source and configuration describe intended behavior; they do **not** independently prove the currently deployed Worker version, applied D1 migrations, Queue backlog, provider secrets, GitHub App grants, Cloudflare routes/bindings or RPi5 runtime state.
+> **Current source state:** Phase 5 is active. Phases 0–4 are complete for the bounded chains recorded by canonical handoff #278. The repository contains the Cloudflare Worker/React control plane, live GitHub read composition, D1-backed control state, webhook/Queue reconciliation, guarded Merge / Needs changes / Later routes, Telegram notification transport source/configuration, deterministic continuation source, and the strict Phase 5 consumer for already-sanitized RPi5 production evidence. Repository source and configuration describe intended behavior; they do not independently prove current production state, including the currently deployed Worker version, applied D1 migrations, Queue backlog, provider secrets, GitHub App grants, Cloudflare routes/bindings or RPi5 runtime state.
 
 The canonical product and architecture contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. GitHub issue **#278** is the canonical operational handoff for mutable phase/live continuity. Read both before work that depends on runtime status or crosses a trust boundary.
 
@@ -64,7 +64,7 @@ The MVP is focused on trustworthy approvals, notifications and production visibi
 
 ### GitHub reads and decisions
 
-The Worker source contains bounded GitHub App read sessions and normalized exact-head PR/CI/review/policy evidence. State-dependent mutation preflights use fresh unconditional authoritative reads.
+The Worker source exposes `GET /api/github/dashboard` for bounded live dashboard reads and contains bounded GitHub App read sessions with normalized exact-head PR/CI/review/policy evidence. State-dependent mutation preflights use fresh unconditional authoritative reads.
 
 Access-authenticated decision routes exist in source for:
 
@@ -77,7 +77,7 @@ Decision execution is project-capability gated and binds actor, expected head, f
 ### Webhook, Queue and D1
 
 - `POST /api/github/webhook` verifies GitHub HMAC over raw bytes before payload trust.
-- Accepted delivery IDs are durably claimed in D1 and enqueue bounded reconciliation messages.
+- Accepted delivery IDs are durably claimed through the `CONTROL_DB` D1 binding and enqueue bounded reconciliation messages.
 - Queue messages are **at-least-once, potentially duplicate and not ordered**. Correctness comes from durable D1 state transitions, idempotency and authoritative rereads—not delivery order or `max_concurrency = 1`.
 - The main consumer performs authoritative GitHub rereads; the DLQ path records bounded terminal evidence.
 - Source-controlled D1 migrations define reconciliation, decision-audit, notification, continuation and Later state. A migration in source is not evidence that it has been applied remotely.
