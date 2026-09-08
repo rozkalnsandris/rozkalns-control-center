@@ -1,6 +1,6 @@
 # Rozkalns Control — Current Roadmap Checkpoint
 
-Last reconciled: **2026-09-06**.
+Last reconciled: **2026-09-08**.
 
 Master issue #1 remains the canonical product/architecture contract, and `docs/ROADMAP.md` remains the long-form roadmap. Issue #278 is the canonical operational handoff for changing current phase or live state. This checkpoint records durable current architecture and gates; it deliberately omits transient CI runs, deployment identifiers and authorization receipts.
 
@@ -19,7 +19,7 @@ Master issue #1 remains the canonical product/architecture contract, and `docs/R
 - **Phase 2 — read-only GitHub/control-plane foundation:** live-read, GitHub App, webhook, D1 and Queue architecture established; current production facts remain separately evidenced.
 - **Phase 3 — authenticated human decision actions:** complete for the bounded Merge, Needs changes and Later capability/canary chain recorded by canonical #278. Completed canaries create no standing mutation authority, and project capabilities remain independently fail-closed.
 - **Phase 4 — notifications and deterministic continuation:** complete for the bounded Telegram transport/continuation gate chain recorded by canonical #278. Historical Gate A/Gate B/Later receipts are terminal evidence only and must never be replayed; no completed canary creates standing Queue, notification or decision authority.
-- **Phase 5 — production visibility:** active. The Control-side strict sanitized RPi5 evidence consumer boundary is merged; the producer-side RPi5 contract and any read-only live transport remain pending and must wait for the canonical RPi5 lane.
+- **Phase 5 — production visibility:** active. The Control-side strict sanitized evidence consumer and the RPi5 producer sanitization/provenance source contract are merged/source-ready. Read-only observation/transport and live production evidence remain pending and separately gated.
 - **Optional AI/runtime phase:** deferred.
 
 ## Durable current architecture
@@ -67,7 +67,7 @@ Master issue #1 remains the canonical product/architecture contract, and `docs/R
 - Phase 5 production visibility normalizes main/production SHA, drift, deploy impact, runtime, health, rollback and blocker evidence for the dashboard.
 - The merged Control consumer accepts only an exact, fail-closed allowlist of already-sanitized RPi5 evidence and rejects extra object keys/fields before the existing project/SHA/freshness/state validation.
 - No live Control-to-RPi5 producer/transport is connected by this checkpoint. Control must not synthesize production evidence or obtain it through SSH, sudo, generic helpers, protected host inspection, arbitrary filesystem/runtime reads or host credentials.
-- A future RPi5 producer must define an equivalent-or-tighter strict allowlist and sanitization contract in the canonical RPi5 repository before a separately reviewed read-only transport may be considered.
+- The canonical `RPi5_main` repository now contains the equivalent-or-tighter strict producer allowlist/sanitization/provenance source contract. It acquires no production evidence and grants no host/runtime authority; a separately reviewed read-only observation/transport boundary is still required.
 
 ### Operational observability
 
@@ -90,8 +90,8 @@ These changes add no retry/requeue/delete UI, no permissive CORS, no new GitHub 
 ## Current gates
 
 - Canonical #278 is authoritative for the mutable Phase 5 operational gate. Do not use historical phase issue bodies or old RPi5 SHA/PR snapshots as current authority.
-- The current Phase 5 gate is `PHASE5_RPI5_PRODUCER_CONTRACT_WAIT_FOR_RPI5_CANONICAL_LANE`: do not start a parallel RPi5 production-visibility lane while the canonical RPi5 migration/control-plane objective remains active.
-- When the RPi5 canonical lane permits the producer work, define the producer allowlist/sanitization source contract first; only after review/merge and fresh exact-main evidence may a separate read-only transport slice be considered.
+- The current Control work item is `PHASE5_CONTROL_DOCS_RECONCILE_AFTER_RPI5_PRODUCER_SOURCE_MERGE` in issue #574: reconcile current docs to producer-source COMPLETE / observation-transport PENDING and stop at Ready for explicit MERGE.
+- After issue #574 merges, the next Phase 5 implementation problem is `PHASE5_READ_ONLY_OBSERVATION_TRANSPORT_BOUNDARY_PENDING`: define/review only the bounded read-only source boundary first. Any later protected-host observation/transport execution remains a separate gate under current RPi5 continuity and policy.
 - Revalidate exact current `main`, required checks, expected head, reviews, rules and target state immediately before every state-dependent GitHub write.
 - Apply of migration `0010`, Worker deployment/promotion, Queue mutation, decision-route invocation, capability activation, GitHub App grant/repository-selection change, Access/DNS/Tunnel mutation, secrets and credentials all require separately scoped authority.
 - Merge never authorizes deployment, D1 writes, Queue writes, production decision POSTs or host mutation.
@@ -100,4 +100,4 @@ These changes add no retry/requeue/delete UI, no permissive CORS, no new GitHub 
 
 ## Next safe step
 
-Keep the Control Phase 5 consumer boundary stable while the canonical RPi5 lane is occupied. Re-read #278 and the current RPi5 continuation before attempting any producer-side work. Once RPi5 continuity explicitly permits the Phase 5 producer contract, proceed source-first through a focused RPi5 issue/branch/tests/Draft PR/exact-head CI/review/Ready flow. Any later live transport or host/runtime work remains a separate read-only/live gate under the owning repository policy.
+Complete issue #574 documentation/continuity reconciliation and stop at its Ready PR for explicit MERGE. After that merge, keep the merged Control consumer and RPi5 producer source contracts stable and separately define/review the bounded read-only observation/transport source boundary using fresh canonical #278 and current RPi5 continuity. Repository source still does not prove protected-host/runtime/live production state; any later host/runtime execution remains separately gated.
