@@ -77,7 +77,7 @@ Decision execution is project-capability gated and binds actor, expected head, f
 ### Webhook, Queue and D1
 
 - `POST /api/github/webhook` verifies GitHub HMAC over raw bytes before payload trust.
-- Accepted delivery IDs are durably claimed in D1 and enqueue bounded reconciliation messages.
+- Accepted delivery IDs are durably claimed through the `CONTROL_DB` D1 binding and enqueue bounded reconciliation messages.
 - Queue messages are **at-least-once, potentially duplicate and not ordered**. Correctness comes from durable D1 state transitions, idempotency and authoritative rereads—not delivery order or `max_concurrency = 1`.
 - The main consumer performs authoritative GitHub rereads; the DLQ path records bounded terminal evidence.
 - Source-controlled D1 migrations define reconciliation, decision-audit, notification, continuation and Later state. A migration in source is not evidence that it has been applied remotely.
