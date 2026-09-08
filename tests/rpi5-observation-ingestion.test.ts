@@ -52,15 +52,12 @@ class FakeReplayDatabase implements Rpi5ObservationReplayD1DatabaseLike {
   prepare(query: string): Rpi5ObservationReplayD1PreparedStatementLike {
     this.prepareCalls += 1;
     this.query = query;
-    const database = this;
     const statement: Rpi5ObservationReplayD1PreparedStatementLike = {
-      bind(...values: readonly unknown[]): Rpi5ObservationReplayD1PreparedStatementLike {
-        database.boundValues = values;
+      bind: (...values: readonly unknown[]): Rpi5ObservationReplayD1PreparedStatementLike => {
+        this.boundValues = values;
         return statement;
       },
-      async run(): Promise<Rpi5ObservationReplayD1RunResultLike> {
-        return database.result;
-      },
+      run: async (): Promise<Rpi5ObservationReplayD1RunResultLike> => this.result,
     };
     return statement;
   }
