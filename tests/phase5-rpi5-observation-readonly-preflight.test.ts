@@ -13,7 +13,7 @@ test("Phase 5 observation preflight is manually dispatched and read-only scoped"
 
   assert.match(source, /name: Phase 5 RPi5 observation GET\/SELECT-only preflight/);
   assert.match(source, /workflow_dispatch:/);
-  assert.match(source, /permissions:\n  contents: read\n  actions: read/);
+  assert.match(source, /permissions:\n {2}contents: read\n {2}actions: read/);
   assert.match(source, /environment: production-readonly-reconcile/);
   assert.match(source, /CLOUDFLARE_D1_READ_TOKEN: \$\{\{ secrets\.CLOUDFLARE_D1_READ_TOKEN \}\}/);
   assert.match(source, /CLOUDFLARE_WORKERS_READ_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
