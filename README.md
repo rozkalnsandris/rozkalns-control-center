@@ -64,7 +64,7 @@ The MVP is focused on trustworthy approvals, notifications and production visibi
 
 ### GitHub reads and decisions
 
-The Worker source contains bounded GitHub App read sessions and normalized exact-head PR/CI/review/policy evidence. State-dependent mutation preflights use fresh unconditional authoritative reads.
+The Worker source exposes `GET /api/github/dashboard` for bounded live dashboard reads and contains bounded GitHub App read sessions with normalized exact-head PR/CI/review/policy evidence. State-dependent mutation preflights use fresh unconditional authoritative reads.
 
 Access-authenticated decision routes exist in source for:
 
