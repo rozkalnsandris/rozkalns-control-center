@@ -95,7 +95,7 @@ Deterministic continuation planning/reservation/persistence/recovery exists in s
 
 The dashboard model can represent source/main SHA, production SHA, deploy impact, runtime, health, rollback and blockers. The merged Control consumer accepts only an exact top-level allowlist of **already-sanitized** RPi5 evidence and rejects extra fields/keys before project/SHA/freshness/state validation.
 
-No direct Control-to-RPi5 SSH, sudo, generic helper, protected filesystem/runtime inspection or credential path is permitted. A producer-side strict allowlist + sanitization contract must be reviewed in `RPi5_main` before any separately reviewed read-only transport is considered. Canonical #278 currently keeps that producer work behind the active RPi5 lane.
+No direct Control-to-RPi5 SSH, sudo, generic helper, protected filesystem/runtime inspection or credential path is permitted. The RPi5 producer-side strict allowlist + sanitization/provenance source contract is now merged and source-ready. That contract acquires no production evidence and does not prove current host/runtime state. The next Phase 5 problem is a separately reviewed read-only observation/transport boundary; any later host/runtime execution remains separately gated.
 
 ## Runtime configuration versus deployed state
 
@@ -110,7 +110,7 @@ These declarations are deploy inputs only. Before any live action, use canonical
 - **Phase 2:** live-read/GitHub App/webhook/D1/Queue foundation established; current production facts remain separately evidenced.
 - **Phase 3:** bounded Merge / Needs changes / Later chain complete; no completed canary creates standing mutation authority.
 - **Phase 4:** bounded Telegram notification / deterministic-continuation chain complete; historical receipts are terminal and non-reusable.
-- **Phase 5:** active; strict Control sanitized consumer merged, while the RPi5 producer contract and read-only transport remain pending behind canonical RPi5 continuity.
+- **Phase 5:** active; the strict Control sanitized consumer and the RPi5 producer source contract are merged/source-ready, while read-only observation/transport and live production evidence remain pending and separately gated.
 - **Optional AI/runtime phase:** deferred.
 
 See [`docs/ROADMAP_CURRENT_CHECKPOINT.md`](docs/ROADMAP_CURRENT_CHECKPOINT.md) for the durable current checkpoint, [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current long-form phase contract, and [`docs/ROADMAP_HISTORY.md`](docs/ROADMAP_HISTORY.md) for the preserved implementation chronology.

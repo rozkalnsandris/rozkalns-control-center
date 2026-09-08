@@ -21,7 +21,7 @@ On the Workers Free plan, D1 daily row-read and row-write limits are enforced. W
 - **Phase 2 — live-read GitHub/control-plane foundation:** FOUNDATION ESTABLISHED. GitHub App reads, webhook verification, D1/Queue reconciliation and supporting source boundaries exist; current production facts remain separately evidenced.
 - **Phase 3 — authenticated human decisions:** COMPLETE for the bounded Merge / Needs changes / Later capability and canary chain recorded by #278. Completed canaries create no standing mutation authority.
 - **Phase 4 — notifications + deterministic continuation:** COMPLETE for the bounded Telegram transport/continuation chain recorded by #278. Historical Gate A/Gate B/Later receipts are terminal and non-reusable; completion does not prove current provider secret, Queue backlog or Worker state.
-- **Phase 5 — production visibility:** ACTIVE. The Control-side strict consumer for already-sanitized RPi5 evidence is merged. The RPi5 producer contract and any read-only live transport remain pending behind canonical RPi5 continuity.
+- **Phase 5 — production visibility:** ACTIVE. The Control-side strict consumer and the RPi5 producer sanitization/provenance source contract are merged/source-ready. Read-only observation/transport and live production evidence remain pending and separately gated.
 - **Optional AI/runtime phase:** DEFERRED.
 
 [`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md) records the detailed durable source/gate checkpoint without transient authorization receipts or runtime claims.
@@ -58,23 +58,23 @@ On the Workers Free plan, D1 daily row-read and row-write limits are enforced. W
 - The merged Phase 5 consumer accepts only an exact allowlist of **already-sanitized** RPi5 evidence and rejects extra/inherited/non-enumerable/symbol fields before existing project/SHA/freshness/state checks.
 - Normalized production evidence is observational only. It does not authorize deploy, DB/data mutation, host changes, rollback or credentials.
 - Control must not obtain this evidence through direct SSH, sudo, generic helpers, arbitrary filesystem/runtime inspection or protected host credentials.
-- The owning `RPi5_main` lane must first define an equivalent-or-tighter producer allowlist/sanitization contract. Only after that source contract is reviewed/merged and canonical RPi5 continuity permits the work may a separate read-only transport slice be considered.
+- `RPi5_main` has merged the equivalent-or-tighter producer allowlist/sanitization/provenance source contract. That source contract acquires no production evidence and grants no host/runtime authority. The next implementation problem is a separately reviewed read-only observation/transport boundary; host/runtime execution and live evidence remain separate gates.
 
 ## Current gates
 
 ### Safe Control source/documentation lane
 
-Issue #570 is the current documentation reconciliation lane while Phase 5 producer work is blocked by RPi5 continuity.
+Issue #574 is the current focused documentation/continuity reconciliation lane after the RPi5 producer source contract merged.
 
-`DOC_RECONCILIATION_570_SOURCE_ONLY`
+`PHASE5_CONTROL_DOCS_RECONCILE_AFTER_RPI5_PRODUCER_SOURCE_MERGE`
 
 This lane may change repository documentation/tests and reconcile canonical contracts through Draft PR, exact-head CI/review and Ready. Merge remains separately explicit under FAST-LANE.
 
 ### Phase 5 implementation dependency
 
-`PHASE5_RPI5_PRODUCER_CONTRACT_WAIT_FOR_RPI5_CANONICAL_LANE`
+`PHASE5_READ_ONLY_OBSERVATION_TRANSPORT_BOUNDARY_PENDING`
 
-Do not create a parallel RPi5 production-visibility producer issue/branch/PR until fresh canonical RPi5 continuity explicitly frees that slot.
+The RPi5 producer source contract is merged/source-ready and must not be interpreted as current live evidence. After issue #574 merges, define and review the bounded read-only observation/transport source boundary separately; any later host/runtime execution remains separately gated.
 
 ## Explicit owner-gated work
 
@@ -92,7 +92,7 @@ The following remain separately gated and are never implied by source readiness 
 
 ## Next safe step
 
-Complete issue #570 source/documentation reconciliation and stop at its Ready PR for explicit MERGE. Keep the existing Phase 5 consumer stable while the canonical RPi5 lane remains occupied. Before any future producer-side work, fresh-read #278 and the current RPi5 master plan/continuation; source work may start only when that canonical lane explicitly permits it.
+Complete issue #574 source/documentation reconciliation and stop at its Ready PR for explicit MERGE. After that merge, keep both merged source contracts stable and separately define/review the bounded read-only observation/transport source boundary using fresh #278 and current RPi5 continuity. Source readiness does not prove live production evidence, and any host/runtime execution remains separately authorized.
 
 ## Historical implementation chronology
 
