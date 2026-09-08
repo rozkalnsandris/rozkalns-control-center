@@ -21,14 +21,20 @@ const REGISTRY = JSON.stringify({
 
 function database() {
   let prepareCalls = 0;
+  let batchCalls = 0;
   return {
     binding: {
       prepare() {
         prepareCalls += 1;
         throw new Error("test should fail before D1 query");
       },
+      async batch() {
+        batchCalls += 1;
+        throw new Error("test should fail before D1 batch");
+      },
     },
     prepareCalls: () => prepareCalls,
+    batchCalls: () => batchCalls,
   };
 }
 
@@ -84,10 +90,19 @@ test("enabled runtime fails closed for missing or malformed dependencies without
     }),
     { status: "INVALID" },
   );
+  assert.deepEqual(
+    resolveRpi5ObservationRuntime({
+      CONTROL_RPI5_OBSERVATION_INGEST_ENABLED: "true",
+      CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS: REGISTRY,
+      CONTROL_DB: { prepare() {} },
+    }),
+    { status: "INVALID" },
+  );
   assert.equal(db.prepareCalls(), 0);
+  assert.equal(db.batchCalls(), 0);
 });
 
-test("ready runtime delegates to strict ingestion and unknown key fails before replay D1", async () => {
+test("ready runtime delegates to strict atomic ingestion and unknown key fails before D1", async () => {
   const db = database();
   const resolution = resolveRpi5ObservationRuntime({
     CONTROL_RPI5_OBSERVATION_INGEST_ENABLED: "true",
@@ -116,17 +131,21 @@ test("ready runtime delegates to strict ingestion and unknown key fails before r
       error.code === "UNKNOWN_KEY_ID",
   );
   assert.equal(db.prepareCalls(), 0);
+  assert.equal(db.batchCalls(), 0);
 });
 
 test("Worker wiring is source-present while production activation and key values remain absent", async () => {
-  const [worker, wrangler] = await Promise.all([
+  const [worker, wrangler, runtimeSource] = await Promise.all([
     readFile("src/worker/index.ts", "utf8"),
     readFile("wrangler.jsonc", "utf8"),
+    readFile("src/integrations/cloudflare/rpi5-observation-runtime.ts", "utf8"),
   ]);
 
   assert.match(worker, /RPI5_OBSERVATION_ROUTE_PATH/);
   assert.match(worker, /resolveRpi5ObservationRuntime/);
   assert.match(worker, /handleRpi5ObservationRequest/);
+  assert.match(runtimeSource, /acceptAuthenticatedRpi5Observation/);
+  assert.match(runtimeSource, /typeof database\.batch !== "function"/);
 
   for (const binding of [
     "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED",
