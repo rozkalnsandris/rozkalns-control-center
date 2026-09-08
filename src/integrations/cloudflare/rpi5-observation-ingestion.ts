@@ -6,7 +6,11 @@ import {
   normalizeSanitizedProductionVisibility,
   type ProductionVisibilityReadModel,
 } from "../../shared/production-visibility.js";
-import { verifyRpi5ObservationDeliverySignature } from "../../shared/rpi5-observation-transport.js";
+import {
+  normalizeRpi5ObservationDeliveryMetadata,
+  verifyRpi5ObservationDeliverySignature,
+} from "../../shared/rpi5-observation-transport.js";
+import { resolveRpi5ObservationVerificationKey } from "../../shared/rpi5-observation-verification-keys.js";
 
 export type Rpi5ObservationIngestionErrorCode = "INVALID_PAYLOAD";
 
@@ -23,7 +27,7 @@ export class Rpi5ObservationIngestionError extends Error {
 export interface Rpi5ObservationIngestionInput {
   readonly metadata: unknown;
   readonly payload: Uint8Array;
-  readonly verificationKey: CryptoKey;
+  readonly verificationKeyRegistry: unknown;
   readonly replayDatabase: Rpi5ObservationReplayD1DatabaseLike;
   readonly now: string;
 }
@@ -46,10 +50,12 @@ function parseSignedPayload(payload: Uint8Array): unknown {
  * credential source or protected-host access path.
  *
  * Security order is intentional and must not be weakened:
- *   1. verify delivery metadata/freshness/signature over the exact raw payload bytes;
- *   2. atomically claim the verified replay identity in durable D1 state;
- *   3. decode/parse those same raw payload bytes;
- *   4. apply the strict sanitized production-visibility consumer.
+ *   1. normalize delivery metadata/freshness and resolve its exact keyId from the
+ *      strict verification-key registry; no default or caller-selected key exists;
+ *   2. verify the signature over the exact raw payload bytes with that selected key;
+ *   3. atomically claim the verified replay identity in durable D1 state;
+ *   4. decode/parse those same raw payload bytes;
+ *   5. apply the strict sanitized production-visibility consumer.
  *
  * A successful replay claim is never undone here when later payload parsing or
  * normalization fails. The signed delivery remains consumed and failed closed.
@@ -57,10 +63,15 @@ function parseSignedPayload(payload: Uint8Array): unknown {
 export async function ingestAuthenticatedRpi5Observation(
   input: Rpi5ObservationIngestionInput,
 ): Promise<ProductionVisibilityReadModel> {
+  const metadata = normalizeRpi5ObservationDeliveryMetadata(input.metadata, input.now);
+  const verificationKey = await resolveRpi5ObservationVerificationKey(
+    input.verificationKeyRegistry,
+    metadata.keyId,
+  );
   const verified = await verifyRpi5ObservationDeliverySignature(
-    input.metadata,
+    metadata,
     input.payload,
-    input.verificationKey,
+    verificationKey,
     input.now,
   );
 
