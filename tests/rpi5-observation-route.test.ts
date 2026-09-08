@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { Rpi5ObservationAcceptanceError } from "../src/integrations/cloudflare/d1-rpi5-observation-acceptance-store.js";
 import { Rpi5ObservationReplayClaimError } from "../src/integrations/cloudflare/d1-rpi5-observation-replay-store.js";
 import { Rpi5ObservationIngestionError } from "../src/integrations/cloudflare/rpi5-observation-ingestion.js";
 import type { Rpi5ObservationWorkerRuntime } from "../src/integrations/cloudflare/rpi5-observation-runtime.js";
@@ -149,6 +150,9 @@ test("observation route collapses authentication failures without exposing key d
 
 test("observation route keeps replay, payload and infrastructure failures distinct but bounded", async () => {
   const cases: readonly [Error, number, string][] = [
+    [new Rpi5ObservationAcceptanceError("ACTIVE_REPLAY"), 409, "OBSERVATION_REPLAYED"],
+    [new Rpi5ObservationAcceptanceError("D1_FAILURE"), 503, "OBSERVATION_INGEST_UNAVAILABLE"],
+    [new Rpi5ObservationAcceptanceError("INVALID_INPUT"), 503, "OBSERVATION_INGEST_UNAVAILABLE"],
     [new Rpi5ObservationReplayClaimError("ACTIVE_REPLAY"), 409, "OBSERVATION_REPLAYED"],
     [new Rpi5ObservationReplayClaimError("D1_FAILURE"), 503, "OBSERVATION_INGEST_UNAVAILABLE"],
     [new Rpi5ObservationIngestionError("INVALID_PAYLOAD"), 400, "INVALID_OBSERVATION_PAYLOAD"],
