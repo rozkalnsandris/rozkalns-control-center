@@ -1,3 +1,4 @@
+import { Rpi5ObservationAcceptanceError } from "../integrations/cloudflare/d1-rpi5-observation-acceptance-store.js";
 import { Rpi5ObservationReplayClaimError } from "../integrations/cloudflare/d1-rpi5-observation-replay-store.js";
 import { Rpi5ObservationIngestionError } from "../integrations/cloudflare/rpi5-observation-ingestion.js";
 import type { Rpi5ObservationWorkerRuntime } from "../integrations/cloudflare/rpi5-observation-runtime.js";
@@ -47,6 +48,13 @@ function mapIngestionError(error: unknown): Response {
     return jsonError("OBSERVATION_AUTHENTICATION_FAILED", 401);
   }
 
+  if (error instanceof Rpi5ObservationAcceptanceError) {
+    if (error.code === "ACTIVE_REPLAY") {
+      return jsonError("OBSERVATION_REPLAYED", 409);
+    }
+    return jsonError("OBSERVATION_INGEST_UNAVAILABLE", 503);
+  }
+
   if (error instanceof Rpi5ObservationReplayClaimError) {
     if (error.code === "ACTIVE_REPLAY") {
       return jsonError("OBSERVATION_REPLAYED", 409);
@@ -63,9 +71,13 @@ function mapIngestionError(error: unknown): Response {
 
 /**
  * Receive exact signed RPi5 observation bytes. A successful response means the
- * existing authenticated ingestion boundary verified and durably claimed the
- * delivery. This route does not persist a production-visibility read model and is
- * deliberately dormant unless the separate runtime resolver is explicitly enabled.
+ * runtime authenticated the delivery and completed bounded durable acceptance:
+ * a valid observation atomically claimed replay identity and attempted the monotonic
+ * production-visibility projection, while a non-newer observation remains a valid
+ * accepted no-op. The route remains dormant unless the runtime resolver is explicitly
+ * enabled; this source does not provision keys, apply migrations or deploy itself.
+ *
+ * The historical response status string is retained for transport compatibility.
  */
 export async function handleRpi5ObservationRequest(
   request: Request,

@@ -1,8 +1,8 @@
 import {
-  ingestAuthenticatedRpi5Observation,
-  type Rpi5ObservationIngestionInput,
-} from "./rpi5-observation-ingestion.js";
-import type { Rpi5ObservationReplayD1DatabaseLike } from "./d1-rpi5-observation-replay-store.js";
+  acceptAuthenticatedRpi5Observation,
+  type Rpi5ObservationAtomicD1DatabaseLike,
+  type Rpi5ObservationAtomicIngestionInput,
+} from "./rpi5-observation-atomic-ingestion.js";
 import {
   normalizeRpi5ObservationVerificationKeyRegistry,
   type Rpi5ObservationVerificationKeyRegistry,
@@ -50,22 +50,22 @@ function requireVerificationKeyRegistry(
   return normalizeRpi5ObservationVerificationKeyRegistry(parsed);
 }
 
-function requireReplayDatabase(value: unknown): Rpi5ObservationReplayD1DatabaseLike {
+function requireObservationDatabase(value: unknown): Rpi5ObservationAtomicD1DatabaseLike {
   if (!value || typeof value !== "object") {
-    throw new Error("invalid RPi5 observation replay database binding");
+    throw new Error("invalid RPi5 observation database binding");
   }
-  const database = value as Partial<Rpi5ObservationReplayD1DatabaseLike>;
-  if (typeof database.prepare !== "function") {
-    throw new Error("invalid RPi5 observation replay database binding");
+  const database = value as Partial<Rpi5ObservationAtomicD1DatabaseLike>;
+  if (typeof database.prepare !== "function" || typeof database.batch !== "function") {
+    throw new Error("invalid RPi5 observation database binding");
   }
-  return database as Rpi5ObservationReplayD1DatabaseLike;
+  return database as Rpi5ObservationAtomicD1DatabaseLike;
 }
 
 /**
  * Source-level Phase 5 runtime composition. Production remains dormant unless the
  * exact opt-in is present. The resolver only validates already-provisioned public
  * verification-key material and the existing D1 binding; it does not provision,
- * rotate or mutate either dependency.
+ * rotate, migrate or remotely mutate either dependency.
  */
 export function resolveRpi5ObservationRuntime(
   bindings: Rpi5ObservationRuntimeBindings,
@@ -75,12 +75,12 @@ export function resolveRpi5ObservationRuntime(
   }
 
   let verificationKeyRegistry: Rpi5ObservationVerificationKeyRegistry;
-  let replayDatabase: Rpi5ObservationReplayD1DatabaseLike;
+  let database: Rpi5ObservationAtomicD1DatabaseLike;
   try {
     verificationKeyRegistry = requireVerificationKeyRegistry(
       bindings.CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS,
     );
-    replayDatabase = requireReplayDatabase(bindings.CONTROL_DB);
+    database = requireObservationDatabase(bindings.CONTROL_DB);
   } catch {
     return { status: "INVALID" };
   }
@@ -89,14 +89,14 @@ export function resolveRpi5ObservationRuntime(
     status: "READY",
     runtime: {
       async ingest(metadata, payload, now) {
-        const input: Rpi5ObservationIngestionInput = {
+        const input: Rpi5ObservationAtomicIngestionInput = {
           metadata,
           payload,
           verificationKeyRegistry,
-          replayDatabase,
+          database,
           now,
         };
-        await ingestAuthenticatedRpi5Observation(input);
+        await acceptAuthenticatedRpi5Observation(input);
       },
     },
   };
