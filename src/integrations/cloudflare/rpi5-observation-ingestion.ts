@@ -24,25 +24,44 @@ export class Rpi5ObservationIngestionError extends Error {
   }
 }
 
-export interface Rpi5ObservationIngestionInput {
+export interface Rpi5ObservationAuthenticationInput {
   readonly metadata: unknown;
   readonly payload: Uint8Array;
   readonly verificationKeyRegistry: unknown;
-  readonly replayDatabase: Rpi5ObservationReplayD1DatabaseLike;
   readonly now: string;
+}
+
+export interface Rpi5ObservationIngestionInput extends Rpi5ObservationAuthenticationInput {
+  readonly replayDatabase: Rpi5ObservationReplayD1DatabaseLike;
 }
 
 function fail(code: Rpi5ObservationIngestionErrorCode): never {
   throw new Rpi5ObservationIngestionError(code);
 }
 
-function parseSignedPayload(payload: Uint8Array): unknown {
+export function parseSignedRpi5ObservationPayload(payload: Uint8Array): unknown {
   try {
     const json = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(payload);
     return JSON.parse(json) as unknown;
   } catch {
     fail("INVALID_PAYLOAD");
   }
+}
+
+export async function authenticateRpi5ObservationTransport(
+  input: Rpi5ObservationAuthenticationInput,
+) {
+  const metadata = normalizeRpi5ObservationDeliveryMetadata(input.metadata, input.now);
+  const verificationKey = await resolveRpi5ObservationVerificationKey(
+    input.verificationKeyRegistry,
+    metadata.keyId,
+  );
+  return verifyRpi5ObservationDeliverySignature(
+    metadata,
+    input.payload,
+    verificationKey,
+    input.now,
+  );
 }
 
 /**
@@ -59,21 +78,16 @@ function parseSignedPayload(payload: Uint8Array): unknown {
  *
  * A successful replay claim is never undone here when later payload parsing or
  * normalization fails. The signed delivery remains consumed and failed closed.
+ *
+ * The Worker runtime uses the separately reviewed atomic acceptance composition,
+ * which couples the valid-payload replay claim with production-visibility projection.
+ * This replay-only composition remains the fail-closed primitive for signed-invalid
+ * payload consumption and focused lower-layer tests.
  */
 export async function ingestAuthenticatedRpi5Observation(
   input: Rpi5ObservationIngestionInput,
 ): Promise<ProductionVisibilityReadModel> {
-  const metadata = normalizeRpi5ObservationDeliveryMetadata(input.metadata, input.now);
-  const verificationKey = await resolveRpi5ObservationVerificationKey(
-    input.verificationKeyRegistry,
-    metadata.keyId,
-  );
-  const verified = await verifyRpi5ObservationDeliverySignature(
-    metadata,
-    input.payload,
-    verificationKey,
-    input.now,
-  );
+  const verified = await authenticateRpi5ObservationTransport(input);
 
   await claimRpi5ObservationReplay(input.replayDatabase, {
     replayKey: verified.replayKey,
@@ -81,6 +95,6 @@ export async function ingestAuthenticatedRpi5Observation(
     claimedAt: input.now,
   });
 
-  const parsedPayload = parseSignedPayload(input.payload);
+  const parsedPayload = parseSignedRpi5ObservationPayload(input.payload);
   return normalizeSanitizedProductionVisibility(parsedPayload, input.now);
 }
