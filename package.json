@@ -32,10 +32,12 @@
     "cf:queue-usage-observation": "node scripts/cloudflare-queue-usage-observation.mjs",
     "github:needs-changes-preflight": "node scripts/github-app-needs-changes-preflight.mjs",
     "test:audit-runtime": "node --test scripts/npm-audit-runtime.test.mjs scripts/github-advisory-fallback.test.mjs",
+    "test:auto-run-full-policy": "node --test scripts/verify-auto-run-full-policy.test.mjs",
     "audit:runtime": "npm run test:audit-runtime && node scripts/npm-audit-runtime.mjs",
     "verify:actions": "node scripts/verify-actions-pinning.mjs",
     "verify:public": "node scripts/verify-public-repo-safety.mjs",
-    "verify:policy": "npm run verify:actions && npm run verify:public",
+    "verify:auto-run-full-policy": "node scripts/verify-auto-run-full-policy.mjs",
+    "verify:policy": "npm run verify:actions && npm run verify:public && npm run test:auto-run-full-policy && npm run verify:auto-run-full-policy",
     "check": "node scripts/run-check-sanitized.mjs"
   },
   "dependencies": {
