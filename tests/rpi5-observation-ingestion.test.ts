@@ -88,7 +88,7 @@ async function generateKeyPair(): Promise<CryptoKeyPair> {
   return (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
 }
 
-async function verificationKeyRegistry(
+async function buildVerificationKeyRegistry(
   entries: readonly (readonly [string, CryptoKey])[],
 ): Promise<{
   readonly version: typeof RPI5_OBSERVATION_VERIFICATION_KEY_REGISTRY_VERSION;
@@ -146,7 +146,7 @@ test("verifies exact keyId, claims, then parses and normalizes one signed observ
   const keyPair = await generateKeyPair();
   const payload = new TextEncoder().encode(JSON.stringify(validPayloadObject));
   const metadata = await signedMetadata(keyPair.privateKey, payload);
-  const verificationKeyRegistry = await verificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
+  const verificationKeyRegistry = await buildVerificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
   const replayDatabase = new FakeReplayDatabase({ success: true, meta: { changes: 1 } });
 
   const result = await ingestAuthenticatedRpi5Observation({
@@ -173,7 +173,7 @@ test("unknown keyId fails closed before signature verification can claim replay 
   const keyPair = await generateKeyPair();
   const payload = new TextEncoder().encode(JSON.stringify(validPayloadObject));
   const metadata = await signedMetadata(keyPair.privateKey, payload, ROTATED_KEY_ID);
-  const verificationKeyRegistry = await verificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
+  const verificationKeyRegistry = await buildVerificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
   const replayDatabase = new FakeReplayDatabase({ success: true, meta: { changes: 1 } });
 
   await assert.rejects(
@@ -194,7 +194,7 @@ test("declared keyId cannot fall back to another valid registry key", async () =
   const wrongSigner = await generateKeyPair();
   const payload = new TextEncoder().encode(JSON.stringify(validPayloadObject));
   const metadata = await signedMetadata(wrongSigner.privateKey, payload, KEY_ID);
-  const verificationKeyRegistry = await verificationKeyRegistry([
+  const verificationKeyRegistry = await buildVerificationKeyRegistry([
     [KEY_ID, declaredKey.publicKey],
     [ROTATED_KEY_ID, wrongSigner.publicKey],
   ]);
@@ -218,7 +218,7 @@ test("bounded key rotation accepts either exact keyId without default selection"
   const rotatedKey = await generateKeyPair();
   const payload = new TextEncoder().encode(JSON.stringify(validPayloadObject));
   const metadata = await signedMetadata(rotatedKey.privateKey, payload, ROTATED_KEY_ID);
-  const verificationKeyRegistry = await verificationKeyRegistry([
+  const verificationKeyRegistry = await buildVerificationKeyRegistry([
     [KEY_ID, firstKey.publicKey],
     [ROTATED_KEY_ID, rotatedKey.publicKey],
   ]);
@@ -242,7 +242,7 @@ test("bounded key rotation accepts either exact keyId without default selection"
 
 test("verification-key registry rejects duplicates, unknown fields, versions and malformed keys", async () => {
   const keyPair = await generateKeyPair();
-  const validRegistry = await verificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
+  const validRegistry = await buildVerificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
   const entry = validRegistry.keys[0];
   assert.ok(entry);
 
@@ -283,7 +283,7 @@ test("verification-key registry rejects duplicates, unknown fields, versions and
 test("invalid signature fails before any durable replay claim", async () => {
   const keyPair = await generateKeyPair();
   const payload = new TextEncoder().encode(JSON.stringify(validPayloadObject));
-  const verificationKeyRegistry = await verificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
+  const verificationKeyRegistry = await buildVerificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
   const replayDatabase = new FakeReplayDatabase({ success: true, meta: { changes: 1 } });
 
   await assert.rejects(
@@ -303,7 +303,7 @@ test("active replay fails before malformed signed payload parsing", async () => 
   const keyPair = await generateKeyPair();
   const payload = new TextEncoder().encode("{not-json");
   const metadata = await signedMetadata(keyPair.privateKey, payload);
-  const verificationKeyRegistry = await verificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
+  const verificationKeyRegistry = await buildVerificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
   const replayDatabase = new FakeReplayDatabase({ success: true, meta: { changes: 0 } });
 
   await assert.rejects(
@@ -323,7 +323,7 @@ test("malformed signed payload fails closed after a successful durable claim", a
   const keyPair = await generateKeyPair();
   const payload = new TextEncoder().encode("{not-json");
   const metadata = await signedMetadata(keyPair.privateKey, payload);
-  const verificationKeyRegistry = await verificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
+  const verificationKeyRegistry = await buildVerificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
   const replayDatabase = new FakeReplayDatabase({ success: true, meta: { changes: 1 } });
 
   await assert.rejects(
@@ -345,7 +345,7 @@ test("strict sanitized consumer remains authoritative after signature and replay
     JSON.stringify({ ...validPayloadObject, protectedHost: "forbidden" }),
   );
   const metadata = await signedMetadata(keyPair.privateKey, payload);
-  const verificationKeyRegistry = await verificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
+  const verificationKeyRegistry = await buildVerificationKeyRegistry([[KEY_ID, keyPair.publicKey]]);
   const replayDatabase = new FakeReplayDatabase({ success: true, meta: { changes: 1 } });
 
   await assert.rejects(
