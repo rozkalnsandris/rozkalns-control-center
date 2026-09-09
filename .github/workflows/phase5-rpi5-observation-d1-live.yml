@@ -49,6 +49,7 @@ jobs:
     name: one-shot exact-ceiling production D1 apply
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    environment: production-d1-live
     env:
       APPROVED_SHA: ${{ inputs.approved_sha }}
       EXPECTED_CI_RUN: ${{ inputs.expected_ci_run }}

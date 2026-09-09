@@ -149,6 +149,7 @@ test("D1, key, Worker and RPi5 mutation classes stay separately owner-gated", ()
 
   const d1 = contract.mutation_classes.D1_APPLY;
   assert.equal(d1.executor_workflow, ".github/workflows/phase5-rpi5-observation-d1-live.yml");
+  assert.equal(d1.github_environment, "production-d1-live");
   assert.equal(d1.requires_exact_ci_run, true);
   assert.equal(d1.requires_exact_worker_deployment, true);
   assert.equal(d1.requires_exact_worker_version, true);

@@ -35,6 +35,7 @@ test("Phase 5 D1 executor is manual-only with read-only GitHub permissions", () 
   assert.ok(!workflow.includes("\n  push:"));
   assert.ok(!workflow.includes("\n  pull_request:"));
   assert.ok(workflow.includes("permissions:\n  contents: read\n  actions: read"));
+  assert.ok(workflow.includes("environment: production-d1-live"));
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/);
   assert.match(workflow, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);

@@ -86,6 +86,7 @@
       "mutation_ceiling": "EXACT_ORDERED_MIGRATION_SET_FROM_PREFLIGHT_CLASSIFICATION",
       "post_mutation_verification": "REMOTE_HISTORY_EQUALS_SOURCE_0001_THROUGH_0013_AND_PHASE5_SCHEMA_PRESENT_VALID_THEN_RERUN_READONLY_PREFLIGHT",
       "executor_workflow": ".github/workflows/phase5-rpi5-observation-d1-live.yml",
+      "github_environment": "production-d1-live",
       "requires_exact_ci_run": true,
       "requires_exact_worker_deployment": true,
       "requires_exact_worker_version": true,
