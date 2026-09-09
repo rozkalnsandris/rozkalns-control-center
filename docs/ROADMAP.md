@@ -1,30 +1,36 @@
 # Delivery Roadmap
 
-This file is the current repository-local phase contract. Master issue #1 remains the canonical product/architecture contract and issue #278 remains the canonical operational handoff for mutable live/current state. The detailed implementation chronology that previously lived below the current-status override is preserved unchanged in [`ROADMAP_HISTORY.md`](ROADMAP_HISTORY.md).
+This file is the current repository-local phase contract. Master issue #1 remains the canonical product/architecture contract and issue #278 remains the canonical operational handoff for mutable live/current state. Detailed implementation chronology is preserved in [`ROADMAP_HISTORY.md`](ROADMAP_HISTORY.md).
 
-Last reconciled: **2026-09-08**.
+Last reconciled: **2026-09-09**.
+
+Durable Phase 5 boundary markers:
+
+- `SOURCE_READY_LIVE_UNPROVEN`
+- `READONLY_PREFLIGHT_EVIDENCE_ONLY`
+- `MERGE_NOT_DEPLOY_AUTHORITY`
 
 ## Evidence boundary
 
-Repository source, tests and configuration prove the intended implementation baseline only. They do **not** independently prove the currently deployed Worker version, traffic/routing, applied D1 migrations, Queue state, secret values, Telegram provider state, GitHub App grants, Cloudflare Access/bindings or RPi5 runtime state.
+Repository source, tests and configuration prove intended implementation only. They do **not** independently prove the currently deployed Worker version/traffic, applied D1 migrations, Queue state, secret/binding values, GitHub App grants, Cloudflare Access/routes or RPi5 runtime state.
 
-Historical live canaries prove only their bounded completed action. Consumed one-shot authorizations never become standing authority. Any future production/live mutation requires fresh canonical state, GET-only preflight where applicable, exact target/SHA/baseline binding and the explicit authority required by #1, #278 and the focused tracker.
+Historical live canaries prove only their bounded completed action. Consumed one-shot authorizations never become standing authority. A successful read-only preflight is similarly a bounded observation, not durable proof of future production state and not LIVE authorization.
 
-Cloudflare Queue messages are at-least-once and may be duplicated; delivery ordering is not guaranteed. `max_concurrency = 1` is a processing bound, not an ordering guarantee. Sequencing correctness therefore comes from durable domain/D1 state, idempotency and authoritative rereads.
+Cloudflare Queue messages are at-least-once and may be duplicated; delivery ordering is not guaranteed. Correctness comes from durable domain/D1 state, idempotency and authoritative rereads.
 
-On the Workers Free plan, D1 daily row-read and row-write limits are enforced. When D1 queries fail because a daily limit or service dependency is unavailable, Control must treat persistence/reconciliation evidence as unavailable and fail closed for protected actions.
+A source-controlled migration is a deploy input. Source merge does not prove remote apply or deployment (`MERGE_NOT_DEPLOY_AUTHORITY`).
 
 ## Current phase classification
 
 - **Phase 0 — repository + contracts:** COMPLETE.
 - **Phase 1 — mobile-first deterministic decision UI:** COMPLETE.
-- **Phase 2 — live-read GitHub/control-plane foundation:** FOUNDATION ESTABLISHED. GitHub App reads, webhook verification, D1/Queue reconciliation and supporting source boundaries exist; current production facts remain separately evidenced.
-- **Phase 3 — authenticated human decisions:** COMPLETE for the bounded Merge / Needs changes / Later capability and canary chain recorded by #278. Completed canaries create no standing mutation authority.
-- **Phase 4 — notifications + deterministic continuation:** COMPLETE for the bounded Telegram transport/continuation chain recorded by #278. Historical Gate A/Gate B/Later receipts are terminal and non-reusable; completion does not prove current provider secret, Queue backlog or Worker state.
-- **Phase 5 — production visibility:** ACTIVE. The Control strict consumer and RPi5 producer sanitization/provenance source contracts are merged/source-ready. The authenticated one-way RPi5 -> Control delivery boundary is the current source lane; public-key provisioning, durable replay claims, runtime wiring and live production evidence remain separately gated.
+- **Phase 2 — live-read GitHub/control-plane foundation:** FOUNDATION ESTABLISHED; current production facts remain separately evidenced.
+- **Phase 3 — authenticated human decisions:** COMPLETE for the bounded Merge / Needs changes / Later chain recorded by #278; completed canaries create no standing mutation authority.
+- **Phase 4 — notifications + deterministic continuation:** COMPLETE for the bounded Telegram/continuation chain recorded by #278; historical Gate A/Gate B/Later receipts are terminal and non-reusable.
+- **Phase 5 — production visibility:** ACTIVE. The authenticated RPi5 observation ingestion/runtime source chain and GET/SELECT-only production-readiness preflight are merged. Current remote schema, protected verification-key state, ingest activation, deployed Worker state, RPi5 signer/runtime and delivered observation evidence remain unproven by source and separately evidenced/gated (`SOURCE_READY_LIVE_UNPROVEN`).
 - **Optional AI/runtime phase:** DEFERRED.
 
-[`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md) records the detailed durable source/gate checkpoint without transient authorization receipts or runtime claims.
+See [`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md) for the compact durable checkpoint and [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md) for the Phase 5 operator contract.
 
 ## Current architecture baseline
 
@@ -34,67 +40,82 @@ On the Workers Free plan, D1 daily row-read and row-write limits are enforced. W
 - The Worker has bounded GitHub App read sessions and normalized exact-head evidence.
 - Access-authenticated Worker routes exist for Merge, Needs changes and Later.
 - State-dependent mutations re-resolve authoritative GitHub state and fail closed on stale/ambiguous evidence.
-- Merge never authorizes deployment, D1/Queue writes outside the exact decision contract, host work or credential changes.
+- Merge never authorizes deployment, D1/Queue writes outside an exact separately-authorized contract, host work or credential changes.
 
 ### Webhook, Queue and D1
 
 - GitHub webhook HMAC is verified over raw request bytes before payload identity is trusted.
-- D1 stores bounded reconciliation, decision-audit/idempotency, notification, continuation and Later state.
-- Queue/DLQ delivery is a trigger mechanism; it is not canonical sequencing or authorization evidence.
+- D1 stores bounded reconciliation, decision-audit/idempotency, notification, continuation, Later and Phase 5 observation state.
+- Queue/DLQ delivery is a trigger mechanism, not canonical sequencing or authorization evidence.
 - Duplicate/out-of-order messages must be harmless through durable lifecycle checks and idempotency.
-- A source-controlled D1 migration is a deploy input, not evidence that it has been applied remotely.
 - D1 quota/service failure is an operational blocker, never a reason to authorize from incomplete state.
 
 ### Notifications and continuation
 
-- Telegram notification transport, target configuration and notification dispatch Queue composition exist in source/configuration.
+- Telegram transport, target configuration and notification dispatch Queue composition exist in source/configuration.
 - Canonical #278 records the bounded Phase 4 Telegram chain as completed historical evidence.
 - Repository source does not prove current Telegram credentials, provider availability, target binding, Queue backlog or active Worker version.
-- Deterministic continuation source exists, but completion of Phase 4 does not create blanket autonomous continuation or reusable authorization.
+- Deterministic continuation source exists, but Phase 4 completion does not create blanket autonomous continuation or reusable authorization.
 
 ### Phase 5 production visibility
 
-- Control can normalize/project source/main SHA, production SHA, deploy impact, runtime, health, rollback and blockers.
-- The merged Phase 5 consumer accepts only an exact allowlist of **already-sanitized** RPi5 evidence and rejects extra/inherited/non-enumerable/symbol fields before existing project/SHA/freshness/state checks.
-- `RPi5_main` has merged the equivalent-or-tighter producer allowlist/sanitization/provenance source contract. That source contract acquires no production evidence and grants no host/runtime authority.
-- Issue #576 defines the outer authenticated delivery source boundary without changing the ten-field payload: strict delivery metadata stays outside the payload, Ed25519 signing binds delivery identity/time/key ID and exact raw payload bytes, and Control is verifier-only.
-- Signature verification exposes a replay identity but does not claim durable uniqueness. A later separately reviewed runtime must atomically claim it before trusting the payload; no replay-store binding or write is introduced by this source slice.
-- Normalized production evidence is observational only. It does not authorize deploy, DB/data mutation, host changes, rollback or credentials.
-- Control must not obtain this evidence through direct SSH, sudo, generic helpers, arbitrary filesystem/runtime inspection or protected host credentials.
-- No Worker route, live endpoint, key provisioning, replay persistence or RPi5 host/runtime transport is connected by this source lane. Live evidence remains a separate gate.
+The post-#596 source boundary is no longer the old “design a read-only transport” lane. The source path has advanced through the complete authenticated dormant runtime chain:
+
+1. **PR #577** — Ed25519 authenticated outer delivery over exact raw payload bytes.
+2. **PR #581** — migration `0011_rpi5_observation_replay_claims.sql` plus durable replay-claim helper.
+3. **PR #583** — authenticated ingestion composition from metadata/freshness/signature through replay claim and strict normalization.
+4. **PR #585** — bounded verification-key registry with exact `keyId` lookup and no fallback.
+5. **PR #587** — dormant-by-default Worker route/runtime source wiring.
+6. **PR #590** — migration `0012_rpi5_production_visibility_projection.sql` plus bounded projection store.
+7. **PR #592** — migration `0013_rpi5_observation_atomic_acceptance.sql` plus transactional replay/monotonic projection acceptance.
+8. **PR #594** — atomic authenticated ingestion/runtime composition wired through the dormant Worker route.
+9. **PR #596** — exact-main GET/SELECT-only production-readiness preflight.
+
+The earlier strict Control consumer and RPi5 producer sanitization/provenance contracts remain prerequisites to this chain. Control still accepts only already-sanitized ten-field evidence and must not use direct SSH/sudo/root/protected-host inspection to acquire it.
+
+The runtime remains dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` is protected configuration; source does not provision a value. Migrations `0011`–`0013` in Git are not evidence of remote application.
+
+The merged readonly preflight binds evidence to exact current `main` and successful exact-main CI; inventories Worker state with GET-only APIs; validates `CONTROL_DB`; classifies dormant ingest and protected verification-key binding presence/type; and permits only single-statement D1 `SELECT` queries that prove zero mutation. Its outcome is `READONLY_PREFLIGHT_EVIDENCE_ONLY`.
+
+For the exact classification matrix, future activation dependency graph and trust-boundary checklist, use [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md).
 
 ## Current gates
 
-### Safe Control source/documentation lane
+### Read-only evidence gate
 
-Issue #576 is the current focused source/documentation/test lane for the authenticated read-only observation transport boundary.
+A fresh Phase 5 production baseline may be classified using the merged GET/SELECT-only preflight when canonical continuity calls for it. This is a technical/read-only checkpoint, not an owner mutation gate. Never rerun a historical workflow merely because a prior result exists; fresh state and the current focused contract determine whether another observation is appropriate.
 
-`PHASE5_READ_ONLY_OBSERVATION_TRANSPORT_BOUNDARY`
+A PASS means only that the observed baseline is internally consistent enough for separately-authorized activation planning. A FAIL is diagnosis only. Neither permits production mutation (`READONLY_PREFLIGHT_EVIDENCE_ONLY`).
 
-This lane may define the strict outer delivery contract, signature verification primitives, fail-closed tests and source-only documentation through Draft PR, exact-head CI/review and Ready. Merge remains separately explicit under FAST-LANE.
+### Mutation-bearing activation dependencies
 
-### Phase 5 runtime dependency
+If fresh evidence shows activation work is required, dependency ordering is:
 
-The #576 source boundary does not authorize or implement public-key provisioning, key rotation, durable replay-state claims, Worker route/binding wiring, RPi5 observation/runtime execution or live evidence acquisition. After #576 merges, fresh canonical #278 and current RPi5 continuity must determine the exact next bounded runtime/preflight lane rather than inferring authority from source readiness.
+`fresh baseline → separately authorized D1 migration apply if needed → separately authorized verification-key provisioning → separately authorized Worker configuration/deploy/activation → separately authorized RPi5 signer/private-key/runtime delivery → read-only reconciliation`.
+
+Every mutation-bearing step is separately owner/LIVE gated. Do not infer authority from a green preflight, merged source or prior canary.
 
 ## Explicit owner-gated work
 
 The following remain separately gated and are never implied by source readiness or merge:
 
-- Worker deployment/promotion;
-- applying D1 migrations or other production D1 writes;
-- Queue mutation/requeue/cleanup;
-- production decision-route invocation/canaries outside their exact authorization;
-- GitHub App permission/repository-selection changes;
-- Cloudflare Access/DNS/routes/bindings mutation;
-- secrets or credentials, including observation transport key provisioning/rotation;
-- RPi5 host/runtime/root/systemd/Docker/network/helper mutation;
-- rollback/cutover.
+- Worker upload/deployment/promotion/route activation;
+- applying D1 migrations or production D1 writes;
+- Queue mutation/replay/cleanup/configuration change;
+- observation verification-key/private-key provisioning, rotation or export;
+- production ingest/binding mutation;
+- production decision-route invocation/canaries outside exact authorization;
+- GitHub App permission/repository-selection or repository settings/ruleset changes;
+- Cloudflare Access/DNS/Tunnel/domain/binding/infrastructure mutation;
+- RPi5 signer/runtime/host/root/systemd/Docker/network/helper mutation;
+- rollback/cutover/destructive cleanup.
 
 ## Next safe step
 
-Complete issue #576 source boundary through focused validation, Draft PR, exact-head CI/review and Ready, then stop for explicit MERGE. After that merge, use fresh #278 and RPi5 continuity to select the next separately gated public-key/replay/runtime observation step. Source readiness does not prove live production evidence, and no host/runtime execution is authorized by this lane.
+Use fresh canonical #278 plus current GitHub/runtime evidence to determine the next Phase 5 gate. If the current gate is observation, the merged GET/SELECT-only classifier may provide read-only evidence. If mutation is required, stop at the exact owner/LIVE boundary defined by the current focused tracker.
+
+Do not create another source lane merely because old roadmap text named #574 or #576 as current. Those lanes are completed history. Current source readiness remains `SOURCE_READY_LIVE_UNPROVEN`, and merge remains `MERGE_NOT_DEPLOY_AUTHORITY`.
 
 ## Historical implementation chronology
 
-The former long-form chronological roadmap is preserved unchanged in [`ROADMAP_HISTORY.md`](ROADMAP_HISTORY.md). Historical `CURRENT`, `NOT STARTED`, SHA, CI and RPi5 statements in that file describe the evidence available when they were written and are **not** current authority. For present state use this file, [`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md), master #1 and canonical handoff #278.
+The former long-form chronological roadmap is preserved in [`ROADMAP_HISTORY.md`](ROADMAP_HISTORY.md). Historical `CURRENT`, `NOT STARTED`, SHA, CI and RPi5 statements there describe evidence available when written and are **not** current authority. For present state use this file, [`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md), [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md), master #1 and canonical handoff #278.
