@@ -205,6 +205,40 @@ jobs:
           ' "$tmp/db.json" >/dev/null || stop D1_RESOURCE_IDENTITY_INVALID
           printf 'D1_RESOURCE_IDENTITY=VALID\n'
 
+          predecessor_migration_sql="SELECT id, name FROM d1_migrations WHERE name = '0010_webhook_observability_hot_index.sql' ORDER BY id"
+          cf_d1_select "$predecessor_migration_sql" "$tmp/predecessor-migration.json"
+          predecessor_migration_rows="$(jq -r '.result[0].results | length' "$tmp/predecessor-migration.json")"
+          if [ "$predecessor_migration_rows" = "0" ]; then
+            predecessor_migration_status=ABSENT
+          elif [ "$predecessor_migration_rows" = "1" ] && jq -e '
+            .result[0].results[0].name == "0010_webhook_observability_hot_index.sql" and
+            (.result[0].results[0].id | type == "number" and floor == .)
+          ' "$tmp/predecessor-migration.json" >/dev/null; then
+            predecessor_migration_status=PRESENT
+          else
+            stop D1_0010_MIGRATION_HISTORY_INVALID
+          fi
+          printf 'D1_0010_MIGRATION=%s\n' "$predecessor_migration_status"
+
+          predecessor_index_sql="SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE name = 'idx_webhook_deliveries_active_updated_delivery'"
+          cf_d1_select "$predecessor_index_sql" "$tmp/predecessor-index.json"
+          if [ "$predecessor_migration_status" = "ABSENT" ]; then
+            jq -e '.result[0].results | length == 0' "$tmp/predecessor-index.json" >/dev/null || stop D1_0010_INDEX_PRESENT_WITHOUT_MIGRATION
+            predecessor_index_status=ABSENT_CONSISTENT
+          else
+            jq -e '
+              (.result[0].results | length == 1) and
+              .result[0].results[0].type == "index" and
+              .result[0].results[0].name == "idx_webhook_deliveries_active_updated_delivery" and
+              .result[0].results[0].tbl_name == "webhook_deliveries" and
+              (.result[0].results[0].sql | type == "string") and
+              ((.result[0].results[0].sql | ascii_downcase | gsub("[[:space:]]+"; " ")) ==
+                "create index idx_webhook_deliveries_active_updated_delivery on webhook_deliveries (updated_at, delivery_id) where state <> 'succeeded'")
+            ' "$tmp/predecessor-index.json" >/dev/null || stop D1_0010_INDEX_INVALID
+            predecessor_index_status=PRESENT_VALID
+          fi
+          printf 'D1_0010_INDEX=%s\n' "$predecessor_index_status"
+
           migration_sql="SELECT id, name FROM d1_migrations WHERE name IN ('0011_rpi5_observation_replay_claims.sql','0012_rpi5_production_visibility_projection.sql','0013_rpi5_observation_atomic_acceptance.sql') ORDER BY id"
           cf_d1_select "$migration_sql" "$tmp/migrations.json"
           migration_names="$(jq -c '[.result[0].results[]?.name]' "$tmp/migrations.json")"
