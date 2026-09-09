@@ -232,7 +232,7 @@ jobs:
               .result[0].results[0].name == "idx_webhook_deliveries_active_updated_delivery" and
               .result[0].results[0].tbl_name == "webhook_deliveries" and
               (.result[0].results[0].sql | type == "string") and
-              ((.result[0].results[0].sql | ascii_downcase | gsub("[[:space:]]+"; " ")) ==
+              ((.result[0].results[0].sql | ascii_downcase | gsub("[[:space:]]+"; " ") | sub("^ "; "") | sub(" $"; "")) ==
                 "create index idx_webhook_deliveries_active_updated_delivery on webhook_deliveries (updated_at, delivery_id) where state <> 'succeeded'")
             ' "$tmp/predecessor-index.json" >/dev/null || stop D1_0010_INDEX_INVALID
             predecessor_index_status=PRESENT_VALID
