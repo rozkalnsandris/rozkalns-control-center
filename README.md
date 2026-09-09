@@ -2,7 +2,13 @@
 
 Mobile-first control and approval plane for Andris' engineering projects.
 
-> **Current source state:** Phase 5 is active. Phases 0–4 are complete for the bounded chains recorded by canonical handoff #278. The repository contains the Cloudflare Worker/React control plane, live GitHub read composition, D1-backed control state, webhook/Queue reconciliation, guarded Merge / Needs changes / Later routes, Telegram notification transport source/configuration, deterministic continuation source, and the strict Phase 5 consumer for already-sanitized RPi5 production evidence. Repository source and configuration describe intended behavior; they do not independently prove current production state, including the currently deployed Worker version, applied D1 migrations, Queue backlog, provider secrets, GitHub App grants, Cloudflare routes/bindings or RPi5 runtime state.
+> **Current source state:** Phase 5 is active. Phases 0–4 are complete for the bounded chains recorded by canonical handoff #278. The repository contains the Cloudflare Worker/React control plane, live GitHub read composition, D1-backed control state, webhook/Queue reconciliation, guarded Merge / Needs changes / Later routes, Telegram notification transport source/configuration, deterministic continuation source, and the merged authenticated Phase 5 RPi5 observation path: strict sanitized evidence, Ed25519 exact-byte delivery verification, bounded key lookup, durable replay claim, atomic monotonic projection acceptance, dormant Worker runtime wiring, plus the merged GET/SELECT-only production-readiness preflight. Repository source and configuration describe intended behavior; they do not independently prove current production state.
+
+Durable Phase 5 boundary markers:
+
+- `SOURCE_READY_LIVE_UNPROVEN`
+- `READONLY_PREFLIGHT_EVIDENCE_ONLY`
+- `MERGE_NOT_DEPLOY_AUTHORITY`
 
 The canonical product and architecture contract is GitHub issue **#1 — `[MASTER / READ FIRST] Rozkalns Control — product contract, architecture and delivery roadmap`**. GitHub issue **#278** is the canonical operational handoff for mutable phase/live continuity. Read both before work that depends on runtime status or crosses a trust boundary.
 
@@ -51,7 +57,7 @@ The MVP is focused on trustworthy approvals, notifications and production visibi
 - **ChatGPT** may be the reasoning/operator layer through connected tools, but chat memory is never canonical continuation state.
 - **RPi5** remains the production trust boundary for exact-SHA deployment, health and rollback. Control must not create a direct host shortcut.
 
-**Merge authorization is not deployment authorization. Source readiness is not production evidence.**
+**Merge authorization is not deployment authorization. Source readiness is not production evidence.** `MERGE_NOT_DEPLOY_AUTHORITY` and `SOURCE_READY_LIVE_UNPROVEN` are durable invariants, not temporary status text.
 
 ## Current source architecture
 
@@ -80,7 +86,7 @@ Decision execution is project-capability gated and binds actor, expected head, f
 - Accepted delivery IDs are durably claimed through the `CONTROL_DB` D1 binding and enqueue bounded reconciliation messages.
 - Queue messages are **at-least-once, potentially duplicate and not ordered**. Correctness comes from durable D1 state transitions, idempotency and authoritative rereads—not delivery order or `max_concurrency = 1`.
 - The main consumer performs authoritative GitHub rereads; the DLQ path records bounded terminal evidence.
-- Source-controlled D1 migrations define reconciliation, decision-audit, notification, continuation and Later state. A migration in source is not evidence that it has been applied remotely.
+- Source-controlled D1 migrations define reconciliation, decision-audit, notification, continuation, Later and Phase 5 observation state. A migration in source is not evidence that it has been applied remotely.
 - D1 Free-plan daily row-read/row-write limits are enforced. If D1 queries fail because limits or service availability are exhausted, protected actions must fail closed rather than infer authorization from missing persistence/reconciliation evidence.
 
 ### Notifications and continuation
@@ -93,15 +99,25 @@ Deterministic continuation planning/reservation/persistence/recovery exists in s
 
 ### Phase 5 production visibility
 
-The dashboard model can represent source/main SHA, production SHA, deploy impact, runtime, health, rollback and blockers. The merged Control consumer accepts only an exact top-level allowlist of **already-sanitized** RPi5 evidence and rejects extra fields/keys before project/SHA/freshness/state validation.
+The dashboard model can represent source/main SHA, production SHA, deploy impact, runtime, health, rollback and blockers. The strict Control consumer accepts only an exact top-level allowlist of **already-sanitized** RPi5 evidence and rejects extra fields before project/SHA/freshness/state validation.
 
-No direct Control-to-RPi5 SSH, sudo, generic helper, protected filesystem/runtime inspection or credential path is permitted. The RPi5 producer-side strict allowlist + sanitization/provenance source contract is now merged and source-ready. That contract acquires no production evidence and does not prove current host/runtime state. The next Phase 5 problem is a separately reviewed read-only observation/transport boundary; any later host/runtime execution remains separately gated.
+The merged post-#596 source path now extends beyond the earlier producer/transport boundary:
+
+`sanitized evidence → Ed25519 exact-byte verification → exact keyId lookup → durable replay claim → strict normalization → transactional replay + monotonic projection acceptance → dormant Worker route/runtime`.
+
+Source-controlled migrations `0011_rpi5_observation_replay_claims.sql`, `0012_rpi5_production_visibility_projection.sql` and `0013_rpi5_observation_atomic_acceptance.sql` support that path. Their presence in Git does not prove remote D1 application.
+
+The route is dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Verification-key material is protected configuration under `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS`; values must never be committed, logged or exported as evidence.
+
+PR #596 merged a manually dispatched production-readiness classifier that binds to exact `main` + successful exact-main CI, uses Workers GET-only inventory and D1 single-`SELECT` queries with explicit zero-mutation provider evidence. Its result is `READONLY_PREFLIGHT_EVIDENCE_ONLY`: PASS or FAIL can classify a baseline, but cannot authorize migration apply, key provisioning, Worker activation/deploy or RPi5 signer/runtime delivery.
+
+No direct Control-to-RPi5 SSH, sudo, generic helper, protected filesystem/runtime inspection or credential path is permitted. The full durable source/evidence/activation contract and classification matrix are in [`docs/PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](docs/PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md).
 
 ## Runtime configuration versus deployed state
 
 [`wrangler.jsonc`](wrangler.jsonc) declares production-shaped source inputs including Worker/static-assets routing, D1 and Queue bindings, notification/Telegram configuration keys, Access issuer/audience identifiers, required secret names and observability sampling.
 
-These declarations are deploy inputs only. Before any live action, use canonical #278 and the focused tracker to obtain fresh GET-only evidence and the exact authorization required by the owning repository contract.
+These declarations are deploy inputs only. Before any live action, use canonical #278 and the focused tracker to obtain fresh GET-only evidence and the exact authorization required by the owning repository contract. Even a previously successful read-only preflight is a bounded observation, not durable proof of current state.
 
 ## Phase summary
 
@@ -110,10 +126,10 @@ These declarations are deploy inputs only. Before any live action, use canonical
 - **Phase 2:** live-read/GitHub App/webhook/D1/Queue foundation established; current production facts remain separately evidenced.
 - **Phase 3:** bounded Merge / Needs changes / Later chain complete; no completed canary creates standing mutation authority.
 - **Phase 4:** bounded Telegram notification / deterministic-continuation chain complete; historical receipts are terminal and non-reusable.
-- **Phase 5:** active; the strict Control sanitized consumer and the RPi5 producer source contract are merged/source-ready, while read-only observation/transport and live production evidence remain pending and separately gated.
+- **Phase 5:** active; the authenticated observation ingestion/runtime chain and GET/SELECT-only production-readiness preflight are merged at source level. Current production baseline, applied schema, protected key material, activation state, RPi5 signer/runtime and delivered observation evidence remain freshly evidenced and/or separately LIVE-gated (`SOURCE_READY_LIVE_UNPROVEN`).
 - **Optional AI/runtime phase:** deferred.
 
-See [`docs/ROADMAP_CURRENT_CHECKPOINT.md`](docs/ROADMAP_CURRENT_CHECKPOINT.md) for the durable current checkpoint, [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current long-form phase contract, and [`docs/ROADMAP_HISTORY.md`](docs/ROADMAP_HISTORY.md) for the preserved implementation chronology.
+See [`docs/ROADMAP_CURRENT_CHECKPOINT.md`](docs/ROADMAP_CURRENT_CHECKPOINT.md) for the durable current checkpoint, [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current long-form phase contract, [`docs/PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](docs/PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md) for the Phase 5 operator contract, and [`docs/ROADMAP_HISTORY.md`](docs/ROADMAP_HISTORY.md) for preserved implementation chronology.
 
 ## Local development and validation
 
@@ -147,8 +163,9 @@ npm run dev
 - [`docs/STATE_MODEL.md`](docs/STATE_MODEL.md) — deterministic task/approval state contract;
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — threats and required mitigations;
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — current phase gates and durable sequencing;
-- [`docs/ROADMAP_HISTORY.md`](docs/ROADMAP_HISTORY.md) — preserved historical implementation chronology;
 - [`docs/ROADMAP_CURRENT_CHECKPOINT.md`](docs/ROADMAP_CURRENT_CHECKPOINT.md) — durable current source/gate checkpoint;
+- [`docs/PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](docs/PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md) — Phase 5 observation architecture, readonly-preflight matrix, activation dependency order and trust-boundary checklist;
+- [`docs/ROADMAP_HISTORY.md`](docs/ROADMAP_HISTORY.md) — preserved historical implementation chronology;
 - [`docs/D1_HOT_QUERY_AUDIT.md`](docs/D1_HOT_QUERY_AUDIT.md) — operational query-plan and index evidence;
 - [`docs/WORKER_OBSERVABILITY.md`](docs/WORKER_OBSERVABILITY.md) — structured logging and sampling contract;
 - [`docs/adr/`](docs/adr/) — durable architecture decisions.
