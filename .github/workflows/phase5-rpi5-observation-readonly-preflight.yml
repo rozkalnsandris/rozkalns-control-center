@@ -55,7 +55,7 @@ jobs:
             printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:] _./:@,+{}\[\]"-' | cut -c1-320
           }
 
-          for cmd in curl jq; do
+          for cmd in curl jq node; do
             command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
           done
 
@@ -231,10 +231,17 @@ jobs:
               .result[0].results[0].type == "index" and
               .result[0].results[0].name == "idx_webhook_deliveries_active_updated_delivery" and
               .result[0].results[0].tbl_name == "webhook_deliveries" and
-              (.result[0].results[0].sql | type == "string") and
-              ((.result[0].results[0].sql | ascii_downcase | gsub("[[:space:]]+"; " ") | sub("^ "; "") | sub(" $"; "")) ==
-                "create index idx_webhook_deliveries_active_updated_delivery on webhook_deliveries (updated_at, delivery_id) where state <> 'succeeded'")
+              (.result[0].results[0].sql | type == "string")
             ' "$tmp/predecessor-index.json" >/dev/null || stop D1_0010_INDEX_INVALID
+            expected_index_sql="create index idx_webhook_deliveries_active_updated_delivery on webhook_deliveries (updated_at, delivery_id) where state <> 'succeeded'"
+            node -e '
+              const { readFileSync } = require("node:fs");
+              const response = JSON.parse(readFileSync(process.argv[1], "utf8"));
+              const sql = response.result?.[0]?.results?.[0]?.sql;
+              const normalizeSql = (value) =>
+                String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+              if (normalizeSql(sql) !== process.argv[2]) process.exit(1);
+            ' "$tmp/predecessor-index.json" "$expected_index_sql" || stop D1_0010_INDEX_INVALID
             predecessor_index_status=PRESENT_VALID
           fi
           printf 'D1_0010_INDEX=%s\n' "$predecessor_index_status"
