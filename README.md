@@ -86,7 +86,7 @@ Decision execution is project-capability gated and binds actor, expected head, f
 - Accepted delivery IDs are durably claimed through the `CONTROL_DB` D1 binding and enqueue bounded reconciliation messages.
 - Queue messages are **at-least-once, potentially duplicate and not ordered**. Correctness comes from durable D1 state transitions, idempotency and authoritative rereads—not delivery order or `max_concurrency = 1`.
 - The main consumer performs authoritative GitHub rereads; the DLQ path records bounded terminal evidence.
-- Source-controlled D1 migrations define reconciliation, decision-audit, notification, continuation, Later and Phase 5 observation state. A migration in source is not evidence that it has been applied remotely.
+- Source-controlled D1 migrations define reconciliation, decision-audit, notification, continuation, Later and Phase 5 observation state. Migration `0010_webhook_observability_hot_index.sql` provides the planner-proven partial index for active webhook-delivery diagnostics. A migration in source is not evidence that it has been applied remotely.
 - D1 Free-plan daily row-read/row-write limits are enforced. If D1 queries fail because limits or service availability are exhausted, protected actions must fail closed rather than infer authorization from missing persistence/reconciliation evidence.
 
 ### Notifications and continuation
