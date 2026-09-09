@@ -9,6 +9,7 @@ Durable Phase 5 boundary markers:
 - `SOURCE_READY_LIVE_UNPROVEN`
 - `READONLY_PREFLIGHT_EVIDENCE_ONLY`
 - `MERGE_NOT_DEPLOY_AUTHORITY`
+- `EXACT_D1_MIGRATION_CEILING`
 
 ## Evidence boundary
 
@@ -26,7 +27,7 @@ Durable Phase 5 boundary markers:
 - **Phase 2 — read-only GitHub/control-plane foundation:** live-read, GitHub App, webhook, D1 and Queue architecture established; current production facts remain separately evidenced.
 - **Phase 3 — authenticated human decision actions:** complete for the bounded Merge, Needs changes and Later chain recorded by canonical #278; completed canaries create no standing mutation authority.
 - **Phase 4 — notifications and deterministic continuation:** complete for the bounded Telegram/continuation chain recorded by canonical #278; historical receipts are terminal evidence only and must never be replayed.
-- **Phase 5 — production visibility:** active. The authenticated observation ingestion/runtime chain and GET/SELECT-only production-readiness preflight are merged at source level. Current remote schema/key/activation/Worker/RPi5/delivery state remains freshly evidenced and/or separately gated (`SOURCE_READY_LIVE_UNPROVEN`).
+- **Phase 5 — production visibility:** active. The authenticated observation ingestion/runtime chain, hardened GET/SELECT-only production-readiness preflight and source-only activation-gate contract are merged/source-defined. Current remote schema/key/activation/Worker/RPi5/delivery state remains freshly evidenced and/or separately gated (`SOURCE_READY_LIVE_UNPROVEN`).
 - **Optional AI/runtime phase:** deferred.
 
 ## Durable current architecture
@@ -63,7 +64,7 @@ Durable Phase 5 boundary markers:
 
 ### Phase 5 observation source path
 
-The durable post-#596 path is:
+The durable post-#599 path is:
 
 ```text
 strictly sanitized RPi5 evidence
@@ -88,11 +89,12 @@ Merged capability sequence:
 - PR #590 — production-visibility projection migration/store;
 - PR #592 — atomic replay + monotonic projection acceptance migration/primitive;
 - PR #594 — atomic authenticated runtime composition;
-- PR #596 — GET/SELECT-only production-readiness preflight.
+- PR #596 — GET/SELECT-only production-readiness preflight;
+- PR #599 — hardened predecessor migration `0010_webhook_observability_hot_index.sql` and exact index `idx_webhook_deliveries_active_updated_delivery` classification for the D1 migration ceiling.
 
-The route remains dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Verification material is protected under `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS`; repository source does not provision its value. Source migrations `0011`–`0013` do not prove they are applied remotely.
+The route remains dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Verification material is protected under `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS`; repository source does not provision its value. Source migrations `0010`–`0013` do not prove they are applied remotely.
 
-The complete operator architecture, preflight matrix, activation dependency order and trust checklist are in [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md).
+The complete operator architecture and trust checklist are in [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md). The source-only future cutover/authorization contract is in [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md) and `.github/phase5-rpi5-observation-activation-contract.json`.
 
 ## Merged readonly-preflight contract
 
@@ -106,11 +108,14 @@ It requires:
 - `CONTROL_DB` binding and D1 resource identity match the expected production database;
 - ingest is absent or explicit `false`, not active;
 - verification-key binding is either absent or a protected secret binding type, without value inspection;
+- predecessor migration `0010_webhook_observability_hot_index.sql` and `idx_webhook_deliveries_active_updated_delivery` are exactly consistent;
 - migrations `0011`–`0013` are either all absent or all present;
 - Phase 5 schema matches that migration classification;
 - D1 queries are one statement beginning with `SELECT ` and provider metadata proves `changed_db=false`, `rows_written=0`, `changes=0`.
 
 PASS means only `SAFE_FOR_SEPARATELY_AUTHORIZED_ACTIVATION_PLANNING`; FAIL is diagnosis evidence only. Neither outcome authorizes repair, apply, provisioning or activation (`READONLY_PREFLIGHT_EVIDENCE_ONLY`).
+
+`EXACT_D1_MIGRATION_CEILING` is derived only from a fresh coherent hardened preflight. The source contract permits exactly three planning outcomes: all `0010`–`0013` pending, only `0011`–`0013` pending, or `NO_D1_APPLY_REQUIRED`. Any other predecessor/Phase 5 combination is STOP, not repair authority.
 
 ## Current gate model
 
@@ -125,13 +130,13 @@ Do not treat a previous successful run as standing production truth. Re-read mut
 If fresh evidence proves a mutation-bearing activation step is necessary, the planning order is:
 
 1. fresh production baseline — read-only;
-2. D1 migration apply if needed — separate LIVE authority;
+2. D1 migration apply if needed — separate LIVE authority naming the exact ordered migration ceiling from that fresh preflight;
 3. verification-key provisioning if needed — separate secret/credential authority;
 4. Worker configuration/deploy/activation — separate Cloudflare LIVE authority;
 5. RPi5 signer/private-key/runtime delivery — separate RPi5 trust-boundary authority;
 6. read-only/live evidence reconciliation — read-only unless another mutation is explicitly declared.
 
-No merged source, green preflight or historical canary collapses those gates.
+Each mutation class consumes only its own one-shot authorization at the first authorized mutation. An error, timeout, drift or ambiguity after mutation begins requires STOP; there is no implicit retry, rollback, cleanup, alternate path or cross-class cascade. No merged source, green preflight or historical canary collapses those gates.
 
 ## Phase 5 trust-boundary checkpoint
 
@@ -162,4 +167,4 @@ The following remain separately gated:
 
 The old #574/#576 source lanes are completed history and are not current implementation pointers. Do not recreate them because older docs or issue bodies still mention them.
 
-For present continuation, fresh-read canonical #278, current `main`, relevant current GitHub evidence and [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md). Select the next exact read-only or owner/LIVE gate from that fresh state. `SOURCE_READY_LIVE_UNPROVEN` remains the durable classification until live facts are freshly proven.
+For present continuation, fresh-read canonical #278, current `main`, relevant current GitHub evidence, [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md) and [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md). Select the next exact read-only or owner/LIVE gate from that fresh state. `SOURCE_READY_LIVE_UNPROVEN` remains the durable classification until live facts are freshly proven.
