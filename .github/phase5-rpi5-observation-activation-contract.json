@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "contract": "PHASE5_RPI5_OBSERVATION_ACTIVATION_V1",
+  "repository": "rozkalnsandris/rozkalns-control-center",
+  "authority": {
+    "source_contract_only": true,
+    "live_authority_granted": false,
+    "merge_authorizes_live": false,
+    "cross_class_cascade": false,
+    "authorization_consumed_at": "FIRST_AUTHORIZED_MUTATION",
+    "on_error_timeout_drift_or_ambiguity_after_mutation": "STOP_NO_RETRY_ROLLBACK_OR_ALTERNATE_MUTATION"
+  },
+  "preflight": {
+    "workflow": ".github/workflows/phase5-rpi5-observation-readonly-preflight.yml",
+    "required_result": "PHASE5_RPI5_OBSERVATION_PREFLIGHT=PASS",
+    "requires_exact_current_main": true,
+    "requires_successful_exact_main_ci": true,
+    "requires_dormant_ingest": true,
+    "required_zero_mutation_markers": [
+      "RPI5_REQUEST=NO",
+      "QUEUE_MUTATION=NO",
+      "REMOTE_D1_MUTATION=NO",
+      "WORKER_MUTATION=NO",
+      "CLOUDFLARE_CONFIG_MUTATION=NO",
+      "SECRET_MUTATION=NO",
+      "CLOUDFLARE_MUTATION=NO",
+      "LIVE_AUTHORIZATION=NOT_GRANTED"
+    ]
+  },
+  "migration_ceiling": {
+    "ordered_source_migrations": [
+      "0010_webhook_observability_hot_index.sql",
+      "0011_rpi5_observation_replay_claims.sql",
+      "0012_rpi5_production_visibility_projection.sql",
+      "0013_rpi5_observation_atomic_acceptance.sql"
+    ],
+    "valid_classifications": [
+      {
+        "when": {
+          "D1_0010_MIGRATION": "ABSENT",
+          "D1_0010_INDEX": "ABSENT_CONSISTENT",
+          "D1_PHASE5_MIGRATIONS": "ABSENT",
+          "D1_PHASE5_SCHEMA": "ABSENT_CONSISTENT"
+        },
+        "result": "D1_APPLY_REQUIRED",
+        "exact_ordered_migrations": [
+          "0010_webhook_observability_hot_index.sql",
+          "0011_rpi5_observation_replay_claims.sql",
+          "0012_rpi5_production_visibility_projection.sql",
+          "0013_rpi5_observation_atomic_acceptance.sql"
+        ]
+      },
+      {
+        "when": {
+          "D1_0010_MIGRATION": "PRESENT",
+          "D1_0010_INDEX": "PRESENT_VALID",
+          "D1_PHASE5_MIGRATIONS": "ABSENT",
+          "D1_PHASE5_SCHEMA": "ABSENT_CONSISTENT"
+        },
+        "result": "D1_APPLY_REQUIRED",
+        "exact_ordered_migrations": [
+          "0011_rpi5_observation_replay_claims.sql",
+          "0012_rpi5_production_visibility_projection.sql",
+          "0013_rpi5_observation_atomic_acceptance.sql"
+        ]
+      },
+      {
+        "when": {
+          "D1_0010_MIGRATION": "PRESENT",
+          "D1_0010_INDEX": "PRESENT_VALID",
+          "D1_PHASE5_MIGRATIONS": "PRESENT",
+          "D1_PHASE5_SCHEMA": "PRESENT_VALID"
+        },
+        "result": "NO_D1_APPLY_REQUIRED",
+        "exact_ordered_migrations": []
+      }
+    ],
+    "otherwise": "STOP_UNKNOWN_PARTIAL_CONTRADICTORY_OR_DRIFTED_STATE"
+  },
+  "mutation_classes": {
+    "D1_APPLY": {
+      "requires_separate_owner_live_authorization": true,
+      "requires_exact_source_sha": true,
+      "requires_exact_preflight_run": true,
+      "requires_expected_remote_state_match": true,
+      "mutation_ceiling": "EXACT_ORDERED_MIGRATION_SET_FROM_PREFLIGHT_CLASSIFICATION",
+      "post_mutation_verification": "RERUN_READONLY_PREFLIGHT_AND_REQUIRE_EXPECTED_MIGRATION_SCHEMA_STATE"
+    },
+    "VERIFICATION_KEY_PROVISION": {
+      "requires_separate_owner_live_authorization": true,
+      "requires_exact_source_sha": true,
+      "requires_exact_preflight_run": true,
+      "requires_expected_remote_state_match": true,
+      "binding": "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS",
+      "secret_value_in_command_repo_logs_or_receipt": false,
+      "post_mutation_verification": "READ_BINDING_NAME_AND_PROTECTED_TYPE_ONLY_NEVER_VALUE"
+    },
+    "WORKER_ACTIVATE": {
+      "requires_separate_owner_live_authorization": true,
+      "requires_exact_source_sha": true,
+      "requires_exact_preflight_run": true,
+      "requires_expected_remote_state_match": true,
+      "requires_prior_d1_gate_satisfied": true,
+      "requires_prior_verification_key_gate_satisfied": true,
+      "mutation_ceiling": "EXACT_WORKER_VERSION_CONFIG_BINDINGS_AND_INGEST_ACTIVATION_NAMED_BY_AUTHORIZATION",
+      "post_mutation_verification": "GET_ONLY_ACTIVE_VERSION_TRAFFIC_BINDINGS_AND_ROUTE_STATE"
+    },
+    "RPI5_SIGNER_RUNTIME": {
+      "requires_separate_owner_live_authorization": true,
+      "authority_owner": "RPi5_main",
+      "direct_control_ssh_sudo_root_or_protected_host_path": false,
+      "requires_exact_control_source_sha": true,
+      "requires_expected_control_worker_state": true,
+      "mutation_ceiling": "ONLY_THE_EXACT_RPI5_SIGNER_RUNTIME_DELIVERY_SCOPE_AUTHORIZED_UNDER_RPI5_MAIN",
+      "post_mutation_verification": "SANITIZED_SIGNED_OBSERVATION_AND_CONTROL_READONLY_RECONCILIATION"
+    }
+  },
+  "future_owner_command_templates": {
+    "D1_APPLY": "AUTHORIZE LIVE PHASE5 D1 APPLY rozkalns-control-center source_sha=<sha> preflight_run=<run_id> migrations=<exact_csv> db=rozkalns-control-production",
+    "VERIFICATION_KEY_PROVISION": "AUTHORIZE LIVE PHASE5 VERIFICATION KEY PROVISION rozkalns-control-center source_sha=<sha> preflight_run=<run_id> binding=CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS key_id=<public_key_id>",
+    "WORKER_ACTIVATE": "AUTHORIZE LIVE PHASE5 WORKER ACTIVATE rozkalns-control-center source_sha=<sha> preflight_run=<run_id> worker_version=<version_id> ingest=true",
+    "RPI5_SIGNER_RUNTIME": "AUTHORIZE LIVE PHASE5 RPI5 SIGNER RUNTIME RPi5_main control_source_sha=<sha> control_worker_version=<version_id> key_id=<public_key_id>"
+  },
+  "explicit_forbidden": [
+    "SECRET_OR_PRIVATE_KEY_VALUE_IN_SOURCE_COMMAND_LOG_OR_PUBLIC_RECEIPT",
+    "DIRECT_CONTROL_SSH_SUDO_ROOT_OR_PROTECTED_HOST_INSPECTION",
+    "QUEUE_MUTATION_UNLESS_SEPARATELY_DECLARED_AND_AUTHORIZED",
+    "CROSS_CLASS_AUTOMATIC_CASCADE",
+    "MERGE_TO_DEPLOY_AUTHORITY_INHERITANCE",
+    "HISTORICAL_AUTHORIZATION_REPLAY",
+    "AUTO_RETRY_ROLLBACK_CLEANUP_OR_ALTERNATE_MUTATION_AFTER_ERROR"
+  ]
+}
