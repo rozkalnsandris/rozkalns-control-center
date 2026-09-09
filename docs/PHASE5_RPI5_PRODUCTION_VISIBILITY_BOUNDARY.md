@@ -10,6 +10,8 @@ Stable boundary markers:
 
 Master issue #1 and canonical handoff #278 remain authoritative for product and mutable operational continuity. Current runtime facts must always be freshly re-read rather than copied into this durable document.
 
+The source-only activation/cutover rules derived from this boundary are defined in [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md) and `.github/phase5-rpi5-observation-activation-contract.json`. Those files describe future gates; they grant no LIVE authority.
+
 ## Merged source architecture
 
 The current source-level path is intentionally one-way and fail-closed:
@@ -38,9 +40,10 @@ Durable source progression:
 - PR #590 — source migration `0012_rpi5_production_visibility_projection.sql` and bounded projection store;
 - PR #592 — source migration `0013_rpi5_observation_atomic_acceptance.sql` and transactional replay + monotonic projection acceptance;
 - PR #594 — atomic authenticated ingestion/runtime composition through the dormant Worker route;
-- PR #596 — merged GET/SELECT-only production-readiness preflight.
+- PR #596 — merged GET/SELECT-only production-readiness preflight;
+- PR #599 — hardened the preflight to classify predecessor migration `0010_webhook_observability_hot_index.sql` and exact partial index `idx_webhook_deliveries_active_updated_delivery` before deriving any D1 migration ceiling.
 
-The route remains fail-closed and dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Repository configuration does not provision that activation flag or a `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` value. Source migrations `0011`–`0013` are deploy inputs only and do not prove remote application.
+The route remains fail-closed and dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Repository configuration does not provision that activation flag or a `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` value. Source migrations `0010`–`0013` are deploy inputs only and do not prove remote application.
 
 ## Sanitized consumer boundary
 
@@ -90,16 +93,21 @@ It must fail closed unless all of the following are true:
 7. `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS`, if present, is only classified by binding name/type as protected secret material; its value is never read, parsed or exported;
 8. D1 resource identity matches the expected database;
 9. D1 SQL is one statement beginning with `SELECT ` and every query proves `changed_db=false`, `rows_written=0` and `changes=0`;
-10. migration history and Phase 5 schema agree exactly;
+10. predecessor migration `0010_webhook_observability_hot_index.sql` and `idx_webhook_deliveries_active_updated_delivery` agree exactly, while migrations `0011`–`0013` and Phase 5 schema also agree exactly;
 11. `main` still equals the workflow SHA after evidence collection.
 
 The D1 API uses its query endpoint, which is HTTP POST, but the workflow wrapper admits only single-statement `SELECT` SQL and rejects any provider response that reports a mutation. This does not create D1 write authority.
+
+The hardened public-safe fields include `D1_0010_MIGRATION`, `D1_0010_INDEX`, `D1_PHASE5_MIGRATIONS` and `D1_PHASE5_SCHEMA`. Exact D1 apply scope may be derived only from one coherent combination defined by the source-only activation contract; unknown, partial or contradictory evidence is STOP, never repair authority.
 
 ## Preflight classification matrix
 
 | Observation | Classification | Operator meaning | Mutation authority |
 | --- | --- | --- | --- |
-| `0011`–`0013` all absent and Phase 5 tables absent | `ABSENT` + `ABSENT_CONSISTENT` | Safe pre-provisioning schema baseline; later migration application may be planned | None |
+| `0010` absent and exact predecessor index absent | `ABSENT` + `ABSENT_CONSISTENT` | Any later D1 apply ceiling must include `0010` before Phase 5 migrations | None |
+| `0010` present and exact predecessor index valid | `PRESENT` + `PRESENT_VALID` | Predecessor state is coherent; later ceiling may begin at `0011` if Phase 5 remains absent | None |
+| `0010` history/index contradict each other | STOP | Exact migration ceiling cannot be trusted | None |
+| `0011`–`0013` all absent and Phase 5 tables absent | `ABSENT` + `ABSENT_CONSISTENT` | Safe pre-provisioning schema baseline; later migration application may be planned only with the predecessor classification | None |
 | `0011`–`0013` all present and required tables/columns probe successfully | `PRESENT` + `PRESENT_VALID` | Remote schema is internally consistent with the merged Phase 5 source contract | None |
 | Partial, duplicate or contradictory migration history | STOP | Diagnosis evidence; history cannot be trusted as a coherent baseline | None |
 | Tables/columns contradict migration history | STOP | Diagnosis evidence; schema/history do not match | None |
@@ -118,13 +126,13 @@ A FAIL must never be “fixed” by an unapproved production mutation. A PASS mu
 When mutable operational continuity says Phase 5 activation should proceed, use the following dependency order only as a planning graph. Every mutation-bearing step requires its own exact owner/LIVE authority under the current governing contract.
 
 1. **Fresh production baseline** — GET/SELECT-only evidence tied to exact current source and target. Read-only.
-2. **D1 migration apply, if required** — production D1 mutation; separate LIVE gate.
+2. **D1 migration apply, if required** — production D1 mutation; separate LIVE gate, scoped to the exact ordered migration ceiling derived from the fresh hardened preflight.
 3. **Verification-key provisioning, if required** — secret/credential mutation; separate LIVE gate. Never put key material in Git, D1 evidence, logs or public receipts.
 4. **Worker configuration/deployment/activation** — Cloudflare production mutation; separate LIVE gate with exact SHA/target/baseline.
 5. **RPi5 signer/private-key/runtime delivery** — RPi5 trust-boundary mutation; separately authorized under the owning RPi5 contract.
 6. **Observation reconciliation** — GET-only/read-only evidence may verify the resulting state; any additional mutation remains separately gated.
 
-Do not collapse these steps merely because source code is merged or a preflight is green.
+Do not collapse these steps merely because source code is merged or a preflight is green. The exact one-shot semantics and future owner command shapes are in [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md).
 
 ## Trust-boundary checklist
 
@@ -146,4 +154,4 @@ Repository source/configuration can prove the intended observation contract. It 
 
 Current production facts belong in fresh GitHub/runtime evidence, not this file. Even when a read-only preflight has run successfully, its result is a bounded observation at that time; it does not become standing authority or durable proof of future state.
 
-See [`../README.md`](../README.md), [`ROADMAP.md`](ROADMAP.md) and [`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md) for the navigational/current phase view.
+See [`../README.md`](../README.md), [`ROADMAP.md`](ROADMAP.md), [`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md) and [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md) for the navigational/current phase and future activation-gate view.
