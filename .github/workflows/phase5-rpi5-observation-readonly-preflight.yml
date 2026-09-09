@@ -263,7 +263,7 @@ jobs:
                 {type:"table",name:"rpi5_production_visibility",tbl_name:"rpi5_production_visibility"}
               ]
             ' "$tmp/schema.json" >/dev/null || stop D1_PHASE5_SCHEMA_INVALID
-            replay_probe="SELECT replay_key, replay_expires_at, claim_token FROM rpi5_observation_replay_claims LIMIT 0"
+            replay_probe="SELECT replay_key, replay_expires_at_ms, claimed_at_ms, claim_token FROM rpi5_observation_replay_claims LIMIT 0"
             projection_probe="SELECT project_id, repository, observed_at_ms, stored_at_ms FROM rpi5_production_visibility LIMIT 0"
             cf_d1_select "$replay_probe" "$tmp/replay-probe.json"
             cf_d1_select "$projection_probe" "$tmp/projection-probe.json"
