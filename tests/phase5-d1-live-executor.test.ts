@@ -31,10 +31,10 @@ const migrations = [
 ];
 
 test("Phase 5 D1 executor is manual-only with read-only GitHub permissions", () => {
-  assert.match(workflow, /on:\n  workflow_dispatch:/);
-  assert.doesNotMatch(workflow, /\n  push:/);
-  assert.doesNotMatch(workflow, /\n  pull_request:/);
-  assert.match(workflow, /permissions:\n  contents: read\n  actions: read/);
+  assert.ok(workflow.includes("on:\n  workflow_dispatch:"));
+  assert.ok(!workflow.includes("\n  push:"));
+  assert.ok(!workflow.includes("\n  pull_request:"));
+  assert.ok(workflow.includes("permissions:\n  contents: read\n  actions: read"));
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/);
   assert.match(workflow, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/);
