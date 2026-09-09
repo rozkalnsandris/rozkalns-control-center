@@ -1,14 +1,48 @@
-# Phase 5 RPi5 production visibility boundary
+# Phase 5 RPi5 production visibility — observation operator contract
 
-Phase 5 may surface sanitized, read-only production evidence for managed projects whose `productionAdapter` is `rpi5`. This document defines the Control-side ingestion and authenticated-delivery source boundary only. It does not define or authorize a live RPi5 transport, key provisioning, replay persistence or runtime wiring.
+Phase 5 may surface sanitized, read-only production evidence for managed projects whose `productionAdapter` is `rpi5`. This document is the durable Control-side operator contract for the merged authenticated observation source path and its GET/SELECT-only production-readiness preflight.
 
-## Trust boundary
+Stable boundary markers:
 
-Control must not obtain production visibility by opening SSH, invoking sudo/helpers, reading protected host configuration, reading arbitrary filesystem/runtime data, querying a production database directly, or acquiring host credentials. RPi5-side production gates remain authoritative for host and production mutations.
+- `SOURCE_READY_LIVE_UNPROVEN` — repository source can prove the intended observation path, but it does not prove current Worker, D1, binding, key, RPi5 or delivery state.
+- `READONLY_PREFLIGHT_EVIDENCE_ONLY` — a preflight PASS/FAIL is classification evidence only; it grants no mutation authority.
+- `MERGE_NOT_DEPLOY_AUTHORITY` — source merge never authorizes Worker deployment, D1/Queue writes, key provisioning or RPi5 runtime work.
 
-The canonical `RPi5_main` producer now defines an equivalent-or-tighter strict sanitization/provenance source contract for this payload. That producer source acquires no production evidence and grants no host/runtime authority. This Control slice therefore remains source-independent from current RPi5 host/runtime state.
+Master issue #1 and canonical handoff #278 remain authoritative for product and mutable operational continuity. Current runtime facts must always be freshly re-read rather than copied into this durable document.
 
-## Accepted consumer shape
+## Merged source architecture
+
+The current source-level path is intentionally one-way and fail-closed:
+
+```text
+strictly sanitized RPi5 evidence
+→ Ed25519-authenticated outer delivery over exact raw payload bytes
+→ exact keyId lookup in the bounded verification-key registry
+→ delivery metadata/freshness and signature verification
+→ durable replay claim
+→ parse the exact signed payload bytes
+→ strict ten-field production-visibility normalization
+→ transactional replay + monotonic projection acceptance
+→ dormant Worker route/runtime
+```
+
+Durable source progression:
+
+- PR #568 — strict ten-field Control consumer for already-sanitized RPi5 evidence;
+- RPi5 PR #417 — equivalent-or-tighter producer sanitization/provenance source contract;
+- PR #577 — Ed25519 outer delivery contract binding metadata and exact raw payload bytes;
+- PR #581 — source migration `0011_rpi5_observation_replay_claims.sql` and durable replay-claim helper;
+- PR #583 — authenticated ingestion composition from metadata/signature through replay claim and strict normalization;
+- PR #585 — strict verification-key registry with exact `keyId` lookup and no fallback;
+- PR #587 — dormant-by-default Worker route/runtime source wiring;
+- PR #590 — source migration `0012_rpi5_production_visibility_projection.sql` and bounded projection store;
+- PR #592 — source migration `0013_rpi5_observation_atomic_acceptance.sql` and transactional replay + monotonic projection acceptance;
+- PR #594 — atomic authenticated ingestion/runtime composition through the dormant Worker route;
+- PR #596 — merged GET/SELECT-only production-readiness preflight.
+
+The route remains fail-closed and dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Repository configuration does not provision that activation flag or a `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` value. Source migrations `0011`–`0013` are deploy inputs only and do not prove remote application.
+
+## Sanitized consumer boundary
 
 `normalizeSanitizedProductionVisibility(input, nowInput)` accepts `unknown` data and requires exactly these top-level fields:
 
@@ -23,34 +57,93 @@ The canonical `RPi5_main` producer now defines an equivalent-or-tighter strict s
 - `blockerCodes`
 - `observedAt`
 
-Any additional field is rejected fail-closed. In particular, hostnames, addresses, filesystem paths, raw service output/logs, command output, SSH targets, credentials, tokens and secret-like fields are not part of this contract.
+Any additional field is rejected fail-closed. Hostnames, addresses, filesystem paths, raw service output/logs, command output, SSH targets, credentials, tokens and secret-like fields are not part of this contract.
 
-After the exact field allowlist is proven, the existing production-visibility normalizer still validates managed-project identity, the `rpi5` adapter, exact SHA syntax, bounded blocker codes, evidence freshness and contradictory runtime/health states. Drift is derived only from exact `mainSha`/`productionSha` equality.
+After the exact field allowlist is proven, the normalizer still validates managed-project identity, the `rpi5` adapter, exact SHA syntax, bounded blocker codes, evidence freshness and contradictory runtime/health states. Drift is derived only from exact `mainSha`/`productionSha` equality.
 
-## Authenticated delivery source contract
+## Authenticated delivery boundary
 
-`src/shared/rpi5-observation-transport.ts` defines an outer transport envelope without changing the ten-field sanitized payload. The envelope is strict and contains only:
+`src/shared/rpi5-observation-transport.ts` defines the strict outer envelope without changing the ten-field sanitized payload. Delivery metadata contains only `version`, `deliveryId`, `sentAt`, `keyId` and `signature`.
 
-- `version`
-- `deliveryId`
-- `sentAt`
-- `keyId`
-- `signature`
+RPi5 signs with Ed25519; Control is verifier-only and requires only the matching public verification material selected by exact `keyId`. The signing input is domain-separated and binds transport version, delivery UUID, canonical send time, key identifier, payload byte length and the exact raw payload bytes. Payload bytes are not parsed or reserialized before signature verification.
 
-The source contract is one-way RPi5 -> Control and verifier-only on the Control side. RPi5 signs with an Ed25519 private key; Control verification requires only the corresponding public key. No credential usable to log in to or query RPi5 is part of this contract.
+Metadata outside the allowed freshness window, malformed/extra metadata, unknown keys, invalid signatures and contradictory evidence fail closed. Neither a valid signature nor a successful normalization grants production authority.
 
-The signing input is domain-separated and binds the transport version, UUIDv4 delivery identity, canonical send timestamp, key identifier, payload byte length and the exact raw payload bytes. The payload is not parsed or reserialized before signature verification. Delivery metadata older than five minutes or from the future fails closed, as do malformed/extra metadata and invalid signatures.
+## Durable replay and atomic projection boundary
 
-Signature verification returns a stable `replayKey` and expiry. It does **not** by itself prove delivery uniqueness. A later runtime slice must atomically claim that replay identity in a separately reviewed durable replay store before the payload may be trusted, then parse the exact signed bytes and pass the resulting object to `normalizeSanitizedProductionVisibility`. This repository slice introduces no replay-store binding or production write.
+A valid signature yields a replay identity, but signature validity alone is not uniqueness. The merged source path durably claims replay identity before trusting parsed payload data and uses the source-controlled Phase 5 D1 primitives to prevent reuse.
 
-## Source-only state
+Projection acceptance is monotonic and transactional with replay acceptance: older/contradictory observation state must not overwrite a newer accepted projection. These source contracts rely on migrations `0011`–`0013`; their presence in Git proves only the intended schema/input, not that production D1 has applied them.
 
-This boundary is intentionally not imported by the Worker entrypoint and introduces no Wrangler binding. It does not provision/generate/rotate keys, expose an HTTP route, persist replay state, acquire RPi5 evidence or connect any network path. Those are later, separately reviewed gates.
+## GET/SELECT-only production-readiness preflight
 
-## Non-authority
+The merged workflow `.github/workflows/phase5-rpi5-observation-readonly-preflight.yml` is a manually dispatched classifier. Running it is a read-only checkpoint, not a LIVE authorization.
 
-A valid signature and normalized read model are evidence only. They do not authorize SSH/sudo/helper execution, deploy, rollback, database writes, Queue/Worker/Cloudflare changes, permission growth, runner changes or any other production mutation. Repository source and payload validation do not themselves prove current live production state.
+It must fail closed unless all of the following are true:
 
-## Later transport/runtime gate
+1. the workflow runs from `main` and its `GITHUB_SHA` still equals the authoritative branch head;
+2. an exact-main `CI` push run for that SHA is completed successfully;
+3. Cloudflare Workers inventory is obtained with GET-only APIs;
+4. the active Worker deployment is exactly one version at 100% traffic;
+5. the active `CONTROL_DB` D1 binding matches the repository's expected production D1 identity;
+6. `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is absent or explicit plain-text `false`; explicit `true` fails with `INGEST_ALREADY_ACTIVE`;
+7. `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS`, if present, is only classified by binding name/type as protected secret material; its value is never read, parsed or exported;
+8. D1 resource identity matches the expected database;
+9. D1 SQL is one statement beginning with `SELECT ` and every query proves `changed_db=false`, `rows_written=0` and `changes=0`;
+10. migration history and Phase 5 schema agree exactly;
+11. `main` still equals the workflow SHA after evidence collection.
 
-A later slice may wire the reviewed producer and this verifier only after fresh canonical continuity confirms the exact transport, public-key provisioning method, replay-store semantics, endpoint/binding scope and protected-host acquisition boundary. GET-only production preflight may then collect read-only evidence if it is the current gate. Any key/secret provisioning, D1/Queue write, Cloudflare mutation or RPi5 host/runtime/network mutation remains separately owner-authorized.
+The D1 API uses its query endpoint, which is HTTP POST, but the workflow wrapper admits only single-statement `SELECT` SQL and rejects any provider response that reports a mutation. This does not create D1 write authority.
+
+## Preflight classification matrix
+
+| Observation | Classification | Operator meaning | Mutation authority |
+| --- | --- | --- | --- |
+| `0011`–`0013` all absent and Phase 5 tables absent | `ABSENT` + `ABSENT_CONSISTENT` | Safe pre-provisioning schema baseline; later migration application may be planned | None |
+| `0011`–`0013` all present and required tables/columns probe successfully | `PRESENT` + `PRESENT_VALID` | Remote schema is internally consistent with the merged Phase 5 source contract | None |
+| Partial, duplicate or contradictory migration history | STOP | Diagnosis evidence; history cannot be trusted as a coherent baseline | None |
+| Tables/columns contradict migration history | STOP | Diagnosis evidence; schema/history do not match | None |
+| Ingest flag is already `"true"` | `INGEST_ALREADY_ACTIVE` STOP | Expected dormant baseline is violated; do not adapt or disable it automatically | None |
+| Ingest binding is malformed/ambiguous | STOP | Activation state is not safely classifiable | None |
+| Verification-key binding is missing | `ABSENT` | Allowed pre-provisioning state | None |
+| Verification-key binding is a protected secret type | `PRESENT_PROTECTED` | Presence/type only; value remains opaque | None |
+| Verification-key binding is exposed or wrong type | STOP | Protected configuration boundary is violated/ambiguous | None |
+| Worker deployment, version, `CONTROL_DB` binding or D1 resource identity mismatches | STOP | Production baseline is not the expected target | None |
+| All checks pass | `BASELINE=SAFE_FOR_SEPARATELY_AUTHORIZED_ACTIVATION_PLANNING` | Evidence can inform the next plan only | None |
+
+A FAIL must never be “fixed” by an unapproved production mutation. A PASS must never be interpreted as permission to mutate production.
+
+## Future activation dependency order
+
+When mutable operational continuity says Phase 5 activation should proceed, use the following dependency order only as a planning graph. Every mutation-bearing step requires its own exact owner/LIVE authority under the current governing contract.
+
+1. **Fresh production baseline** — GET/SELECT-only evidence tied to exact current source and target. Read-only.
+2. **D1 migration apply, if required** — production D1 mutation; separate LIVE gate.
+3. **Verification-key provisioning, if required** — secret/credential mutation; separate LIVE gate. Never put key material in Git, D1 evidence, logs or public receipts.
+4. **Worker configuration/deployment/activation** — Cloudflare production mutation; separate LIVE gate with exact SHA/target/baseline.
+5. **RPi5 signer/private-key/runtime delivery** — RPi5 trust-boundary mutation; separately authorized under the owning RPi5 contract.
+6. **Observation reconciliation** — GET-only/read-only evidence may verify the resulting state; any additional mutation remains separately gated.
+
+Do not collapse these steps merely because source code is merged or a preflight is green.
+
+## Trust-boundary checklist
+
+Before treating any Phase 5 observation work as eligible, require all of the following:
+
+- [ ] No direct Control SSH, sudo, root, generic helper or privileged host-login path.
+- [ ] No Control-side protected-host filesystem, service, runtime or production-database inspection.
+- [ ] No verification-key/private-key value in repository source, public issues/PRs, fixtures, logs, screenshots or bounded evidence.
+- [ ] A source-controlled migration is never represented as proof of remote migration application.
+- [ ] A source merge is never represented as proof of Worker deployment, binding configuration or route activation.
+- [ ] Observation evidence is never treated as deploy, rollback, DB/data, Queue, credential or host authority.
+- [ ] Merge remains distinct from deploy/LIVE authority (`MERGE_NOT_DEPLOY_AUTHORITY`).
+- [ ] Historical Phase 3/4 canaries and consumed authorization receipts are never replayed.
+- [ ] Unknown, stale, partial, mismatched or contradictory evidence fails closed.
+
+## Non-authority and current-state rule
+
+Repository source/configuration can prove the intended observation contract. It cannot independently prove the active Worker version/traffic, remote D1 migration/schema state, binding/secret values, ingest activation, verification-key registry content, RPi5 signer/runtime state or successful live observation delivery.
+
+Current production facts belong in fresh GitHub/runtime evidence, not this file. Even when a read-only preflight has run successfully, its result is a bounded observation at that time; it does not become standing authority or durable proof of future state.
+
+See [`../README.md`](../README.md), [`ROADMAP.md`](ROADMAP.md) and [`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md) for the navigational/current phase view.
