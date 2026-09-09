@@ -72,6 +72,8 @@ The MVP is focused on trustworthy approvals, notifications and production visibi
 
 The Worker source exposes `GET /api/github/dashboard` for bounded live dashboard reads and contains bounded GitHub App read sessions with normalized exact-head PR/CI/review/policy evidence. State-dependent mutation preflights use fresh unconditional authoritative reads.
 
+Read-only reconciliation may use identity-bound conditional GET reuse; browser control-plane reads use a bounded timeout; normalized GitHub rate-limit evidence remains operator health only and never grants retry or mutation authority.
+
 Access-authenticated decision routes exist in source for:
 
 - `POST /api/github/needs-changes`;
