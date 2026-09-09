@@ -80,7 +80,7 @@ test("preflight classifies Phase 5 migration history as all absent or all presen
   assert.match(source, /migration_status=PRESENT/);
   assert.match(source, /D1_PHASE5_MIGRATION_HISTORY_PARTIAL_OR_INVALID/);
   assert.match(source, /D1_PHASE5_SCHEMA_PRESENT_WITHOUT_MIGRATIONS/);
-  assert.match(source, /replay_key, replay_expires_at, claim_token/);
+  assert.match(source, /replay_key, replay_expires_at_ms, claimed_at_ms, claim_token/);
   assert.match(source, /project_id, repository, observed_at_ms, stored_at_ms/);
 });
 

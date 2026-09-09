@@ -59,9 +59,15 @@ Requires a separate owner LIVE authorization naming the exact source SHA, exact 
 
 After application, obtain read-only evidence again and require the expected migration/schema state. A failed or ambiguous apply is a STOP, not permission to retry or repair.
 
+The concrete source executor is `.github/workflows/phase5-rpi5-observation-d1-live.yml`. It is `workflow_dispatch` only, runs on exact current `main`, and binds the exact successful push CI run, exact successful read-only preflight run, exact Worker deployment/version, target D1 database and exact ordered migration ceiling. The executor uses `CLOUDFLARE_API_TOKEN` only for Worker GET evidence, `CLOUDFLARE_D1_READ_TOKEN` for D1 GET/SELECT verification, and a dedicated protected `CLOUDFLARE_D1_WRITE_TOKEN` only for the single Wrangler apply command. Secret values are never owner-command inputs or public evidence.
+
+Before `APPLY_STARTED=YES`, the remote `d1_migrations` history must equal the exact source prefix immediately before the authorized ceiling. For the all-absent Phase 5 case this means exactly `0001` through `0009`; if only `0011`–`0013` are authorized, history must be exactly `0001` through `0010` with the reviewed 0010 index present-valid. The source migration directory itself must be exactly `0001` through `0013`, preventing an unreviewed later migration from being swept into Wrangler's apply-all-pending behavior.
+
+Immediately before the one allowed Wrangler mutation, the executor repeats current-main, CI, preflight, Worker baseline, D1 identity, full migration-history and schema/index checks. It then emits `APPLY_STARTED=YES` and `AUTHORIZATION_CONSUMED=YES` before the command. Any later error is `POST_APPLY_STATE=REVIEW_REQUIRED` and STOP with no retry, rollback, cleanup or alternate mutation. Successful postwrite verification requires exact remote history `0001` through `0013`, the reviewed 0010 index, valid Phase 5 table/column probes and empty new Phase 5 tables before ingest activation; the standard read-only Phase 5 preflight must then be rerun as the public-safe receipt.
+
 Future command shape, documented only and not granted here:
 
-`AUTHORIZE LIVE PHASE5 D1 APPLY rozkalns-control-center source_sha=<sha> preflight_run=<run_id> migrations=<exact_csv> db=rozkalns-control-production`
+`AUTHORIZE LIVE PHASE5 D1 APPLY rozkalns-control-center source_sha=<sha> ci_run=<ci_run_id> preflight_run=<run_id> deployment=<deployment_id> version=<version_id> migrations=<exact_csv> db=rozkalns-control-production`
 
 ### 2. Verification-key provisioning
 

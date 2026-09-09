@@ -146,6 +146,17 @@ test("D1, key, Worker and RPi5 mutation classes stay separately owner-gated", ()
   assert.equal(contract.mutation_classes.RPI5_SIGNER_RUNTIME.direct_control_ssh_sudo_root_or_protected_host_path, false);
   assert.equal(contract.mutation_classes.RPI5_SIGNER_RUNTIME.requires_exact_control_source_sha, true);
   assert.equal(contract.mutation_classes.RPI5_SIGNER_RUNTIME.requires_expected_control_worker_state, true);
+
+  const d1 = contract.mutation_classes.D1_APPLY;
+  assert.equal(d1.executor_workflow, ".github/workflows/phase5-rpi5-observation-d1-live.yml");
+  assert.equal(d1.requires_exact_ci_run, true);
+  assert.equal(d1.requires_exact_worker_deployment, true);
+  assert.equal(d1.requires_exact_worker_version, true);
+  assert.equal(d1.requires_full_remote_migration_history_match, true);
+  assert.equal(d1.workers_read_secret_binding, "CLOUDFLARE_API_TOKEN");
+  assert.equal(d1.d1_read_secret_binding, "CLOUDFLARE_D1_READ_TOKEN");
+  assert.equal(d1.d1_write_secret_binding, "CLOUDFLARE_D1_WRITE_TOKEN");
+  assert.equal(d1.prewrite_history_rule, "REMOTE_HISTORY_EQUALS_SOURCE_PREFIX_BEFORE_EXACT_AUTHORIZED_CEILING");
 });
 
 test("future command templates are narrow documentation, not embedded secret material", () => {
@@ -192,6 +203,10 @@ test("operator activation doc keeps the fresh evidence and non-authority boundar
     "STOP_UNKNOWN_PARTIAL_CONTRADICTORY_OR_DRIFTED_STATE",
     "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS",
     "RPi5_main",
+    "phase5-rpi5-observation-d1-live.yml",
+    "CLOUDFLARE_D1_WRITE_TOKEN",
+    "APPLY_STARTED=YES",
+    "0001` through `0009",
   ]) {
     assert.match(text, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
