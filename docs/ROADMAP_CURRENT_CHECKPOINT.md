@@ -64,7 +64,7 @@ Durable Phase 5 boundary markers:
 
 ### Phase 5 observation source path
 
-The durable post-#599 path is:
+The durable post-#596 observation source path, with #599 migration-ceiling preflight hardening, is:
 
 ```text
 strictly sanitized RPi5 evidence
