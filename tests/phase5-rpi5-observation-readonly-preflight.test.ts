@@ -4,6 +4,13 @@ import test from "node:test";
 
 const WORKFLOW_PATH = ".github/workflows/phase5-rpi5-observation-readonly-preflight.yml";
 
+const EXPECTED_0010_INDEX_SQL =
+  "create index idx_webhook_deliveries_active_updated_delivery on webhook_deliveries (updated_at, delivery_id) where state <> 'succeeded'";
+
+function normalizeSchemaSql(sql: string): string {
+  return sql.toLowerCase().replace(/\s+/g, " ").replace(/^ /, "").replace(/ $/, "");
+}
+
 function workflowSource(): string {
   return readFileSync(WORKFLOW_PATH, "utf8");
 }
@@ -64,6 +71,20 @@ test("preflight classifies predecessor migration 0010 and its exact partial inde
   assert.match(source, /tbl_name == "webhook_deliveries"/);
   assert.match(source, /updated_at, delivery_id/);
   assert.match(source, /where state <> 'succeeded'/);
+  assert.match(
+    source,
+    /ascii_downcase \| gsub\("\[\[:space:\]\]\+"; " "\) \| sub\("\^ "; ""\) \| sub\(" \$"; ""\)/,
+  );
+});
+
+test("preflight index SQL normalization ignores formatting whitespace but preserves reviewed semantics", () => {
+  const equivalent = `\nCREATE INDEX idx_webhook_deliveries_active_updated_delivery\n  ON webhook_deliveries (updated_at, delivery_id)\n  WHERE state <> 'SUCCEEDED'\n   `;
+  const differentPredicate = `CREATE INDEX idx_webhook_deliveries_active_updated_delivery
+    ON webhook_deliveries (updated_at, delivery_id)
+    WHERE state = 'SUCCEEDED'`;
+
+  assert.equal(normalizeSchemaSql(equivalent), EXPECTED_0010_INDEX_SQL);
+  assert.notEqual(normalizeSchemaSql(differentPredicate), EXPECTED_0010_INDEX_SQL);
 });
 
 test("preflight classifies Phase 5 migration history as all absent or all present", () => {
