@@ -4,6 +4,8 @@ import test from "node:test";
 
 const CONTRACT_PATH = ".github/phase5-rpi5-observation-activation-contract.json";
 const DOC_PATH = "docs/PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md";
+const OPERATOR_PATH = "docs/PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md";
+const CHECKPOINT_PATH = "docs/ROADMAP_CURRENT_CHECKPOINT.md";
 
 function source(path: string): string {
   return readFileSync(path, "utf8");
@@ -113,6 +115,12 @@ test("migration ceiling permits only coherent exact ordered apply sets", () => {
     D1_PHASE5_MIGRATIONS: "ABSENT",
     D1_PHASE5_SCHEMA: "ABSENT_CONSISTENT",
   });
+  assert.deepEqual(allPresent.when, {
+    D1_0010_MIGRATION: "PRESENT",
+    D1_0010_INDEX: "PRESENT_VALID",
+    D1_PHASE5_MIGRATIONS: "PRESENT",
+    D1_PHASE5_SCHEMA: "PRESENT_VALID",
+  });
 });
 
 test("D1, key, Worker and RPi5 mutation classes stay separately owner-gated", () => {
@@ -127,9 +135,17 @@ test("D1, key, Worker and RPi5 mutation classes stay separately owner-gated", ()
     assert.equal(mutationClass.requires_separate_owner_live_authorization, true);
   }
 
+  for (const name of ["D1_APPLY", "VERIFICATION_KEY_PROVISION", "WORKER_ACTIVATE"]) {
+    assert.equal(contract.mutation_classes[name].requires_exact_source_sha, true);
+    assert.equal(contract.mutation_classes[name].requires_exact_preflight_run, true);
+    assert.equal(contract.mutation_classes[name].requires_expected_remote_state_match, true);
+  }
+
   assert.equal(contract.mutation_classes.VERIFICATION_KEY_PROVISION.secret_value_in_command_repo_logs_or_receipt, false);
   assert.equal(contract.mutation_classes.RPI5_SIGNER_RUNTIME.authority_owner, "RPi5_main");
   assert.equal(contract.mutation_classes.RPI5_SIGNER_RUNTIME.direct_control_ssh_sudo_root_or_protected_host_path, false);
+  assert.equal(contract.mutation_classes.RPI5_SIGNER_RUNTIME.requires_exact_control_source_sha, true);
+  assert.equal(contract.mutation_classes.RPI5_SIGNER_RUNTIME.requires_expected_control_worker_state, true);
 });
 
 test("future command templates are narrow documentation, not embedded secret material", () => {
@@ -185,4 +201,20 @@ test("operator activation doc keeps the fresh evidence and non-authority boundar
   assert.match(text, /never cascade automatically/i);
   assert.match(text, /consume the authorization when the first authorized mutation starts/i);
   assert.match(text, /do not retry, rollback, clean up or choose an alternate mutation/i);
+});
+
+test("durable operator and checkpoint docs converge on the hardened ceiling contract", () => {
+  for (const path of [OPERATOR_PATH, CHECKPOINT_PATH]) {
+    const text = source(path);
+    assert.match(text, /PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT\.md/);
+    assert.match(text, /0010_webhook_observability_hot_index\.sql/);
+    assert.match(text, /idx_webhook_deliveries_active_updated_delivery/);
+    assert.match(text, /MERGE_NOT_DEPLOY_AUTHORITY/);
+  }
+
+  assert.match(source(OPERATOR_PATH), /PR #599/);
+  assert.match(source(OPERATOR_PATH), /D1_0010_MIGRATION/);
+  assert.match(source(OPERATOR_PATH), /D1_0010_INDEX/);
+  assert.match(source(CHECKPOINT_PATH), /EXACT_D1_MIGRATION_CEILING/);
+  assert.match(source(CHECKPOINT_PATH), /three planning outcomes/i);
 });
