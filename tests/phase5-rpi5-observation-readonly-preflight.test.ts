@@ -51,6 +51,21 @@ test("preflight requires dormant ingest and never reads protected verification-k
   assert.equal(keyBindingLines.some((line) => /fromjson/.test(line)), false);
 });
 
+test("preflight classifies predecessor migration 0010 and its exact partial index", () => {
+  const source = workflowSource();
+
+  assert.match(source, /0010_webhook_observability_hot_index\.sql/);
+  assert.match(source, /idx_webhook_deliveries_active_updated_delivery/);
+  assert.match(source, /D1_0010_MIGRATION=%s/);
+  assert.match(source, /D1_0010_INDEX=%s/);
+  assert.match(source, /D1_0010_MIGRATION_HISTORY_INVALID/);
+  assert.match(source, /D1_0010_INDEX_PRESENT_WITHOUT_MIGRATION/);
+  assert.match(source, /D1_0010_INDEX_INVALID/);
+  assert.match(source, /tbl_name == "webhook_deliveries"/);
+  assert.match(source, /updated_at, delivery_id/);
+  assert.match(source, /where state <> 'succeeded'/);
+});
+
 test("preflight classifies Phase 5 migration history as all absent or all present", () => {
   const source = workflowSource();
 
