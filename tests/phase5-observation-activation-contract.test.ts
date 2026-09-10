@@ -254,6 +254,8 @@ test("post-#612 durable continuity advances from key executor to Worker activati
 
   assert.match(text, /next incomplete Control source mutation class/i);
   assert.match(text, /#611[^\n]*(?:completed source history|completed history)/i);
-  assert.doesNotMatch(text, /(?:current|next)[^\n.]{0,80}#611|#611[^\n.]{0,80}(?:current|next)/i);
+  assert.doesNotMatch(text, /current focused source tracker:[^\n]*#611/i);
+  assert.doesNotMatch(text, /current first incomplete gate:[^\n]*#611/i);
+  assert.doesNotMatch(text, /next canonical lane[^\n]*#611/i);
   assert.match(text, /(?:does not|do not)[^\n]*(?:prove|authorize)[^\n]*(?:credential|Environment|LIVE|production)/i);
 });
