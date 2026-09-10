@@ -107,6 +107,7 @@ test("operator doc converges on candidate-only source work and the later #615 ex
 test("candidate source encodes exact fail-closed delta lists and source config digest", () => {
   for (const required of [
     "source_config_sha256",
+    "UPLOAD_NEW_VERSION_THEN_GET_VERIFY_THEN_DEPLOY_EXACT_VERSION_100_PERCENT",
     "CREATE_ONE_NEW_WORKER_VERSION_FROM_EXACT_SOURCE_AND_CANDIDATE_CONFIG",
     "ADD_OR_SET_CONTROL_RPI5_OBSERVATION_INGEST_ENABLED_TO_PLAIN_TEXT_TRUE",
     "DEPLOY_ONLY_THE_EXACT_VERIFIED_UPLOADED_VERSION_AT_100_PERCENT",
