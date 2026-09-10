@@ -61,7 +61,7 @@ export const VALID_PHASE5_WORKER_ACTIVATION_CANDIDATE = {
     non_target_bindings_sha256: PHASE5_WORKER_ACTIVATION_FIXTURE_BINDINGS_SHA256,
   },
   intended_result: {
-    version_strategy: "UPLOAD_NEW_VERSION_THEN_DEPLOY_EXACT_VERSION_100_PERCENT",
+    version_strategy: "UPLOAD_NEW_VERSION_THEN_GET_VERIFY_THEN_DEPLOY_EXACT_VERSION_100_PERCENT",
     ingest_binding: {
       name: PHASE5_WORKER_ACTIVATION_INGEST_BINDING,
       type: "plain_text",
