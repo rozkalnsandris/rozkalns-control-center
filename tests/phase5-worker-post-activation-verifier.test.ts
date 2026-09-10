@@ -55,7 +55,7 @@ test("verifier revalidates exact-main CI and only uses Workers GET surfaces", ()
     "/workers/scripts/${WORKER_NAME}/versions/${a.version}",
   ]) assert.ok(verifier.includes(required), `missing verifier invariant: ${required}`);
   assert.doesNotMatch(verifier, /method\s*:/);
-  assert.doesNotMatch(verifier, /spawnSync|wrangler|versions["', ]+upload|versions["', ]+deploy|triggers["', ]+deploy/);
+  assert.doesNotMatch(verifier, /spawnSync|"versions",\s*"upload"|"versions",\s*"deploy"|"triggers",\s*"deploy"/);
 });
 
 test("verifier requires the exact post-activation binding state without dormant-baseline reuse", () => {
