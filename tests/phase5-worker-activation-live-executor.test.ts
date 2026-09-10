@@ -123,7 +123,7 @@ test("upload and deployment are separated by GET verification and a repeated dri
   const upload = executor.indexOf("await uploadCandidate");
   const verify = executor.indexOf("await assertUploadedCandidate");
   const guard = executor.indexOf("await assertPredeployStillSafe");
-  const deploy = executor.indexOf("deployExactCandidate");
+  const deploy = executor.indexOf("deployExactCandidate(a, versionId);");
   assert.ok(upload >= 0 && verify > upload && guard > verify && deploy > guard);
   assert.equal((executor.match(/"versions", "deploy"/g) ?? []).length, 1);
   assert.match(executor, /`${versionId}@100%`/);
