@@ -1,0 +1,97 @@
+name: Phase 5 RPi5 observation Worker activate
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact current main SHA authorized for Worker activation
+        required: true
+        type: string
+      expected_ci_run:
+        description: Exact successful push CI run on approved_sha
+        required: true
+        type: string
+      expected_preflight_run:
+        description: Exact successful Phase 5 readonly preflight run on approved_sha
+        required: true
+        type: string
+      expected_deployment:
+        description: Exact active Worker deployment observed by the approved preflight
+        required: true
+        type: string
+      expected_version:
+        description: Exact active Worker version observed by the approved preflight
+        required: true
+        type: string
+      candidate_sha256:
+        description: SHA-256 of the exact public-safe reviewed candidate manifest JSON
+        required: true
+        type: string
+      candidate_manifest_json:
+        description: Exact public-safe reviewed candidate manifest JSON; public metadata only
+        required: true
+        type: string
+      key_id:
+        description: Public verification key identifier bound by the reviewed candidate
+        required: true
+        type: string
+      authorization:
+        description: Exact owner LIVE authorization string binding the public execution tuple
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase5-rpi5-observation-worker-activate-live
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    name: one-shot exact-candidate Worker activation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: production-worker-activation-live
+    env:
+      APPROVED_SHA: ${{ inputs.approved_sha }}
+      EXPECTED_CI_RUN: ${{ inputs.expected_ci_run }}
+      EXPECTED_PREFLIGHT_RUN: ${{ inputs.expected_preflight_run }}
+      EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+      EXPECTED_CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
+      CANDIDATE_MANIFEST_JSON: ${{ inputs.candidate_manifest_json }}
+      AUTHORIZED_KEY_ID: ${{ inputs.key_id }}
+      OWNER_AUTHORIZATION: ${{ inputs.authorization }}
+      GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout exact authorized source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.approved_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup canonical Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Verify canonical Node version
+        run: node scripts/verify-node-version.mjs
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build exact source before LIVE authority can be consumed
+        run: npm run build
+
+      - name: Execute one-shot Worker activation mutation class
+        env:
+          CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+          CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN }}
+        run: node scripts/phase5-rpi5-observation-worker-activate-live.mjs
