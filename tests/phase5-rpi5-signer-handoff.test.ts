@@ -141,7 +141,7 @@ test("expected identity drift rejects an otherwise valid handoff", () => {
 
 test("fail-closed errors never echo rejected manifest values", () => {
   const rejected = mutableRecord(VALID_PHASE5_RPI5_SIGNER_HANDOFF);
-  const marker = "synthetic-rejected-value";
+  const marker = "synthetic/rejected/value";
   setPath(rejected, ["key_id"], marker);
 
   assert.throws(
