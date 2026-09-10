@@ -75,7 +75,7 @@ export interface Phase5WorkerActivationCandidateManifest {
     readonly non_target_bindings_sha256: string;
   };
   readonly intended_result: {
-    readonly version_strategy: "UPLOAD_NEW_VERSION_THEN_DEPLOY_EXACT_VERSION_100_PERCENT";
+    readonly version_strategy: "UPLOAD_NEW_VERSION_THEN_GET_VERIFY_THEN_DEPLOY_EXACT_VERSION_100_PERCENT";
     readonly ingest_binding: {
       readonly name: typeof PHASE5_WORKER_ACTIVATION_INGEST_BINDING;
       readonly type: "plain_text";
@@ -269,7 +269,12 @@ export function normalizePhase5WorkerActivationCandidateManifest(
     "custom_domains",
     "triggers",
   ]);
-  if (intended.version_strategy !== "UPLOAD_NEW_VERSION_THEN_DEPLOY_EXACT_VERSION_100_PERCENT") fail();
+  if (
+    intended.version_strategy !==
+    "UPLOAD_NEW_VERSION_THEN_GET_VERIFY_THEN_DEPLOY_EXACT_VERSION_100_PERCENT"
+  ) {
+    fail();
+  }
 
   const ingest = requirePlainRecord(intended.ingest_binding);
   requireExactFields(intended.ingest_binding as object, ingest, ["name", "type", "value"]);
@@ -367,7 +372,7 @@ export function normalizePhase5WorkerActivationCandidateManifest(
       non_target_bindings_sha256: nonTargetBindingsSha256,
     },
     intended_result: {
-      version_strategy: "UPLOAD_NEW_VERSION_THEN_DEPLOY_EXACT_VERSION_100_PERCENT",
+      version_strategy: "UPLOAD_NEW_VERSION_THEN_GET_VERIFY_THEN_DEPLOY_EXACT_VERSION_100_PERCENT",
       ingest_binding: {
         name: PHASE5_WORKER_ACTIVATION_INGEST_BINDING,
         type: "plain_text",
