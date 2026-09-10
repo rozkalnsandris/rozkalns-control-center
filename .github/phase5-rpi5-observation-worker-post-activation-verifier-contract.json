@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "contract": "PHASE5_RPI5_OBSERVATION_WORKER_POST_ACTIVATION_VERIFIER_V1",
+  "repository": "rozkalnsandris/rozkalns-control-center",
+  "issue": 616,
+  "authority": {
+    "source_contract_only": true,
+    "read_only_verifier": true,
+    "live_authority_granted": false,
+    "merge_authorizes_live": false,
+    "authorization_consumed": false
+  },
+  "verifier": {
+    "workflow": ".github/workflows/phase5-rpi5-observation-worker-post-activation-verify.yml",
+    "script": "scripts/phase5-rpi5-observation-worker-post-activation-verify.mjs",
+    "github_environment": "production-readonly-reconcile",
+    "manual_workflow_dispatch_only": true,
+    "github_hosted_linux_only": true
+  },
+  "public_inputs": [
+    "approved_sha",
+    "expected_ci_run",
+    "expected_deployment",
+    "expected_version",
+    "expected_non_target_bindings_sha256"
+  ],
+  "protected_credentials": {
+    "workers_read_secret_binding": "CLOUDFLARE_API_TOKEN",
+    "workers_write_credential": "ABSENT",
+    "d1_credential": "ABSENT"
+  },
+  "verification_gates": {
+    "exact_current_main": true,
+    "successful_exact_main_ci": true,
+    "active_deployment_equals_expected": true,
+    "active_version_equals_expected": true,
+    "active_version_count": 1,
+    "active_traffic_percent": 100,
+    "ingest_binding": "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED_PLAIN_TEXT_TRUE",
+    "verification_key_binding": "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS_SECRET_TEXT_VALUE_UNOBSERVED",
+    "control_db_binding": "8504e986-faf0-450c-bfb5-41b5dbf8be09_UNCHANGED",
+    "non_target_binding_inventory_sha256_equals_expected": true,
+    "compatibility_date_equals_current_source": true,
+    "compatibility_flags_equal_current_source": true,
+    "script_identity_metadata_present": true,
+    "pre_activation_dormant_ingest_assumption_reused": false
+  },
+  "cloudflare_read_surfaces": [
+    "GET /accounts/{account_id}/workers/scripts/{script_name}/deployments",
+    "GET /accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}"
+  ],
+  "zero_mutation": {
+    "worker_upload": false,
+    "worker_deploy": false,
+    "worker_config_mutation": false,
+    "d1_mutation": false,
+    "queue_mutation": false,
+    "secret_value_observation": false,
+    "secret_mutation": false,
+    "cloudflare_settings_mutation": false,
+    "rpi5_request": false
+  },
+  "receipt": {
+    "pass_marker": "PHASE5_WORKER_POST_ACTIVATION_VERIFY=PASS",
+    "stop_marker": "PHASE5_WORKER_POST_ACTIVATION_VERIFY=STOP",
+    "source_ready_does_not_prove_live_state": true,
+    "bounded_public_safe_output_only": true
+  }
+}
