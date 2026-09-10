@@ -6,6 +6,7 @@ const CONTRACT_PATH = ".github/phase5-rpi5-observation-activation-contract.json"
 const DOC_PATH = "docs/PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md";
 const OPERATOR_PATH = "docs/PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md";
 const CHECKPOINT_PATH = "docs/ROADMAP_CURRENT_CHECKPOINT.md";
+const ROADMAP_PATH = "docs/ROADMAP.md";
 
 function source(path: string): string {
   return readFileSync(path, "utf8");
@@ -233,4 +234,28 @@ test("durable operator and checkpoint docs converge on the hardened ceiling cont
   assert.match(source(OPERATOR_PATH), /D1_0010_INDEX/);
   assert.match(source(CHECKPOINT_PATH), /EXACT_D1_MIGRATION_CEILING/);
   assert.match(source(CHECKPOINT_PATH), /three planning outcomes/i);
+});
+
+test("post-#612 durable continuity advances from key executor to Worker activation source preparation", () => {
+  const durableDocs = [source(CHECKPOINT_PATH), source(ROADMAP_PATH), source(OPERATOR_PATH)];
+  const text = durableDocs.join("\n");
+
+  for (const required of [
+    "PR #604",
+    "PR #606",
+    "PR #612",
+    "WORKER_ACTIVATE",
+    "issue #614",
+    "SOURCE_READY_LIVE_UNPROVEN",
+    "MERGE_NOT_DEPLOY_AUTHORITY",
+  ]) {
+    assert.match(text, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+  }
+
+  assert.match(text, /next incomplete Control source mutation class/i);
+  assert.match(text, /#611[^\n]*(?:completed source history|completed history)/i);
+  assert.doesNotMatch(text, /current focused source tracker:[^\n]*#611/i);
+  assert.doesNotMatch(text, /current first incomplete gate:[^\n]*#611/i);
+  assert.doesNotMatch(text, /next canonical lane[^\n]*#611/i);
+  assert.match(text, /(?:does not|do not)[^\n]*(?:prove|authorize)[^\n]*(?:credential|Environment|LIVE|production)/i);
 });

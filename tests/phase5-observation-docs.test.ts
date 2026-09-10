@@ -40,7 +40,7 @@ test("README and roadmap navigation converge on the Phase 5 operator contract", 
 
   assert.match(source(README_PATH), /post-#596/i);
   assert.match(source(ROADMAP_PATH), /PR #596/);
-  assert.match(source(CHECKPOINT_PATH), /post-#596/i);
+  assert.match(source(CHECKPOINT_PATH), /PR #612/);
 });
 
 test("durable docs retain source-vs-live and merge-vs-deploy boundary markers", () => {

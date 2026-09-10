@@ -1,6 +1,6 @@
 # Rozkalns Control — Current Roadmap Checkpoint
 
-Last reconciled: **2026-09-09**.
+Last reconciled: **2026-09-10**.
 
 Master issue #1 remains the canonical product/architecture contract, `docs/ROADMAP.md` remains the long-form roadmap, and issue #278 is the canonical operational handoff for changing live/current state. This checkpoint records durable architecture and gates only; it deliberately omits transient workflow-run IDs, deployment/version identifiers, secret values and one-shot authorization receipts.
 
@@ -27,7 +27,7 @@ Durable Phase 5 boundary markers:
 - **Phase 2 — read-only GitHub/control-plane foundation:** live-read, GitHub App, webhook, D1 and Queue architecture established; current production facts remain separately evidenced.
 - **Phase 3 — authenticated human decision actions:** complete for the bounded Merge, Needs changes and Later chain recorded by canonical #278; completed canaries create no standing mutation authority.
 - **Phase 4 — notifications and deterministic continuation:** complete for the bounded Telegram/continuation chain recorded by canonical #278; historical receipts are terminal evidence only and must never be replayed.
-- **Phase 5 — production visibility:** active. The authenticated observation ingestion/runtime chain, hardened GET/SELECT-only production-readiness preflight and source-only activation-gate contract are merged/source-defined. Current remote schema/key/activation/Worker/RPi5/delivery state remains freshly evidenced and/or separately gated (`SOURCE_READY_LIVE_UNPROVEN`).
+- **Phase 5 — production visibility:** active. The authenticated observation ingestion/runtime chain, hardened GET/SELECT-only production-readiness preflight, source-only activation-gate contract, fail-closed D1 apply executor and fail-closed verification-key provisioning executor are merged/source-defined. Current GitHub Environment/credential/secret state, active Worker configuration, RPi5 signer/runtime and delivered-observation state remain freshly evidenced and/or separately gated (`SOURCE_READY_LIVE_UNPROVEN`).
 - **Optional AI/runtime phase:** deferred.
 
 ## Durable current architecture
@@ -50,7 +50,7 @@ Durable Phase 5 boundary markers:
 ### Webhook, Queue and D1 reconciliation
 
 - Webhook HMAC is verified over raw bytes before payload identity is trusted.
-- D1 stores bounded reconciliation, decision-audit/idempotency, notification, continuation, Later and Phase 5 observation state.
+- D1 stores bounded reconciliation, decision audit/idempotency, notification, continuation, Later and Phase 5 observation state.
 - Queue messages are at-least-once triggers and may duplicate/reorder; correctness comes from durable state transitions, replay/idempotency handling and authoritative rereads.
 - DLQ state remains bounded/observable; no implicit retry/requeue/delete authority exists.
 - Source migrations remain deploy inputs only. Remote schema must be proven separately.
@@ -64,7 +64,7 @@ Durable Phase 5 boundary markers:
 
 ### Phase 5 observation source path
 
-The durable post-#596 observation source path, with #599 migration-ceiling preflight hardening, is:
+The durable authenticated observation source path, with hardened migration-ceiling evidence and concrete source-only mutation executors, is:
 
 ```text
 strictly sanitized RPi5 evidence
@@ -90,9 +90,12 @@ Merged capability sequence:
 - PR #592 — atomic replay + monotonic projection acceptance migration/primitive;
 - PR #594 — atomic authenticated runtime composition;
 - PR #596 — GET/SELECT-only production-readiness preflight;
-- PR #599 — hardened predecessor migration `0010_webhook_observability_hot_index.sql` and exact index `idx_webhook_deliveries_active_updated_delivery` classification for the D1 migration ceiling.
+- PR #599 — hardened predecessor migration `0010_webhook_observability_hot_index.sql` and exact index `idx_webhook_deliveries_active_updated_delivery` classification for the D1 migration ceiling;
+- PR #604 — fail-closed, manual-only Phase 5 production D1 apply executor source;
+- PR #606 — dedicated `production-d1-live` GitHub Environment binding for that D1 executor source contract;
+- PR #612 — fail-closed, manual-only verification-key provisioning executor source using the protected `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` binding contract.
 
-The route remains dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Verification material is protected under `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS`; repository source does not provision its value. Source migrations `0010`–`0013` do not prove they are applied remotely.
+The route remains dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Verification material is protected under `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS`; repository source does not prove its current value or presence. Source migrations `0010`–`0013` and executor workflows do not prove that any corresponding LIVE action has run.
 
 The complete operator architecture and trust checklist are in [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md). The source-only future cutover/authorization contract is in [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md) and `.github/phase5-rpi5-observation-activation-contract.json`.
 
@@ -117,6 +120,15 @@ PASS means only `SAFE_FOR_SEPARATELY_AUTHORIZED_ACTIVATION_PLANNING`; FAIL is di
 
 `EXACT_D1_MIGRATION_CEILING` is derived only from a fresh coherent hardened preflight. The source contract permits exactly three planning outcomes: all `0010`–`0013` pending, only `0011`–`0013` pending, or `NO_D1_APPLY_REQUIRED`. Any other predecessor/Phase 5 combination is STOP, not repair authority.
 
+## Current Phase 5 source readiness
+
+- `D1_APPLY` has a concrete fail-closed source executor at `.github/workflows/phase5-rpi5-observation-d1-live.yml`; its existence grants no D1 mutation authority.
+- `VERIFICATION_KEY_PROVISION` has a concrete fail-closed source executor at `.github/workflows/phase5-rpi5-observation-verification-key-live.yml`; its existence does not prove the required GitHub Environment, write token, registry secret or production binding state.
+- `WORKER_ACTIVATE` is the **next incomplete Control source mutation class**. The machine contract defines its authority boundary, but current source has no concrete Worker-activation candidate manifest/executor yet. The queued source-only preparation lane begins with issue #614.
+- `RPI5_SIGNER_RUNTIME` remains owned by `RPi5_main`; Control source must not cross that trust boundary.
+
+Issue #611 is completed source history after PR #612 and must not be selected as the current implementation lane.
+
 ## Current gate model
 
 ### Read-only checkpoint
@@ -135,6 +147,8 @@ If fresh evidence proves a mutation-bearing activation step is necessary, the pl
 4. Worker configuration/deploy/activation — separate Cloudflare LIVE authority;
 5. RPi5 signer/private-key/runtime delivery — separate RPi5 trust-boundary authority;
 6. read-only/live evidence reconciliation — read-only unless another mutation is explicitly declared.
+
+Source readiness is independent from current LIVE prerequisite state. The next **source** gap is `WORKER_ACTIVATE` preparation; that does not skip, satisfy or authorize any earlier LIVE prerequisite.
 
 Each mutation class consumes only its own one-shot authorization at the first authorized mutation. An error, timeout, drift or ambiguity after mutation begins requires STOP; there is no implicit retry, rollback, cleanup, alternate path or cross-class cascade. No merged source, green preflight or historical canary collapses those gates.
 
@@ -165,6 +179,6 @@ The following remain separately gated:
 
 ## Current continuation rule
 
-The old #574/#576 source lanes are completed history and are not current implementation pointers. Do not recreate them because older docs or issue bodies still mention them.
+The old #574/#576 source lanes and #611 verification-key executor lane are completed history and are not current implementation pointers. Do not recreate or resume them because older docs or issue bodies still mention them.
 
-For present continuation, fresh-read canonical #278, current `main`, relevant current GitHub evidence, [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md) and [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md). Select the next exact read-only or owner/LIVE gate from that fresh state. `SOURCE_READY_LIVE_UNPROVEN` remains the durable classification until live facts are freshly proven.
+For present continuation, fresh-read canonical #278, current `main`, relevant current GitHub evidence, [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md) and [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md). For source-level work after this reconciliation, the next queued Control lane is #614 for `WORKER_ACTIVATE` candidate preparation. Any production prerequisite remains a separate owner/LIVE gate selected only from fresh evidence. `SOURCE_READY_LIVE_UNPROVEN` remains the durable classification until live facts are freshly proven.

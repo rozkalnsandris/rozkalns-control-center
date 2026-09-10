@@ -1,10 +1,10 @@
 # Phase 5 RPi5 production visibility — observation operator contract
 
-Phase 5 may surface sanitized, read-only production evidence for managed projects whose `productionAdapter` is `rpi5`. This document is the durable Control-side operator contract for the merged authenticated observation source path and its GET/SELECT-only production-readiness preflight.
+Phase 5 may surface sanitized, read-only production evidence for managed projects whose `productionAdapter` is `rpi5`. This document is the durable Control-side operator contract for the merged authenticated observation source path, its GET/SELECT-only production-readiness preflight and the source-only activation preparation that follows.
 
 Stable boundary markers:
 
-- `SOURCE_READY_LIVE_UNPROVEN` — repository source can prove the intended observation path, but it does not prove current Worker, D1, binding, key, RPi5 or delivery state.
+- `SOURCE_READY_LIVE_UNPROVEN` — repository source can prove the intended observation path and reviewed activation executors, but it does not prove current Worker, D1, binding, key, credential, RPi5 or delivery state.
 - `READONLY_PREFLIGHT_EVIDENCE_ONLY` — a preflight PASS/FAIL is classification evidence only; it grants no mutation authority.
 - `MERGE_NOT_DEPLOY_AUTHORITY` — source merge never authorizes Worker deployment, D1/Queue writes, key provisioning or RPi5 runtime work.
 
@@ -41,9 +41,12 @@ Durable source progression:
 - PR #592 — source migration `0013_rpi5_observation_atomic_acceptance.sql` and transactional replay + monotonic projection acceptance;
 - PR #594 — atomic authenticated ingestion/runtime composition through the dormant Worker route;
 - PR #596 — merged GET/SELECT-only production-readiness preflight;
-- PR #599 — hardened the preflight to classify predecessor migration `0010_webhook_observability_hot_index.sql` and exact partial index `idx_webhook_deliveries_active_updated_delivery` before deriving any D1 migration ceiling.
+- PR #599 — hardened the preflight to classify predecessor migration `0010_webhook_observability_hot_index.sql` and exact partial index `idx_webhook_deliveries_active_updated_delivery` before deriving any D1 migration ceiling;
+- PR #604 — added the manual-only fail-closed Phase 5 production D1 apply executor source;
+- PR #606 — bound that D1 executor source contract to the dedicated `production-d1-live` GitHub Environment;
+- PR #612 — added the manual-only fail-closed verification-key provisioning executor source for `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS`.
 
-The route remains fail-closed and dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Repository configuration does not provision that activation flag or a `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` value. Source migrations `0010`–`0013` are deploy inputs only and do not prove remote application.
+The route remains fail-closed and dormant unless `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` is exactly `"true"`. Repository configuration does not itself provision that activation flag or prove a current `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` value. Source migrations `0010`–`0013` and merged executor workflows are deploy/activation inputs only and do not prove that their corresponding LIVE actions have occurred.
 
 ## Sanitized consumer boundary
 
@@ -121,6 +124,17 @@ The hardened public-safe fields include `D1_0010_MIGRATION`, `D1_0010_INDEX`, `D
 
 A FAIL must never be “fixed” by an unapproved production mutation. A PASS must never be interpreted as permission to mutate production.
 
+## Source activation readiness after PR #612
+
+The machine activation contract still contains four separately owner-gated mutation classes, and their source readiness is intentionally asymmetric:
+
+1. **`D1_APPLY` — concrete source executor present.** `.github/workflows/phase5-rpi5-observation-d1-live.yml` is reviewed fail-closed source. Its presence does not prove current remote D1 state or authorize an apply.
+2. **`VERIFICATION_KEY_PROVISION` — concrete source executor present.** `.github/workflows/phase5-rpi5-observation-verification-key-live.yml` is reviewed fail-closed source. Its presence does not prove the dedicated Environment, write token, protected registry secret or target production binding state.
+3. **`WORKER_ACTIVATE` — next incomplete Control source mutation class.** The machine contract defines its owner/LIVE boundary, prerequisite relationship and post-mutation evidence, but current source has no concrete activation candidate manifest/executor. The next queued source-only preparation lane is issue #614.
+4. **`RPI5_SIGNER_RUNTIME` — external trust boundary.** Its source/runtime authority remains owned by `RPi5_main`, never by Control.
+
+Issue #611 is completed source history after PR #612. It is not a current implementation pointer and its old pre-merge state must not be replayed as continuation authority.
+
 ## Future activation dependency order
 
 When mutable operational continuity says Phase 5 activation should proceed, use the following dependency order only as a planning graph. Every mutation-bearing step requires its own exact owner/LIVE authority under the current governing contract.
@@ -132,7 +146,7 @@ When mutable operational continuity says Phase 5 activation should proceed, use 
 5. **RPi5 signer/private-key/runtime delivery** — RPi5 trust-boundary mutation; separately authorized under the owning RPi5 contract.
 6. **Observation reconciliation** — GET-only/read-only evidence may verify the resulting state; any additional mutation remains separately gated.
 
-Do not collapse these steps merely because source code is merged or a preflight is green. The exact one-shot semantics and future owner command shapes are in [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md).
+Source-level work may prepare the next class without satisfying or skipping an earlier LIVE prerequisite. Do not collapse these steps merely because source code is merged or a preflight is green. The exact one-shot semantics and future owner command shapes are in [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md).
 
 ## Trust-boundary checklist
 
@@ -150,7 +164,7 @@ Before treating any Phase 5 observation work as eligible, require all of the fol
 
 ## Non-authority and current-state rule
 
-Repository source/configuration can prove the intended observation contract. It cannot independently prove the active Worker version/traffic, remote D1 migration/schema state, binding/secret values, ingest activation, verification-key registry content, RPi5 signer/runtime state or successful live observation delivery.
+Repository source/configuration can prove the intended observation contract and reviewed activation executors. It cannot independently prove the active Worker version/traffic, remote D1 migration/schema state, binding/secret values, credential/Environment readiness, ingest activation, verification-key registry content, RPi5 signer/runtime state or successful live observation delivery.
 
 Current production facts belong in fresh GitHub/runtime evidence, not this file. Even when a read-only preflight has run successfully, its result is a bounded observation at that time; it does not become standing authority or durable proof of future state.
 
