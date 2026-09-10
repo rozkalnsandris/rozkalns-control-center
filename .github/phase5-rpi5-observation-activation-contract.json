@@ -103,7 +103,22 @@
       "requires_expected_remote_state_match": true,
       "binding": "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS",
       "secret_value_in_command_repo_logs_or_receipt": false,
-      "post_mutation_verification": "READ_BINDING_NAME_AND_PROTECTED_TYPE_ONLY_NEVER_VALUE"
+      "executor_workflow": ".github/workflows/phase5-rpi5-observation-verification-key-live.yml",
+      "github_environment": "production-verification-key-live",
+      "requires_exact_ci_run": true,
+      "requires_exact_worker_deployment": true,
+      "requires_exact_worker_version": true,
+      "workers_read_secret_binding": "CLOUDFLARE_API_TOKEN",
+      "workers_write_secret_binding": "CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN",
+      "registry_secret_binding": "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS_PROVISION_VALUE",
+      "registry_version": "control-phase5-rpi5-verification-keys-v1",
+      "registry_exact_key_count": 1,
+      "registry_key_id_must_equal_authorized_key_id": true,
+      "mutation_ceiling": "ONE_WRANGLER_SECRET_PUT_FOR_CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS_ONLY",
+      "wrangler_secret_put_creates_and_deploys_new_worker_version": true,
+      "prewrite_binding_state": "TARGET_SECRET_ABSENT_AND_INGEST_DORMANT",
+      "post_mutation_verification": "NEW_EXACT_DEPLOYMENT_VERSION_WITH_TARGET_SECRET_TEXT_BINDING_ONLY_NON_SECRET_BINDING_INVENTORY_UNCHANGED_AND_INGEST_DORMANT_NEVER_READ_VALUE",
+      "automatic_retry_rollback_cleanup_or_alternate_mutation": false
     },
     "WORKER_ACTIVATE": {
       "requires_separate_owner_live_authorization": true,
@@ -127,7 +142,7 @@
   },
   "future_owner_command_templates": {
     "D1_APPLY": "AUTHORIZE LIVE PHASE5 D1 APPLY rozkalns-control-center source_sha=<sha> ci_run=<ci_run_id> preflight_run=<run_id> deployment=<deployment_id> version=<version_id> migrations=<exact_csv> db=rozkalns-control-production",
-    "VERIFICATION_KEY_PROVISION": "AUTHORIZE LIVE PHASE5 VERIFICATION KEY PROVISION rozkalns-control-center source_sha=<sha> preflight_run=<run_id> binding=CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS key_id=<public_key_id>",
+    "VERIFICATION_KEY_PROVISION": "AUTHORIZE LIVE PHASE5 VERIFICATION KEY PROVISION rozkalns-control-center source_sha=<sha> ci_run=<ci_run_id> preflight_run=<run_id> deployment=<deployment_id> version=<version_id> binding=CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS key_id=<public_key_id>",
     "WORKER_ACTIVATE": "AUTHORIZE LIVE PHASE5 WORKER ACTIVATE rozkalns-control-center source_sha=<sha> preflight_run=<run_id> worker_version=<version_id> ingest=true",
     "RPI5_SIGNER_RUNTIME": "AUTHORIZE LIVE PHASE5 RPI5 SIGNER RUNTIME RPi5_main control_source_sha=<sha> control_worker_version=<version_id> key_id=<public_key_id>"
   },
