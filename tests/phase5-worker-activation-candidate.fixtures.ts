@@ -1,0 +1,114 @@
+import {
+  PHASE5_WORKER_ACTIVATION_ALLOWED_DELTAS,
+  PHASE5_WORKER_ACTIVATION_CANDIDATE_CONTRACT,
+  PHASE5_WORKER_ACTIVATION_CANDIDATE_SCHEMA_VERSION,
+  PHASE5_WORKER_ACTIVATION_D1_BINDING,
+  PHASE5_WORKER_ACTIVATION_D1_DATABASE_ID,
+  PHASE5_WORKER_ACTIVATION_FORBIDDEN_DELTAS,
+  PHASE5_WORKER_ACTIVATION_INGEST_BINDING,
+  PHASE5_WORKER_ACTIVATION_NODE_VERSION,
+  PHASE5_WORKER_ACTIVATION_REPOSITORY,
+  PHASE5_WORKER_ACTIVATION_VERIFICATION_KEY_BINDING,
+  PHASE5_WORKER_ACTIVATION_WORKER,
+  PHASE5_WORKER_ACTIVATION_WRANGLER_VERSION,
+  type Phase5WorkerActivationCandidateManifest,
+  type Phase5WorkerActivationObservedBaseline,
+} from "../src/shared/phase5-worker-activation-candidate.js";
+
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_SOURCE_SHA = "a".repeat(40);
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_SOURCE_CONFIG_SHA256 = "b".repeat(64);
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_BINDINGS_SHA256 = "c".repeat(64);
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_DEPLOYMENT_ID =
+  "11111111-1111-4111-8111-111111111111";
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_VERSION_ID =
+  "22222222-2222-4222-8222-222222222222";
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_CI_RUN_ID = "34445265179";
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_PREFLIGHT_RUN_ID = "34450000001";
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_PROVISION_RUN_ID = "34450000002";
+export const PHASE5_WORKER_ACTIVATION_FIXTURE_KEY_ID = "rpi5-observation-2026q3";
+
+export const VALID_PHASE5_WORKER_ACTIVATION_CANDIDATE = {
+  schema_version: PHASE5_WORKER_ACTIVATION_CANDIDATE_SCHEMA_VERSION,
+  contract: PHASE5_WORKER_ACTIVATION_CANDIDATE_CONTRACT,
+  repository: PHASE5_WORKER_ACTIVATION_REPOSITORY,
+  worker: PHASE5_WORKER_ACTIVATION_WORKER,
+  source_sha: PHASE5_WORKER_ACTIVATION_FIXTURE_SOURCE_SHA,
+  ci_run_id: PHASE5_WORKER_ACTIVATION_FIXTURE_CI_RUN_ID,
+  preflight_run_id: PHASE5_WORKER_ACTIVATION_FIXTURE_PREFLIGHT_RUN_ID,
+  source_config_sha256: PHASE5_WORKER_ACTIVATION_FIXTURE_SOURCE_CONFIG_SHA256,
+  toolchain: {
+    node_version: PHASE5_WORKER_ACTIVATION_NODE_VERSION,
+    wrangler_version: PHASE5_WORKER_ACTIVATION_WRANGLER_VERSION,
+  },
+  expected_current: {
+    deployment_id: PHASE5_WORKER_ACTIVATION_FIXTURE_DEPLOYMENT_ID,
+    version_id: PHASE5_WORKER_ACTIVATION_FIXTURE_VERSION_ID,
+    traffic_percent: 100,
+    ingest_binding_state: "ABSENT",
+    verification_key_prerequisite: {
+      binding: PHASE5_WORKER_ACTIVATION_VERIFICATION_KEY_BINDING,
+      type: "secret_text",
+      state: "PRESENT_PROTECTED",
+      key_id: PHASE5_WORKER_ACTIVATION_FIXTURE_KEY_ID,
+      provision_run_id: PHASE5_WORKER_ACTIVATION_FIXTURE_PROVISION_RUN_ID,
+      value_observed: false,
+    },
+    d1_prerequisite: {
+      binding: PHASE5_WORKER_ACTIVATION_D1_BINDING,
+      database_id: PHASE5_WORKER_ACTIVATION_D1_DATABASE_ID,
+      migration_state: "PRESENT_VALID_0010_THROUGH_0013",
+    },
+    non_target_bindings_sha256: PHASE5_WORKER_ACTIVATION_FIXTURE_BINDINGS_SHA256,
+  },
+  intended_result: {
+    version_strategy: "UPLOAD_NEW_VERSION_THEN_DEPLOY_EXACT_VERSION_100_PERCENT",
+    ingest_binding: {
+      name: PHASE5_WORKER_ACTIVATION_INGEST_BINDING,
+      type: "plain_text",
+      value: "true",
+    },
+    verification_key_binding: {
+      name: PHASE5_WORKER_ACTIVATION_VERIFICATION_KEY_BINDING,
+      type: "secret_text",
+      state: "PRESENT_PROTECTED_UNCHANGED",
+      key_id: PHASE5_WORKER_ACTIVATION_FIXTURE_KEY_ID,
+      value_observed: false,
+    },
+    d1_binding: {
+      name: PHASE5_WORKER_ACTIVATION_D1_BINDING,
+      database_id: PHASE5_WORKER_ACTIVATION_D1_DATABASE_ID,
+      state: "UNCHANGED",
+    },
+    non_target_bindings_sha256: PHASE5_WORKER_ACTIVATION_FIXTURE_BINDINGS_SHA256,
+    routes: "UNCHANGED",
+    custom_domains: "UNCHANGED",
+    triggers: "UNCHANGED",
+  },
+  allowed_deltas: [...PHASE5_WORKER_ACTIVATION_ALLOWED_DELTAS],
+  forbidden_deltas: [...PHASE5_WORKER_ACTIVATION_FORBIDDEN_DELTAS],
+  one_shot: {
+    authorization_consumed_at: "FIRST_WORKER_VERSION_UPLOAD",
+    cross_class_cascade: false,
+    automatic_retry_rollback_cleanup_or_alternate_mutation: false,
+    after_upload_mismatch: "STOP_NO_DEPLOY",
+    post_deploy_verification: "GET_ONLY_EXACT_ACTIVE_VERSION_TRAFFIC_BINDINGS_AND_ROUTE_STATE",
+  },
+} as const satisfies Phase5WorkerActivationCandidateManifest;
+
+export const VALID_PHASE5_WORKER_ACTIVATION_OBSERVED_BASELINE = {
+  source_sha: PHASE5_WORKER_ACTIVATION_FIXTURE_SOURCE_SHA,
+  ci_run_id: PHASE5_WORKER_ACTIVATION_FIXTURE_CI_RUN_ID,
+  preflight_run_id: PHASE5_WORKER_ACTIVATION_FIXTURE_PREFLIGHT_RUN_ID,
+  deployment_id: PHASE5_WORKER_ACTIVATION_FIXTURE_DEPLOYMENT_ID,
+  version_id: PHASE5_WORKER_ACTIVATION_FIXTURE_VERSION_ID,
+  traffic_percent: 100,
+  ingest_binding_state: "ABSENT",
+  verification_key_binding_type: "secret_text",
+  verification_key_state: "PRESENT_PROTECTED",
+  verification_key_id: PHASE5_WORKER_ACTIVATION_FIXTURE_KEY_ID,
+  verification_key_provision_run_id: PHASE5_WORKER_ACTIVATION_FIXTURE_PROVISION_RUN_ID,
+  verification_key_value_observed: false,
+  d1_database_id: PHASE5_WORKER_ACTIVATION_D1_DATABASE_ID,
+  d1_migration_state: "PRESENT_VALID_0010_THROUGH_0013",
+  non_target_bindings_sha256: PHASE5_WORKER_ACTIVATION_FIXTURE_BINDINGS_SHA256,
+} as const satisfies Phase5WorkerActivationObservedBaseline;
