@@ -28,7 +28,7 @@ on:
         required: true
         type: string
       candidate_manifest_json:
-        description: Exact public-safe reviewed candidate manifest JSON; no secret/private-key values
+        description: Exact public-safe reviewed candidate manifest JSON; public metadata only
         required: true
         type: string
       key_id:
