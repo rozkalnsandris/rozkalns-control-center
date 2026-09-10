@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "contract": "PHASE5_RPI5_OBSERVATION_WORKER_ACTIVATION_EXECUTOR_V1",
+  "repository": "rozkalnsandris/rozkalns-control-center",
+  "issue": 615,
+  "authority": {
+    "source_contract_only": true,
+    "live_authority_granted": false,
+    "merge_authorizes_live": false,
+    "authorization_consumed_at": "FIRST_WORKER_VERSION_UPLOAD",
+    "on_error_timeout_drift_or_ambiguity_after_mutation": "STOP_NO_RETRY_ROLLBACK_CLEANUP_OR_ALTERNATE_MUTATION"
+  },
+  "executor": {
+    "workflow": ".github/workflows/phase5-rpi5-observation-worker-activate-live.yml",
+    "script": "scripts/phase5-rpi5-observation-worker-activate-live.mjs",
+    "github_environment": "production-worker-activation-live",
+    "manual_workflow_dispatch_only": true,
+    "first_attempt_only": true,
+    "github_hosted_linux_only": true,
+    "build_before_authorization_consumption": true
+  },
+  "public_inputs": [
+    "approved_sha",
+    "expected_ci_run",
+    "expected_preflight_run",
+    "expected_deployment",
+    "expected_version",
+    "candidate_sha256",
+    "candidate_manifest_json",
+    "key_id",
+    "authorization"
+  ],
+  "protected_credentials": {
+    "workers_read_secret_binding": "CLOUDFLARE_API_TOKEN",
+    "d1_read_secret_binding": "CLOUDFLARE_D1_READ_TOKEN",
+    "workers_scripts_write_secret_binding": "CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN",
+    "write_token_scope": "WRANGLER_VERSION_UPLOAD_AND_EXACT_VERSION_DEPLOY_CHILD_PROCESSES_ONLY"
+  },
+  "prewrite_gates": {
+    "exact_current_main": true,
+    "successful_exact_main_ci": true,
+    "successful_first_attempt_exact_main_phase5_readonly_preflight": true,
+    "successful_first_attempt_exact_main_verification_key_provision_run": true,
+    "candidate_manifest_sha256_equals_owner_authorization": true,
+    "candidate_source_config_sha256_equals_wrangler_jsonc": true,
+    "candidate_delta": "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED_PLAIN_TEXT_TRUE_ONLY",
+    "current_worker_deployment_version_equals_authorized_baseline": true,
+    "current_worker_traffic_percent": 100,
+    "verification_key_binding": "PRESENT_PROTECTED_SECRET_TEXT_VALUE_UNOBSERVED",
+    "control_db_binding": "8504e986-faf0-450c-bfb5-41b5dbf8be09_UNCHANGED",
+    "d1_resource_identity": "rozkalns-control-production_8504e986-faf0-450c-bfb5-41b5dbf8be09_eu",
+    "d1_migrations": "0010_THROUGH_0013_PRESENT_VALID",
+    "d1_phase5_schema": "PRESENT_VALID",
+    "non_target_binding_inventory_sha256_equals_candidate": true,
+    "built_assets_required": true
+  },
+  "mutation_ceiling": {
+    "version_upload_count": 1,
+    "version_deploy_count": 1,
+    "version_strategy": "UPLOAD_NEW_VERSION_THEN_GET_VERIFY_THEN_DEPLOY_EXACT_VERSION_100_PERCENT",
+    "direct_wrangler_deploy_forbidden": true,
+    "wrangler_triggers_deploy_forbidden": true,
+    "d1_mutation": false,
+    "secret_mutation": false,
+    "queue_mutation": false,
+    "route_custom_domain_cron_mutation": false,
+    "rpi5_mutation": false,
+    "experimental_provision": false,
+    "experimental_auto_create": false
+  },
+  "between_upload_and_deploy": {
+    "get_exact_uploaded_worker_version": true,
+    "require_ingest_plain_text_true": true,
+    "require_verification_key_protected_unchanged": true,
+    "require_control_db_unchanged": true,
+    "require_non_target_binding_digest_unchanged": true,
+    "repeat_exact_main_ci_preflight_provision_evidence": true,
+    "repeat_d1_present_valid_evidence": true,
+    "repeat_authorized_active_baseline": true,
+    "on_any_mismatch": "STOP_NO_DEPLOY"
+  },
+  "postdeploy": {
+    "get_only": true,
+    "require_exact_uploaded_version_active": true,
+    "require_new_deployment": true,
+    "require_traffic_percent": 100,
+    "require_ingest_plain_text_true": true,
+    "require_verification_key_protected_unchanged": true,
+    "secret_value_observed": false,
+    "require_control_db_unchanged": true,
+    "require_non_target_binding_digest_unchanged": true,
+    "repeat_d1_present_valid_evidence": true,
+    "trigger_route_custom_domain_queue_mutation_path": "ABSENT"
+  },
+  "owner_command_template": "AUTHORIZE LIVE PHASE5 WORKER ACTIVATE rozkalns-control-center source_sha=<sha> ci_run=<ci_run_id> preflight_run=<run_id> deployment=<deployment_id> version=<version_id> candidate_sha256=<candidate_manifest_sha256> key_id=<public_key_id> ingest=true"
+}
