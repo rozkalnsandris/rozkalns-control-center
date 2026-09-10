@@ -52,7 +52,7 @@ jobs:
   activate:
     name: one-shot exact-candidate Worker activation
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     environment: production-worker-activation-live
     env:
       APPROVED_SHA: ${{ inputs.approved_sha }}
@@ -86,8 +86,12 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Build exact source before LIVE authority can be consumed
+        run: npm run build
+
       - name: Execute one-shot Worker activation mutation class
         env:
           CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
           CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN }}
         run: node scripts/phase5-rpi5-observation-worker-activate-live.mjs
