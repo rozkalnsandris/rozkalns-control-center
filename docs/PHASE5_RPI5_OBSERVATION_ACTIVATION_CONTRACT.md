@@ -71,13 +71,19 @@ Future command shape, documented only and not granted here:
 
 ### 2. Verification-key provisioning
 
-Requires a separate owner LIVE authorization naming exact source/preflight state, binding `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` and a public key identifier. Secret/private-key values must never appear in the command, repository, logs, tests, screenshots or public receipts; key material must enter only through a separately approved secret channel.
+Requires a separate owner LIVE authorization naming exact current-main source SHA, exact successful push CI run, exact successful Phase 5 read-only preflight run, exact active baseline Worker deployment/version, binding `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` and one public `key_id`.
 
-Post-mutation verification may observe only binding name and protected binding type, never the value.
+The concrete source executor is `.github/workflows/phase5-rpi5-observation-verification-key-live.yml`. It is `workflow_dispatch` only and is bound to the dedicated `production-verification-key-live` GitHub Environment. The environment must supply `CLOUDFLARE_API_TOKEN` for Worker GET evidence, a dedicated least-privilege `CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN` used only by the one mutation command, and `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS_PROVISION_VALUE` as the protected registry payload. This source contract does not create the environment, tokens or secret.
 
-Future command shape:
+The protected registry must be exact Phase 5 v1 JSON: version `control-phase5-rpi5-verification-keys-v1`, exactly one key entry, exact fields `keyId` and `publicKeyBase64url`, authorized `keyId`, and one canonical 32-byte Ed25519 raw public key encoded as base64url. The registry value is never a dispatch input, command argument, repository value, log field or receipt field. Only the public `key_id` is safe owner-command/audit metadata.
 
-`AUTHORIZE LIVE PHASE5 VERIFICATION KEY PROVISION rozkalns-control-center source_sha=<sha> preflight_run=<run_id> binding=CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS key_id=<public_key_id>`
+Before `SECRET_PROVISION_STARTED=YES`, the executor revalidates exact current `main`, exact CI/preflight run identity, exact active Worker deployment/version, unchanged `CONTROL_DB`, dormant ingest, target secret absence and the protected registry shape. It repeats the mutable gates immediately before the mutation. The sole mutation is one `wrangler secret put CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS --name rozkalns-control`, with the registry supplied through stdin and the dedicated write token scoped to that child process. Because `wrangler secret put` creates a new Worker version and deploys it immediately, this mutation consumes the authorization before Wrangler is invoked.
+
+Any error after `SECRET_PROVISION_STARTED=YES` is `POST_MUTATION_STATE=REVIEW_REQUIRED` and STOP. There is no retry, rollback, cleanup or alternate mutation. Postwrite GET-only verification requires a new exact deployment/version at 100% traffic, exactly one `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS:secret_text` protected binding, no observed secret value, byte-for-byte canonical equality of the remaining non-secret binding inventory to the baseline, unchanged `CONTROL_DB`, and continued absence of `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED`. The executor contains no D1, Queue, route, DNS, Access or RPi5 mutation path.
+
+Future command shape, documented only and not granted here:
+
+`AUTHORIZE LIVE PHASE5 VERIFICATION KEY PROVISION rozkalns-control-center source_sha=<sha> ci_run=<ci_run_id> preflight_run=<run_id> deployment=<deployment_id> version=<version_id> binding=CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS key_id=<public_key_id>`
 
 ### 3. Worker activation
 
