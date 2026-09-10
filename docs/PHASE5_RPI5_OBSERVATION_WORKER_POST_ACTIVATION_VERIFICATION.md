@@ -46,7 +46,7 @@ The exact expected version ID is the primary identity binding for the code/confi
 
 ## Public-safe receipt
 
-Success emits `PHASE5_WORKER_POST_ACTIVATION_VERIFY=PASS` plus the approved SHA, CI run, deployment/version IDs, traffic state, public binding classifications and non-target binding digest.
+Success emits `PHASE5_WORKER_POST_ACTIVATION_VERIFY=PASS` plus the approved SHA, CI run, deployment/version IDs, traffic state, public binding classifications and non-target binding digest. The protected key classification is emitted only as `VERIFICATION_KEY_BINDING=PRESENT_PROTECTED_SECRET_TEXT_VALUE_UNOBSERVED`; no key value is read or emitted.
 
 Both PASS and STOP paths emit explicit zero-mutation markers including:
 
