@@ -85,15 +85,33 @@ Future command shape, documented only and not granted here:
 
 `AUTHORIZE LIVE PHASE5 VERIFICATION KEY PROVISION rozkalns-control-center source_sha=<sha> ci_run=<ci_run_id> preflight_run=<run_id> deployment=<deployment_id> version=<version_id> binding=CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS key_id=<public_key_id>`
 
-### 3. Worker activation
+### 3. Worker activation candidate and future executor boundary
 
-Requires a separate owner LIVE authorization after the D1 and verification-key prerequisites are freshly proven satisfied. It must name exact source SHA, preflight evidence, exact Worker version/configuration/bindings and the intended ingest activation. It may not silently change unrelated bindings, routes, DNS, Access, Tunnel or account configuration.
+`WORKER_ACTIVATE` remains a separate LIVE class after D1 and verification-key prerequisites are freshly proven satisfied. Issue #614 defines only the reviewed candidate-manifest contract; it performs no upload, version creation, deployment, traffic change or binding/configuration mutation. The strict validator is `src/shared/phase5-worker-activation-candidate.ts` with contract `PHASE5_RPI5_OBSERVATION_WORKER_ACTIVATION_CANDIDATE_V1`.
 
-Post-mutation verification is GET-only evidence for exact active version, traffic, expected bindings and activation state.
+A valid candidate binds all public-safe identity needed for the later one-shot:
 
-Future command shape:
+- exact source SHA, successful exact-source CI run and exact successful Phase 5 preflight run;
+- exact current Worker deployment/version at 100% traffic;
+- exact SHA-256 identity of the reviewed source/candidate configuration;
+- dormant baseline ingest state: `ABSENT` or `PRESENT_FALSE` only;
+- exact protected `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS:secret_text` prerequisite, public `key_id`, provisioning-run identity and `value_observed=false`;
+- exact `CONTROL_DB` resource `8504e986-faf0-450c-bfb5-41b5dbf8be09` with migrations `0010` through `0013` present-valid;
+- SHA-256 identity of the complete non-target binding inventory before and after activation.
 
-`AUTHORIZE LIVE PHASE5 WORKER ACTIVATE rozkalns-control-center source_sha=<sha> preflight_run=<run_id> worker_version=<version_id> ingest=true`
+The only allowed Worker-class delta is the reviewed candidate version/configuration that sets `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` as plain text exactly `true`, while the protected verification-key binding, `CONTROL_DB`, every non-target binding, routes, custom domains, triggers and Queue configuration remain unchanged. Secret values are never part of the candidate manifest or public receipt. Verification-key mutation, D1 mutation, route/domain/trigger/Queue mutation, Cloudflare account/Access/DNS/Tunnel mutation and RPi5 mutation remain forbidden cross-class deltas.
+
+For the future executor in issue #615, the fail-closed version lifecycle is deliberately split. The first authorized Worker mutation is a new version upload from the exact source and exact candidate configuration; authorization is consumed immediately before that upload. The returned new version must then be checked with GET-only evidence against the authorized candidate. Only that exact GET-verified uploaded version may be deployed at 100% traffic. A direct upload-and-deploy path such as ordinary `wrangler deploy` is outside this contract because it would remove the verification barrier between version creation and activation.
+
+If upload succeeds but the resulting version cannot be proven to equal the candidate, the state is `STOP_NO_DEPLOY`. Any tool error, timeout, drift or ambiguity after the first upload starts is STOP with no automatic retry, rollback, cleanup, version deletion or alternate mutation. A later executor may not silently repair or choose another version. The exact executor implementation remains #615 source work and is not created or authorized by #614.
+
+Post-deploy verification is GET-only and must prove the exact uploaded version is active at 100%, ingest is exactly `true`, the protected verification-key prerequisite is still present without reading its value, `CONTROL_DB` is unchanged, the non-target binding digest is unchanged, and route/custom-domain/trigger/Queue state is unchanged.
+
+Future public-safe command shape, documented only and not granted here:
+
+`AUTHORIZE LIVE PHASE5 WORKER ACTIVATE rozkalns-control-center source_sha=<sha> ci_run=<ci_run_id> preflight_run=<run_id> deployment=<deployment_id> version=<version_id> candidate_sha256=<candidate_manifest_sha256> key_id=<public_key_id> ingest=true`
+
+The `candidate_sha256` binds the exact canonical candidate manifest reviewed for that one-shot. It contains no secret/private-key value and does not grant LIVE authority by itself.
 
 ### 4. RPi5 signer/runtime delivery
 
