@@ -126,7 +126,7 @@ test("upload and deployment are separated by GET verification and a repeated dri
   const deploy = executor.indexOf("deployExactCandidate(a, versionId);");
   assert.ok(upload >= 0 && verify > upload && guard > verify && deploy > guard);
   assert.equal((executor.match(/"versions", "deploy"/g) ?? []).length, 1);
-  assert.match(executor, /`${versionId}@100%`/);
+  assert.ok(executor.includes("`${versionId}@100%`"));
   assert.match(executor, /UPLOADED_CANDIDATE_GET_VERIFY=PASS/);
   assert.match(executor, /PREDEPLOY_DRIFT_GUARD=PASS/);
 });
