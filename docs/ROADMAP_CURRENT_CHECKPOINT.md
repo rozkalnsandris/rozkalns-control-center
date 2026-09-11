@@ -54,7 +54,7 @@ Current source contains reviewed contracts for:
 - authenticated sanitized RPi5 observation transport and atomic acceptance;
 - exact-main GET/SELECT-only production preflight;
 - production D1 apply executor;
-- verification-key provisioning executor;
+- **PR #612 — verification-key provisioning executor**;
 - Worker activation candidate and one-shot upload→GET-verify→deploy executor;
 - GET-only post-activation Worker verifier;
 - public-safe `PHASE5_RPI5_SIGNER_HANDOFF_V1` to `RPi5_main`;
@@ -63,7 +63,7 @@ Current source contains reviewed contracts for:
 - production-visibility health UI;
 - high-signal visibility drift/recovery notification model.
 
-The final durable reconciliation is [`PHASE5_SOURCE_COMPLETION_RECONCILIATION.md`](PHASE5_SOURCE_COMPLETION_RECONCILIATION.md). The detailed observation boundary remains [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md).
+The final durable reconciliation is [`PHASE5_SOURCE_COMPLETION_RECONCILIATION.md`](PHASE5_SOURCE_COMPLETION_RECONCILIATION.md). The detailed observation boundary remains [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md), and the hardened activation/cutover contract remains [`PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md`](PHASE5_RPI5_OBSERVATION_ACTIVATION_CONTRACT.md).
 
 No current source statement proves the GitHub Environment credentials, Cloudflare tokens, protected verification registry, active Worker ingest state, current remote D1 schema, RPi5 private signing key/runtime or delivered observation state.
 
