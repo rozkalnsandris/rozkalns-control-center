@@ -35,7 +35,7 @@ There is **no new source lane** required merely to continue Phase 5 activation. 
 
 ## Completed D1 LIVE class is not a forward gate
 
-Canonical #278 records the bounded Phase 5 `D1_APPLY` production mutation as completed and its one-shot authorization as consumed/non-replayable. This source reconciliation therefore does not list `D1_APPLY` as a remaining owner gate.
+The Phase 5 D1 apply is completed and non-replayable. Canonical #278 records the bounded Phase 5 `D1_APPLY` production mutation as completed and its one-shot authorization as consumed/non-replayable. This source reconciliation therefore does not list `D1_APPLY` as a remaining owner gate.
 
 A fresh production preflight must still prove the expected D1 migration/schema state because source does not prove current remote state. If current read-only evidence contradicts the completed apply receipt, the result is STOP and fresh diagnosis/new scope. Contradiction does **not** reactivate, replay or authorize the consumed D1 apply.
 
