@@ -43,7 +43,8 @@ Durable Phase 5 boundary markers:
 
 - `CONTROL_DB` is the production D1 binding contract for durable reconciliation/audit/continuation/Phase 5 observation state.
 - Queue messages are at-least-once triggers, may duplicate or reorder, and never become authorization evidence.
-- The Phase 5 migration ceiling includes predecessor `0010_webhook_observability_hot_index.sql` followed by `0011`–`0013`; current remote application must be proven separately.
+- The Phase 5 migration ceiling includes predecessor `0010_webhook_observability_hot_index.sql` followed by `0011`–`0013`.
+- Canonical #278 records the bounded Phase 5 production D1 apply as completed and its one-shot authorization as consumed/non-replayable. Fresh read-only D1 evidence must continue to match that completed state; contradiction is STOP/diagnosis, never replay authority.
 - D1/Queue failure or ambiguity is an operational blocker, never permission to repair or mutate implicitly.
 
 ## Phase 5 reconciled source chain
@@ -53,17 +54,18 @@ Current source contains reviewed contracts for:
 - authenticated sanitized RPi5 observation transport and atomic acceptance;
 - exact-main GET/SELECT-only production preflight;
 - production D1 apply executor;
-- verification-key provisioning executor (merged through PR #612);
+- verification-key provisioning executor;
 - Worker activation candidate and one-shot upload→GET-verify→deploy executor;
 - GET-only post-activation Worker verifier;
 - public-safe `PHASE5_RPI5_SIGNER_HANDOFF_V1` to `RPi5_main`;
+- synthetic/public signed-observation compatibility vectors from #618;
 - signed-observation read-only reconciliation;
 - production-visibility health UI;
 - high-signal visibility drift/recovery notification model.
 
 The final durable reconciliation is [`PHASE5_SOURCE_COMPLETION_RECONCILIATION.md`](PHASE5_SOURCE_COMPLETION_RECONCILIATION.md). The detailed observation boundary remains [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md).
 
-No current source statement proves the GitHub Environment credentials, Cloudflare tokens, protected verification registry, active Worker ingest state, remote D1 schema, RPi5 private signing key/runtime or delivered observation state.
+No current source statement proves the GitHub Environment credentials, Cloudflare tokens, protected verification registry, active Worker ingest state, current remote D1 schema, RPi5 private signing key/runtime or delivered observation state.
 
 ## Current gate model
 
@@ -73,17 +75,18 @@ Before any next mutation-bearing Phase 5 step, use a fresh exact-main GET/SELECT
 
 PASS means `SAFE_FOR_SEPARATELY_AUTHORIZED_ACTIVATION_PLANNING`, not permission. FAIL is diagnosis only (`READONLY_PREFLIGHT_EVIDENCE_ONLY`).
 
+Fresh D1 migration/schema evidence must agree with the already-completed Phase 5 apply. A mismatch does not recreate `D1_APPLY`; it requires STOP and fresh diagnosis/new scope.
+
 ### Remaining conditional owner/LIVE gates
 
-Fresh evidence determines which gates are actually needed:
+Fresh evidence determines which forward gates are actually needed:
 
 1. credential/environment prerequisites, if missing;
-2. D1 apply only if the fresh baseline derives an exact non-empty migration ceiling;
-3. verification-key provision only if required;
-4. Worker activation after all prerequisites are freshly satisfied;
-5. GET-only post-activation verification;
-6. RPi5 signer/private-key/runtime delivery under the separate `RPi5_main` trust boundary;
-7. read-only signed-observation reconciliation.
+2. verification-key provision, if still required;
+3. Worker activation after all prerequisites are freshly satisfied;
+4. GET-only post-activation verification;
+5. RPi5 signer/private-key/runtime delivery under the separate `RPi5_main` trust boundary;
+6. read-only signed-observation reconciliation.
 
 Read-only checkpoints are technical evidence steps and are not owner mutation gates. Every mutation-bearing class has separate one-shot owner authority. There is no cross-class cascade, historical authorization replay or merge-to-deploy inheritance.
 
@@ -92,7 +95,8 @@ Read-only checkpoints are technical evidence steps and are not owner mutation ga
 - No direct Control SSH/sudo/root/generic-helper path to RPi5.
 - No protected-host filesystem/service/runtime/database inspection from Control.
 - No secret/private-key/verification-key value in repo, public issues, logs, screenshots or receipts.
-- Source merge is not proof of remote D1 apply, Worker deploy, binding setup or route activation.
+- Source merge is not proof of Worker deploy, binding setup or route activation.
+- The completed Phase 5 D1 apply is historical bounded evidence and may not be replayed from later contradictory reads.
 - Observation/UI/notification evidence is not deploy, rollback, DB, Queue, credential or host authority.
 - Unknown/stale/partial/mismatched evidence fails closed.
 - After a mutation consumes authority, error/timeout/drift/ambiguity requires STOP; no automatic retry, rollback, cleanup or alternate mutation path.
@@ -101,6 +105,6 @@ Read-only checkpoints are technical evidence steps and are not owner mutation ga
 
 The #613–#621 queued source chain is complete. There is no current #614/#615 source implementation lane and no automatic post-#622 source queue.
 
-After final source reconciliation, fresh-read canonical #278 and current production/read-only evidence. Select only the first genuine remaining owner/LIVE or external gate. If that gate belongs to `RPi5_main`, stop at its current repository-local authorization contract. Do not invent additional Control source work to avoid that boundary.
+After final source reconciliation, fresh-read canonical #278 and current production/read-only evidence. Require D1 evidence to remain consistent with the completed non-replayable apply, then select only the first genuine remaining owner/LIVE or external gate. If that gate belongs to `RPi5_main`, stop at its current repository-local authorization contract. Do not invent additional Control source work to avoid that boundary.
 
 `SOURCE_CHAIN_COMPLETE_LIVE_UNPROVEN` remains the durable classification until live state is separately proven.
