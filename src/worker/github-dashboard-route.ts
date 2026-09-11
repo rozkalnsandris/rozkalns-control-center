@@ -1,6 +1,13 @@
 import { readCloudflareGitHubDashboardSnapshot } from "../integrations/github/cloudflare-dashboard-runtime.js";
 import type { CloudflareGitHubRuntimeBindings } from "../integrations/github/cloudflare-worker-runtime.js";
-import type { ControlDashboardData } from "../shared/control-model.js";
+import {
+  productionVisibilityForProject,
+  type ControlDashboardData,
+} from "../shared/control-model.js";
+import {
+  deriveProductionVisibilityHealth,
+  type ProductionVisibilityHealthProjectIdentity,
+} from "../shared/production-visibility-health.js";
 
 export const GITHUB_DASHBOARD_ROUTE_PATH = "/api/github/dashboard" as const;
 
@@ -26,14 +33,40 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
 
+function withProductionVisibilityHealth(
+  snapshot: ControlDashboardData,
+): ControlDashboardData {
+  const productionVisibilityHealth = snapshot.projects.flatMap((project) => {
+    if (project.productionAdapter !== "rpi5") return [];
+    const identity: ProductionVisibilityHealthProjectIdentity = {
+      id: project.id,
+      repository: project.repository,
+      productionAdapter: "rpi5",
+    };
+    return [
+      deriveProductionVisibilityHealth(
+        identity,
+        productionVisibilityForProject(snapshot, project.id),
+        snapshot.generatedAt,
+      ),
+    ];
+  });
+
+  return {
+    ...snapshot,
+    productionVisibilityHealth,
+  };
+}
+
 export async function executeLiveGitHubDashboard(
   input: LiveGitHubDashboardInput,
   dependencies: LiveGitHubDashboardDependencies = {},
 ): Promise<ControlDashboardData> {
-  return (dependencies.readDashboard ?? readCloudflareGitHubDashboardSnapshot)({
+  const snapshot = await (dependencies.readDashboard ?? readCloudflareGitHubDashboardSnapshot)({
     bindings: input.bindings,
     observedAt: input.observedAt,
   });
+  return withProductionVisibilityHealth(snapshot);
 }
 
 export async function handleGitHubDashboardRequest(
