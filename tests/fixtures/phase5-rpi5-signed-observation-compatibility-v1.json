@@ -10,11 +10,11 @@
     "keys": [
       {
         "keyId": "compat-primary-v1",
-        "publicKeyBase64url": "rJT0aEY68xtQsxMdZH18xLKTiCHBkwWVZSofyyESu2I"
+        "publicKeyBase64url": "xgTLUxnU6VV-YVgV-xNN71FcIga_8ghTFFNKaw5zfZE"
       },
       {
         "keyId": "compat-secondary-v1",
-        "publicKeyBase64url": "QW1nKJBZc0efSy9XRAgZ4qt7PRymwrW1-qm5y86x1O4"
+        "publicKeyBase64url": "Zg57rUW69Ki2WEaVgZm3AAgoAPsnR45lDgFTBzySTV4"
       }
     ]
   },
@@ -26,7 +26,7 @@
         "deliveryId": "11111111-1111-4111-8111-111111111111",
         "sentAt": "2026-09-11T09:58:00.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "muyoU2S4E_JXORPg5Wb8bx5DLCVkmOHl0r8zALL4ps1YFJ72Pb4qoWTDpkevFn1YNxF30SAk8rwY917arGoRDA"
+        "signature": "Rl2f_mLnljM9VZh5Ksshw4wpMNyvw3Wb_vJM_yWsaRhUHlzeh-2-pg_GVf_CbAPBj-D28qUvTDCa2Lzr8p5mBQ"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     },
@@ -37,7 +37,7 @@
         "deliveryId": "22222222-2222-4222-8222-222222222222",
         "sentAt": "2026-09-11T09:58:10.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "2GrkFxS0MGhp6DW5B18sRNYSN4FtrToXs33Yj4wB8b0Jv3hwGsh8FYbiBbhcJbJ6b_OxjNgzcJ-UoUsypmgiAw"
+        "signature": "PnhEAuHjrVZBnAxSlFUNlRCrL63k33G2MwdZMOAtkeWOk85C9fS0JPwcDfYsnsG5KA-3x3trxaECrfa_qPCkCg"
       },
       "payloadUtf8": "{\"observedAt\":\"2026-09-11T09:57:30.000Z\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"rollback\":\"AVAILABLE\",\"health\":\"PASS\",\"runtime\":\"HEALTHY\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"repository\":\"rozkalnsandris/hermes-tech\",\"projectId\":\"hermes-tech\"}"
     },
@@ -48,7 +48,7 @@
         "deliveryId": "33333333-3333-4333-8333-333333333333",
         "sentAt": "2026-09-11T09:58:20.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "Fa-DXlXaARxarTWrYRzuYGPQAnW7l9C0p5TyhGLQmQg36L2nGgDQ9JbVXvrpgAqBgW0gLnS7HTnP4xkmElG8Cw"
+        "signature": "jjoPnrAFRgj4bmSSE0kjUxH_UX2Gd8PtmZuaUR5ZgMNFTKFtuyh3-VvaWOiZtad1EQJAQccgh79SMkj_FwVfAQ"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     },
@@ -59,7 +59,7 @@
         "deliveryId": "44444444-4444-4444-8444-444444444444",
         "sentAt": "2026-09-11T09:58:30.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "U9EFxEMEOcOthE_bOMOLk4BtgZ7fiQIAJKG67E_EYC4XUv0bVWElqlAD4MpPZk9YfzeqmKoLzMp12ycHFY15Bg"
+        "signature": "CBu5kSELEZNUo_ypz7YxYG9sSTgO8opzTWLtepeJJv9dDIrZm5PvAiisJouCcXG8iGZg9UoMf70Z27ATj0KMDA"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:29.000Z\"}"
     },
@@ -70,7 +70,7 @@
         "deliveryId": "55555555-5555-4555-8555-555555555555",
         "sentAt": "2026-09-11T09:58:40.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "uJebuy5Az3A3EXIbY1X8Hif0wyxwg_fXOGD5OFMOmtJxaBsBJrdTUW41uqIkZHl81Cv7oxdhElgIr8gMAcnCCQ"
+        "signature": "nNWbfp0kLpUnVp7cg00vT_5HmoG1Nb5gYCWjrZ07HvSq0zRh2wBFwrIoERCezC57WNRO7b8gHBs77Mvxto--AQ"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:31.000Z\"}"
     },
@@ -81,7 +81,7 @@
         "deliveryId": "66666666-6666-4666-8666-666666666666",
         "sentAt": "2026-09-11T09:58:50.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "BT6JiW0H7wIdV33kOJLpYhE8NxII5qo96O_JgPKScbso20h-B_iQQFOAtBhA5KfB_mA7yw63SX_i7jFrC7WmCA"
+        "signature": "z09Sfj2CKBasyZ4MpFBnMMvibJ8L6qRByxJZ8mciN3WZyT_jeJ4FvfPUyhWETiSN-HK2dFUkWUHOuB4x3JSYDA"
       },
       "payloadUtf8": "{\"projectId\":\"rozkalns-control-center\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     },
@@ -92,7 +92,7 @@
         "deliveryId": "77777777-7777-4777-8777-777777777777",
         "sentAt": "2026-09-11T09:59:00.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "Q1vKP1ZjM5w5jRsNHyf6ie-nsAcE6fOP9JWNllKlYtrE50fdXe0B_L3VgU-qgM9Q2haZbXQphukrGKzKGmC0Cg"
+        "signature": "_CHiKYR5oiEu2bqG9_AflHoPm7F4uuByDI2cywpWyXE1iKVQfIDDbWk7nNhvHBDqcV2gDI1h13Wl6_P9IO28Dw"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"ABCDEF\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     },
@@ -103,7 +103,7 @@
         "deliveryId": "88888888-8888-4888-8888-888888888888",
         "sentAt": "2026-09-11T09:59:10.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "4btMkHhHWtqP86VtjGMPvPrUkZ-IQaKt8Sx7drjfQS2dKBuW1AQBOPGW7FW-mZNQ0eMeWaI8cMqYlYvT52RPBQ"
+        "signature": "mqpIjaR9SxiEP7RzurNOdirIlb6JohF2t6ujyk1UTcTbhrk6eWRoi80OpTdRDk0-VMwixTCpswOtvgcJhIX2CA"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"UNREACHABLE\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     },
@@ -114,7 +114,7 @@
         "deliveryId": "99999999-9999-4999-8999-999999999999",
         "sentAt": "2026-09-11T09:59:20.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "f_7QD31DSRAvEfzfNFGpNTmjRNTMXFQIaoilIZQu9CP2sT6E1GqEXnkMySfLRPeWuCX6SSYs_TscTHaR1AJ3Bg"
+        "signature": "2MBqoSCDMHxXfz3VdHmI4tlXkt-5s7QamP6vbEL11_EP6loom3kW3ynnUtP1a3FlWL8PnhkMS-vka-0Oswn_Cw"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30Z\"}"
     },
@@ -125,7 +125,7 @@
         "deliveryId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         "sentAt": "2026-09-11T09:59:30.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "iSWCKvZnfj4jMuuaECucVv8upghdgKMHVkmIp7gxEMeMJwaIppeWh6br1TlaEFc27cdaRJcOE6sVSe0b6EkOAw"
+        "signature": "E5lKK97uRW1j30bdUx0YtP89Szk3K1LLsbpl_0qp5X-Gc-o6ozTJoPdVcAtw85XKznnm3eRRXXV0wIacmYecCg"
       },
       "payloadUtf8": "{not-json"
     },
@@ -136,7 +136,7 @@
         "deliveryId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         "sentAt": "2026-09-11T09:59:40.000Z",
         "keyId": "compat-secondary-v1",
-        "signature": "nUP70dOMX8rCMZbT1-j2Yy-p1etTuCZGbYZRdNR0nnatVkUiFg9dBJgupntcz4aI8hE4uwHtyRb6iGUhkIB7BQ"
+        "signature": "hgPkDJa7LeNK6Q2NDinMgP_CzkdJTv9H50FpmJyEw3kMQkyj2R8-KNvr3bKEnXyk5tfK14tuHIZoIUygNlx0AQ"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     },
@@ -147,7 +147,7 @@
         "deliveryId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
         "sentAt": "2026-09-11T09:55:00.000Z",
         "keyId": "compat-primary-v1",
-        "signature": "XEpZHvPjSA9GDKLCYX_VSsKKBFxPl_P25zbzxFD7IQdNyZz2MrvjG2Iq0VXYEojAxiZ-FhzSqaESETpQudjPBw"
+        "signature": "twh8AhPmrIDLOpXTVvBclSJTbnwrG3G8KR8YRmDd_WbuawW-SvR4AdM3kPfDnwt_cr1zBQmPQfwAcutrTIWhBQ"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     },
@@ -158,7 +158,7 @@
         "deliveryId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
         "sentAt": "2026-09-11T09:54:59.999Z",
         "keyId": "compat-primary-v1",
-        "signature": "TjNNdjOVgXQ9PFuE28nr9RGVv5NhjLm2QYeG49QT5BH3vr0Vh4yhO8HOgwMiT_lOh4pN-W4leqjCVLpUUudRCw"
+        "signature": "426wcRCvAoaT2DvhSiSnh7QFgtQVormrtyEpPdQCBO8l3JQX3cZWFPMZ4SGe2JbDprUiPMEtcbE9Rx61yUB4CQ"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     },
@@ -169,7 +169,7 @@
         "deliveryId": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
         "sentAt": "2026-09-11T10:00:00.001Z",
         "keyId": "compat-primary-v1",
-        "signature": "7m02y6cQg6n5GPYIe4B0xZpPzYzDYV28pZrGRUP8MiiM2h2i4-gjKkNF28xezE3jlaSbdQBKHW6VJw78FTb5Cg"
+        "signature": "U2OaAaHFC7AoW6lNbGxnvbvDITaMh9SGpZqOgk44sWInd2yxI1BcnZrJlJJVjv92VPjsdpY89GUOSXJntbRVAw"
       },
       "payloadUtf8": "{\"projectId\":\"hermes-tech\",\"repository\":\"rozkalnsandris/hermes-tech\",\"mainSha\":\"1111111111111111111111111111111111111111\",\"productionSha\":\"2222222222222222222222222222222222222222\",\"deployImpact\":\"MANUAL_ROLLOUT_REQUIRED\",\"runtime\":\"HEALTHY\",\"health\":\"PASS\",\"rollback\":\"AVAILABLE\",\"blockerCodes\":[\"PRODUCTION_SHA_BEHIND_MAIN\"],\"observedAt\":\"2026-09-11T09:57:30.000Z\"}"
     }
