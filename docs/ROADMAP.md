@@ -26,7 +26,7 @@ A source-controlled migration is a deploy input. Source merge does not prove rem
 - **Phase 2 — live-read GitHub/control-plane foundation:** FOUNDATION ESTABLISHED; current production facts remain separately evidenced.
 - **Phase 3 — authenticated human decisions:** COMPLETE for the bounded Merge / Needs changes / Later chain recorded by #278; completed canaries create no standing mutation authority.
 - **Phase 4 — notifications + deterministic continuation:** COMPLETE for the bounded Telegram/continuation chain recorded by #278; historical receipts are terminal and non-reusable.
-- **Phase 5 — production visibility:** CONTROL SOURCE CHAIN COMPLETE / LIVE UNPROVEN. The authenticated observation ingestion/runtime chain, exact-main GET/SELECT-only preflight, fail-closed D1 apply and verification-key executors, Worker activation candidate/executor, GET-only post-activation verifier, sanitized RPi5 signer handoff, signed-observation reconciliation, production-visibility health UI and drift-notification model are merged at source level. Current production Environment/credential/secret state, remote D1/binding state, active Worker state, RPi5 signer/runtime and delivered observation evidence remain separately evidenced and separately authorized (`SOURCE_CHAIN_COMPLETE_LIVE_UNPROVEN`).
+- **Phase 5 — production visibility:** CONTROL SOURCE CHAIN COMPLETE / LIVE UNPROVEN. The authenticated observation ingestion/runtime chain, exact-main GET/SELECT-only preflight, fail-closed D1 apply and verification-key executors, Worker activation candidate/executor, GET-only post-activation verifier, sanitized RPi5 signer handoff, signed-observation compatibility vectors and reconciliation, production-visibility health UI and drift-notification model are merged at source level. Current production Environment/credential/secret state, remote D1/binding state, active Worker state, RPi5 signer/runtime and delivered observation evidence remain separately evidenced and separately authorized (`SOURCE_CHAIN_COMPLETE_LIVE_UNPROVEN`).
 - **Optional AI/runtime phase:** DEFERRED.
 
 See [`ROADMAP_CURRENT_CHECKPOINT.md`](ROADMAP_CURRENT_CHECKPOINT.md), [`PHASE5_SOURCE_COMPLETION_RECONCILIATION.md`](PHASE5_SOURCE_COMPLETION_RECONCILIATION.md), and [`PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md`](PHASE5_RPI5_PRODUCTION_VISIBILITY_BOUNDARY.md).
@@ -64,8 +64,10 @@ The source path has advanced through the authenticated dormant runtime chain and
 12. PR #606 — dedicated D1 LIVE environment declaration.
 13. PR #612 — fail-closed verification-key provisioning executor source.
 14. #614–#616 — Worker activation candidate, executor and GET-only post-activation verifier source.
-15. #618–#619 — sanitized RPi5 signer handoff and signed-observation read-only reconciliation source.
-16. #620–#621 — production-visibility health UI and high-signal drift notification source.
+15. #617 — sanitized Control-to-RPi5 signer handoff source.
+16. #618 — synthetic/public signed-observation compatibility vectors.
+17. #619 — signed-observation read-only reconciliation source.
+18. #620–#621 — production-visibility health UI and high-signal drift notification source.
 
 The runtime remains dormant unless production evidence proves `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED` exactly `"true"`. Protected verification-key material remains outside repository/public evidence. None of the merged source proves that LIVE actions occurred.
 
@@ -79,11 +81,13 @@ Before selecting a mutation-bearing Phase 5 step, use a fresh exact-main GET/SEL
 
 A PASS means only that the observed baseline is coherent enough for separately authorized planning. A FAIL is diagnosis only. Neither permits production mutation (`READONLY_PREFLIGHT_EVIDENCE_ONLY`).
 
+Canonical #278 records the bounded Phase 5 `D1_APPLY` production mutation as completed and its one-shot authorization as consumed/non-replayable. Fresh D1 evidence must match that completed state; any contradiction is STOP/diagnosis, not authority to rerun the consumed apply.
+
 ### Remaining conditional owner/LIVE gates
 
-Fresh evidence selects the first actual remaining gate. The durable order is:
+Fresh evidence selects the first actual remaining gate. The durable forward order is:
 
-`fresh baseline → environment/credential prerequisite if missing → D1 apply if fresh baseline requires → verification-key provision if required → Worker activate → GET-only Worker verify → RPi5 signer/runtime under RPi5_main → read-only signed-observation reconciliation`.
+`fresh baseline → environment/credential prerequisite if missing → verification-key provision if required → Worker activate → GET-only Worker verify → RPi5 signer/runtime under RPi5_main → read-only signed-observation reconciliation`.
 
 Every mutation-bearing class has its own one-shot authority. There is no cross-class cascade, merge-to-deploy inheritance, historical authorization replay or automatic retry/rollback/cleanup after a consumed mutation fails.
 
@@ -92,7 +96,7 @@ Every mutation-bearing class has its own one-shot authority. There is no cross-c
 Separately gated work includes:
 
 - production Worker upload/deployment/promotion/configuration/route activation;
-- production D1 migrations/data/schema writes;
+- production D1 migrations/data/schema writes under a newly scoped future contract; the completed Phase 5 D1 apply is not replayable;
 - Queue mutation/replay/cleanup/configuration change;
 - verification/private-key or other secret/credential provisioning/rotation/export;
 - production ingest/binding mutation;
@@ -105,7 +109,7 @@ Separately gated work includes:
 
 There is no remaining queued Control source gap in the #613–#621 chain. Do not resume #614/#615 or invent another Phase 5 source lane merely to avoid a LIVE/external gate.
 
-After the final source-completion reconciliation, the next technical step is a fresh exact-main read-only production baseline and prerequisite check. That evidence selects the first genuine owner/LIVE gate. Any production mutation still requires a separate explicit authorization bound to the current source, exact target and expected baseline. `SOURCE_CHAIN_COMPLETE_LIVE_UNPROVEN` remains the durable classification until current live facts are separately proven.
+After the final source-completion reconciliation, the next technical step is a fresh exact-main read-only production baseline and prerequisite check. D1 migration/schema evidence must still match the completed non-replayable apply; otherwise STOP for diagnosis. The remaining evidence selects the first genuine owner/LIVE gate. Any production mutation still requires a separate explicit authorization bound to the current source, exact target and expected baseline. `SOURCE_CHAIN_COMPLETE_LIVE_UNPROVEN` remains the durable classification until current live facts are separately proven.
 
 ## Historical implementation chronology
 
