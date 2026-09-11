@@ -21,6 +21,24 @@ const snapshot: ControlDashboardData = {
   decisions: [],
 };
 
+const rpi5Snapshot: ControlDashboardData = {
+  generatedAt: OBSERVED_AT,
+  projects: [
+    {
+      id: "hermes-tech",
+      displayName: "Hermes Tech",
+      repository: "rozkalnsandris/hermes-tech",
+      enabled: true,
+      productionAdapter: "rpi5",
+      status: "HEALTHY",
+      openPullRequests: 0,
+      openIssues: 0,
+    },
+  ],
+  decisions: [],
+  productionVisibility: [],
+};
+
 function request(path = "/api/github/dashboard", method = "GET") {
   return new Request(`https://control.invalid${path}`, { method });
 }
@@ -81,7 +99,7 @@ test("dashboard route sanitizes upstream failures", async () => {
   assert.deepEqual(JSON.parse(body), { error: "LIVE_DASHBOARD_FAILED" });
 });
 
-test("live dashboard executor delegates to the bounded Cloudflare dashboard reader", async () => {
+test("live dashboard executor adds fail-closed Phase 5 production visibility health", async () => {
   let readCalls = 0;
 
   const result = await executeLiveGitHubDashboard(
@@ -90,11 +108,26 @@ test("live dashboard executor delegates to the bounded Cloudflare dashboard read
       readDashboard: async (input) => {
         readCalls += 1;
         assert.deepEqual(input, { bindings, observedAt: OBSERVED_AT });
-        return snapshot;
+        return rpi5Snapshot;
       },
     },
   );
 
   assert.equal(readCalls, 1);
-  assert.deepEqual(result, snapshot);
+  assert.equal(result.productionVisibilityHealth?.length, 1);
+  assert.deepEqual(result.productionVisibilityHealth?.[0], {
+    contractId: "control-phase5-production-visibility-health-v1",
+    projectId: "hermes-tech",
+    repository: "rozkalnsandris/hermes-tech",
+    status: "NOT_OBSERVED",
+    reasonCodes: ["NO_OBSERVATION"],
+    evidence: null,
+    authority: {
+      evidenceOnly: true,
+      authoritativeForMutation: false,
+      grantsDeployAuthority: false,
+      grantsRollbackAuthority: false,
+      grantsDatabaseOrHostAuthority: false,
+    },
+  });
 });

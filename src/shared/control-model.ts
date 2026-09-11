@@ -1,3 +1,4 @@
+import type { ProductionVisibilityHealthReadModel } from "./production-visibility-health.js";
 import type { ProductionVisibilityReadModel } from "./production-visibility.js";
 import type { GitHubRateLimitHealth } from "./github-rate-limit-health.js";
 
@@ -57,6 +58,7 @@ export interface ControlDashboardData {
   projects: ProjectReadModel[];
   decisions: DecisionReadModel[];
   productionVisibility?: ProductionVisibilityReadModel[];
+  productionVisibilityHealth?: ProductionVisibilityHealthReadModel[];
   githubRateLimitHealth?: GitHubRateLimitHealth;
 }
 
@@ -101,4 +103,11 @@ export function productionVisibilityForProject(
   projectId: string,
 ): ProductionVisibilityReadModel | null {
   return data.productionVisibility?.find((item) => item.projectId === projectId) ?? null;
+}
+
+export function productionVisibilityHealthForProject(
+  data: ControlDashboardData,
+  projectId: string,
+): ProductionVisibilityHealthReadModel | null {
+  return data.productionVisibilityHealth?.find((item) => item.projectId === projectId) ?? null;
 }
