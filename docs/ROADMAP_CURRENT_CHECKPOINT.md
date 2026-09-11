@@ -43,7 +43,7 @@ Durable Phase 5 boundary markers:
 
 - `CONTROL_DB` is the production D1 binding contract for durable reconciliation/audit/continuation/Phase 5 observation state.
 - Queue messages are at-least-once triggers, may duplicate or reorder, and never become authorization evidence.
-- The Phase 5 migration ceiling includes predecessor `0010_webhook_observability_hot_index.sql` followed by `0011`–`0013`.
+- The Phase 5 migration ceiling includes predecessor `0010_webhook_observability_hot_index.sql` with exact reviewed index `idx_webhook_deliveries_active_updated_delivery`, followed by `0011`–`0013`.
 - Canonical #278 records the bounded Phase 5 production D1 apply as completed and its one-shot authorization as consumed/non-replayable. Fresh read-only D1 evidence must continue to match that completed state; contradiction is STOP/diagnosis, never replay authority.
 - D1/Queue failure or ambiguity is an operational blocker, never permission to repair or mutate implicitly.
 
