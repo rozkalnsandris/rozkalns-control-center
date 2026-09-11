@@ -2,7 +2,7 @@
 
 Contract ID: `control-phase5-source-completion-reconciliation-v1`.
 
-This document is the durable Control-side reconciliation for the completed Phase 5 queued source chain through issues #613–#621. It records source readiness only. It does **not** prove current production state and it grants no LIVE authority.
+This document is the durable Control-side reconciliation for the completed Phase 5 queued source chain through issues #613–#621. It records source readiness and bounded historical completion facts only. It does **not** prove current production state and it grants no LIVE authority.
 
 Durable classification: `SOURCE_CHAIN_COMPLETE_LIVE_UNPROVEN`.
 
@@ -24,31 +24,37 @@ The queued source chain is complete for the Control-side Phase 5 preparation cov
 4. Worker activation source executor: `.github/workflows/phase5-rpi5-observation-worker-activate-live.yml`;
 5. GET-only post-activation verifier: `.github/workflows/phase5-rpi5-observation-worker-post-activation-verify.yml`;
 6. public-safe cross-repository signer handoff `PHASE5_RPI5_SIGNER_HANDOFF_V1` to `rozkalnsandris/RPi5_main`;
-7. Control-side signed-observation reconciliation `control-phase5-rpi5-observation-reconciliation-v1`;
-8. compact dashboard read model `control-phase5-production-visibility-health-v1`;
-9. provider-neutral drift notification model `control-phase5-production-visibility-notification-v1`.
+7. synthetic/public signed-observation compatibility vectors from #618 for exact consumer/producer contract validation without protected material;
+8. Control-side signed-observation reconciliation `control-phase5-rpi5-observation-reconciliation-v1`;
+9. compact dashboard read model `control-phase5-production-visibility-health-v1`;
+10. provider-neutral drift notification model `control-phase5-production-visibility-notification-v1`.
 
-The Worker route remains a source contract until production evidence proves otherwise. The RPi5 signer/runtime remains owned by `RPi5_main`. The UI and notification contracts consume sanitized evidence only and introduce no remediation mutation.
+The Worker route remains a source contract until production evidence proves otherwise. The RPi5 signer/runtime remains owned by `RPi5_main`. The compatibility vectors, UI and notification contracts consume only public/sanitized evidence and introduce no remediation mutation.
 
 There is **no new source lane** required merely to continue Phase 5 activation. Later source work is justified only by a newly discovered concrete defect or a separately selected future phase/maintenance item.
 
+## Completed D1 LIVE class is not a forward gate
+
+Canonical #278 records the bounded Phase 5 `D1_APPLY` production mutation as completed and its one-shot authorization as consumed/non-replayable. This source reconciliation therefore does not list `D1_APPLY` as a remaining owner gate.
+
+A fresh production preflight must still prove the expected D1 migration/schema state because source does not prove current remote state. If current read-only evidence contradicts the completed apply receipt, the result is STOP and fresh diagnosis/new scope. Contradiction does **not** reactivate, replay or authorize the consumed D1 apply.
+
 ## First next step is read-only evidence, not an owner mutation gate
 
-Before selecting any mutation-bearing Phase 5 action, obtain a fresh exact-main GET/SELECT-only preflight tied to the current source SHA and successful exact-main CI. Revalidate any required GitHub Environment/read credentials needed to obtain that evidence.
+Before selecting any mutation-bearing Phase 5 action, obtain a fresh exact-main GET/SELECT-only preflight tied to the current source SHA and successful exact-main CI. Revalidate the current Worker/D1/binding baseline and any required GitHub Environment/read credentials needed to obtain that evidence.
 
 A preflight PASS can classify the current baseline and the exact conditional mutation needs. It does not authorize any mutation. A preflight FAIL is diagnosis only and must not trigger repair.
 
-The fresh evidence determines whether the first genuine owner gate is an environment/credential prerequisite, a D1 apply, verification-key provisioning, Worker activation, or the external RPi5 lane. Do not select a later class from source history alone.
+The fresh evidence determines whether the first genuine owner gate is an environment/credential prerequisite, verification-key provisioning, Worker activation or the external RPi5 lane. Do not select a later class from source history alone.
 
 ## Remaining owner/LIVE gates
 
-The durable planning order is:
+The durable forward planning order is:
 
 1. **Credential/environment prerequisites, if missing.** Any creation/change of protected GitHub Environment secrets, Cloudflare tokens, Worker write credentials or other protected configuration is its own explicit owner/LIVE gate. Secret values never belong in public commands, source, issues, logs or receipts.
-2. **D1 apply only if the fresh preflight requires it.** The exact ordered migration ceiling must come from that one fresh baseline. If the baseline proves no D1 apply is required, this class is skipped rather than invoked.
-3. **Verification-key provisioning only if the fresh preflight requires it.** This uses the dedicated source executor and its own one-shot authorization. The public `key_id` may be recorded; verification/private-key values may not.
-4. **Worker activation after prerequisites are freshly proven.** This requires a separate owner/LIVE authorization bound to the exact current source, CI, fresh baseline, reviewed candidate and production Worker identity. The source executor must upload one candidate version, GET-verify it, then deploy only that exact verified version.
-5. **RPi5 signer/runtime after Worker post-activation verification.** This is a separate `RPi5_main` trust-boundary authorization. Control has no SSH/sudo/root/generic-helper shortcut and no authority to provision the private signing key or mutate the host.
+2. **Verification-key provisioning only if the fresh preflight requires it.** This uses the dedicated source executor and its own one-shot authorization. The public `key_id` may be recorded; verification/private-key values may not.
+3. **Worker activation after prerequisites are freshly proven.** This requires a separate owner/LIVE authorization bound to the exact current source, CI, fresh baseline, reviewed candidate and production Worker identity. The source executor must upload one candidate version, GET-verify it, then deploy only that exact verified version.
+4. **RPi5 signer/runtime after Worker post-activation verification.** This is a separate `RPi5_main` trust-boundary authorization. Control has no SSH/sudo/root/generic-helper shortcut and no authority to provision the private signing key or mutate the host.
 
 Each class is independent. Authorization for one class never authorizes the next.
 
@@ -56,8 +62,8 @@ Each class is independent. Authorization for one class never authorizes the next
 
 Read-only checkpoints are technical evidence steps, not owner mutation gates:
 
-- fresh exact-main production preflight before the first LIVE mutation;
-- read-only migration/schema verification after a D1 apply, if one is run;
+- fresh exact-main production preflight before the first remaining LIVE mutation;
+- fresh D1 migration/schema evidence must continue to match the completed apply or STOP;
 - GET-only binding/deployment verification after verification-key provisioning, if run;
 - GET verification of an uploaded Worker candidate before deployment;
 - GET-only post-activation Worker verification;
@@ -73,6 +79,7 @@ The following are hard invariants of this reconciliation:
 - read-only preflight grants no mutation authority (`READONLY_PREFLIGHT_EVIDENCE_ONLY`);
 - no cross-class automatic cascade;
 - no historical authorization replay;
+- the completed Phase 5 D1 apply may not be replayed from a later preflight contradiction;
 - no protected value in public evidence;
 - no automatic retry, rollback, cleanup or alternate mutation after a consumed authorization encounters error/ambiguity;
 - Control does not own `RPI5_SIGNER_RUNTIME`;
