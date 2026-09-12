@@ -135,11 +135,22 @@ test("upload and deployment are separated by GET verification and a repeated dri
   assert.match(executor, /PREDEPLOY_DRIFT_GUARD=PASS/);
 });
 
-test("write credential is scoped only to Wrangler child processes", () => {
+test("write credential is scoped only to isolated preflight and Wrangler child processes", () => {
   assert.match(executor, /delete env\[key\]/);
   assert.match(executor, /CLOUDFLARE_API_TOKEN: input\("CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN"\)/);
   assert.match(executor, /CLOUDFLARE_ACCOUNT_ID: CF_ACCOUNT_ID/);
+  assert.match(executor, /PHASE5_WORKER_NAME: WORKER_NAME/);
   assert.doesNotMatch(executor, /Authorization: `Bearer \$\{input\("CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN"\)\}`/);
+});
+
+test("write credential liveness guard is GET-only and runs before authorization consumption", () => {
+  const guard = executor.indexOf("assertWriteCredentialPreflight();");
+  const uploadCall = executor.indexOf("await uploadCandidate(a, candidateConfigPath)");
+  assert.ok(guard >= 0 && uploadCall > guard);
+  assert.match(executor, /WORKERS_WRITE_CREDENTIAL_TOKEN_STATUS=ACTIVE/);
+  assert.match(executor, /WORKERS_WRITE_CREDENTIAL_TARGET_READ=PASS/);
+  assert.match(executor, /WORKERS_WRITE_PERMISSION_PROVEN=NO/);
+  assert.match(executor, /phase5-worker-write-credential-preflight\.mjs/);
 });
 
 test("no cross-class mutation command exists", () => {
@@ -177,6 +188,7 @@ test("machine contract binds the same fail-closed executor and mutation ceiling"
   assert.equal(contract.authority.authorization_consumed_at, "FIRST_WORKER_VERSION_UPLOAD");
   assert.equal(contract.executor.workflow, WORKFLOW_PATH);
   assert.equal(contract.executor.script, EXECUTOR_PATH);
+  assert.equal(contract.executor.write_credential_preflight_script, "scripts/phase5-worker-write-credential-preflight.mjs");
   assert.equal(contract.executor.github_environment, "production-worker-activation-live");
   assert.equal(contract.executor.build_before_authorization_consumption, true);
   assert.equal(contract.protected_credentials.d1_read_secret_binding, "CLOUDFLARE_D1_READ_TOKEN");

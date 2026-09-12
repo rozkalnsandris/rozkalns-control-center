@@ -17,7 +17,8 @@
     "manual_workflow_dispatch_only": true,
     "first_attempt_only": true,
     "github_hosted_linux_only": true,
-    "build_before_authorization_consumption": true
+    "build_before_authorization_consumption": true,
+    "write_credential_preflight_script": "scripts/phase5-worker-write-credential-preflight.mjs"
   },
   "public_inputs": [
     "approved_sha",
@@ -34,7 +35,7 @@
     "workers_read_secret_binding": "CLOUDFLARE_API_TOKEN",
     "d1_read_secret_binding": "CLOUDFLARE_D1_READ_TOKEN",
     "workers_scripts_write_secret_binding": "CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN",
-    "write_token_scope": "WRANGLER_VERSION_UPLOAD_AND_EXACT_VERSION_DEPLOY_CHILD_PROCESSES_ONLY"
+    "write_token_scope": "READONLY_LIVENESS_TARGET_GET_CHILD_THEN_WRANGLER_VERSION_UPLOAD_AND_EXACT_VERSION_DEPLOY_CHILD_PROCESSES_ONLY"
   },
   "prewrite_gates": {
     "exact_current_main": true,
@@ -52,7 +53,10 @@
     "d1_migrations": "0010_THROUGH_0013_PRESENT_VALID",
     "d1_phase5_schema": "PRESENT_VALID",
     "non_target_binding_inventory_sha256_equals_candidate": true,
-    "built_assets_required": true
+    "built_assets_required": true,
+    "workers_write_credential_token_status": "ACTIVE",
+    "workers_write_credential_target_worker_read": "PASS",
+    "workers_write_permission_proven_by_readonly_preflight": false
   },
   "mutation_ceiling": {
     "version_upload_count": 1,
