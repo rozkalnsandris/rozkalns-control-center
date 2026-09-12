@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const WORKFLOW_PATH = ".github/workflows/phase5-rpi5-observation-readonly-preflight.yml";
+const EXECUTOR_PATH = "scripts/phase5-rpi5-observation-worker-activate-live.mjs";
 
 const EXPECTED_0010_INDEX_SQL =
   "create index idx_webhook_deliveries_active_updated_delivery on webhook_deliveries (updated_at, delivery_id) where state <> 'succeeded'";
@@ -56,6 +57,38 @@ test("preflight requires dormant ingest and never reads protected verification-k
     .filter((line) => line.includes("CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
   assert.equal(keyBindingLines.some((line) => /\.text\b/.test(line)), false);
   assert.equal(keyBindingLines.some((line) => /fromjson/.test(line)), false);
+});
+
+test("preflight emits public-safe non-target binding digest in parity with activation executor", () => {
+  const source = workflowSource();
+  const executor = readFileSync(EXECUTOR_PATH, "utf8");
+  const paritySnippets = [
+    'return createHash("sha256").update(value).digest("hex");',
+    "if (Array.isArray(value)) return value.map(canonical);",
+    "return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));",
+    ".filter((binding) => binding?.name !== INGEST_BINDING)",
+    ".map(canonical)",
+    ".sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));",
+    "return sha256(JSON.stringify(filtered));",
+  ];
+
+  for (const snippet of paritySnippets) {
+    assert.ok(source.includes(snippet), `preflight missing digest parity snippet: ${snippet}`);
+    assert.ok(executor.includes(snippet), `executor missing digest parity snippet: ${snippet}`);
+  }
+
+  assert.match(source, /const INGEST_BINDING = "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED"/);
+  assert.match(source, /NON_TARGET_BINDINGS_SHA256=%s/);
+  assert.match(source, /\^\[0-9a-f\]\{64\}\$/);
+
+  const digestBlock = source.slice(
+    source.indexOf('non_target_bindings_sha256="$('),
+    source.indexOf(')" || stop NON_TARGET_BINDINGS_DIGEST_FAILED'),
+  );
+  assert.ok(digestBlock.length > 0);
+  assert.equal((digestBlock.match(/process\.stdout\.write/g) ?? []).length, 1);
+  assert.match(digestBlock, /process\.stdout\.write\(nonTargetBindingsDigest\(bindings\)\)/);
+  assert.doesNotMatch(digestBlock, /console\.(?:log|error)/);
 });
 
 test("preflight classifies predecessor migration 0010 and its exact partial index", () => {

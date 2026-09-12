@@ -168,6 +168,40 @@ jobs:
           cf_workers_get "/workers/scripts/${WORKER_NAME}/versions/${current_version}" "$tmp/version.json"
           jq -e --arg version "$current_version" '.result.id == $version and (.result.resources.bindings // [] | type == "array")' "$tmp/version.json" >/dev/null || stop VERSION_BINDING_INVENTORY_INVALID
 
+          non_target_bindings_sha256="$(
+            node --input-type=module - "$tmp/version.json" <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+
+          const INGEST_BINDING = "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED";
+
+          function sha256(value) {
+            return createHash("sha256").update(value).digest("hex");
+          }
+
+          function canonical(value) {
+            if (Array.isArray(value)) return value.map(canonical);
+            if (!value || typeof value !== "object") return value;
+            return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+          }
+
+          function nonTargetBindingsDigest(bindings) {
+            const filtered = bindings
+              .filter((binding) => binding?.name !== INGEST_BINDING)
+              .map(canonical)
+              .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+            return sha256(JSON.stringify(filtered));
+          }
+
+          const payload = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const bindings = payload?.result?.resources?.bindings;
+          if (!Array.isArray(bindings)) process.exit(2);
+          process.stdout.write(nonTargetBindingsDigest(bindings));
+          NODE
+          )" || stop NON_TARGET_BINDINGS_DIGEST_FAILED
+          [[ "$non_target_bindings_sha256" =~ ^[0-9a-f]{64}$ ]] || stop NON_TARGET_BINDINGS_DIGEST_INVALID
+          printf 'NON_TARGET_BINDINGS_SHA256=%s\n' "$non_target_bindings_sha256"
+
           db_binding_count="$(jq -r '[.result.resources.bindings[]? | select(.name == "CONTROL_DB")] | length' "$tmp/version.json")"
           [ "$db_binding_count" = "1" ] || stop CONTROL_DB_BINDING_MISSING_OR_DUPLICATE
           jq -e --arg db "$DB_ID" '
