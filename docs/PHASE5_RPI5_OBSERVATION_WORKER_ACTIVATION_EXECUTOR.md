@@ -65,6 +65,22 @@ and STOP.
 
 There is no automatic retry, rollback, cleanup, version deletion, alternate candidate, alternate version selection or cross-class mutation. If upload succeeds but GET verification fails, the executor stops and **does not deploy** that version.
 
+## Sanitized Wrangler failure diagnostics
+
+For each Wrangler mutation child, the executor sets `WRANGLER_OUTPUT_FILE_PATH` to its exact NDJSON output file. If Wrangler returns a non-zero status, the executor does **not** print the captured Wrangler stdout/stderr or any raw NDJSON field. It reads only that configured structured-output file, caps the read to 64 KiB / 64 parsed records, derives a public-safe class, and then retains the existing `STOP=WRANGLER_WRITE_FAILED` fail-closed path.
+
+The bounded diagnostic receipt is limited to fixed markers:
+
+- `WRANGLER_FAILURE_DIAGNOSTIC=AVAILABLE|UNAVAILABLE`
+- `WRANGLER_FAILURE_REASON=<bounded reason>`
+- `WRANGLER_FAILURE_CLASS=AUTH|PERMISSION|CONFIG|STRICT_CONFLICT|UNKNOWN`
+- `WRANGLER_FAILURE_DETAIL=<sanitized fixed detail>`
+- `WRANGLER_FAILURE_RAW_FIELDS_EMITTED=NO`
+
+Classification may inspect Wrangler's structured `type` / `code` / `name` / `message`-style signals, but their raw contents are never emitted. Token, secret, authorization, credential, private/config/value/body/header/request/response-like fields are not copied into the receipt. Missing, unreadable, oversized or wholly malformed structured output produces an `UNAVAILABLE` diagnostic rather than falling back to stdout/stderr. A partially malformed file may still classify parseable records while recording that malformed lines were suppressed.
+
+These markers are evidence only. They do not retry the failed write, alter the one-shot authorization-consumption boundary, select a version, roll back anything, or authorize another mutation.
+
 ## Successful public-safe receipt
 
 A successful later LIVE run may emit public-safe markers including:
