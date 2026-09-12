@@ -25,7 +25,7 @@ Before authorization can be consumed, the executor requires all of the following
 - exact default-branch first-attempt `workflow_dispatch` on the authorized source SHA;
 - exact successful push CI on that SHA;
 - exact successful first-attempt `.github/workflows/phase5-rpi5-observation-readonly-preflight.yml` run on that SHA;
-- exact successful first-attempt verification-key provisioning workflow identity from the reviewed candidate;
+- successful first-attempt verification-key provisioning workflow identity from the reviewed candidate, on `main`, whose source SHA is equal to or a Git ancestor of the exact approved activation SHA;
 - candidate manifest bytes whose SHA-256 exactly equals the owner-authorized `candidate_sha256`;
 - exact `wrangler.jsonc` SHA-256 bound by the candidate, canonical Node `24.19.0` and Wrangler `4.120.0`;
 - built static assets before the first Worker mutation can begin;
@@ -35,6 +35,8 @@ Before authorization can be consumed, the executor requires all of the following
 - GET/SELECT-only proof that migrations `0010` through `0013` and the reviewed Phase 5 schema/index are present-valid.
 
 The workflow exposes only public-safe dispatch inputs. `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_D1_READ_TOKEN` are read-only evidence credentials. `CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN` is a dedicated protected Workers Scripts write token and is scoped only into the Wrangler mutation child processes.
+
+Verification-key provisioning is one-shot and non-replayable. Later source-only merges therefore do not require re-provisioning the secret: the executor requires the successful provision run SHA to remain in the Git ancestry of the exact approved activation SHA. Malformed, unrelated or diverged provision SHAs fail closed before LIVE authority can be consumed, while all exact-current-main CI/preflight and current Worker baseline checks remain mandatory.
 
 ## Exact mutation ceiling
 

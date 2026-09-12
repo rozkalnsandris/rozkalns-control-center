@@ -40,7 +40,7 @@
     "exact_current_main": true,
     "successful_exact_main_ci": true,
     "successful_first_attempt_exact_main_phase5_readonly_preflight": true,
-    "successful_first_attempt_exact_main_verification_key_provision_run": true,
+    "successful_first_attempt_main_verification_key_provision_run_ancestor_of_approved_sha": true,
     "candidate_manifest_sha256_equals_owner_authorization": true,
     "candidate_source_config_sha256_equals_wrangler_jsonc": true,
     "candidate_delta": "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED_PLAIN_TEXT_TRUE_ONLY",
@@ -74,7 +74,7 @@
     "require_verification_key_protected_unchanged": true,
     "require_control_db_unchanged": true,
     "require_non_target_binding_digest_unchanged": true,
-    "repeat_exact_main_ci_preflight_provision_evidence": true,
+    "repeat_exact_main_ci_preflight_and_ancestor_provision_evidence": true,
     "repeat_d1_present_valid_evidence": true,
     "repeat_authorized_active_baseline": true,
     "on_any_mismatch": "STOP_NO_DEPLOY"

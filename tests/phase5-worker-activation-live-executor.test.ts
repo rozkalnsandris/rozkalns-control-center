@@ -74,7 +74,7 @@ test("executor binds exact candidate bytes, source config and owner authorizatio
   ]) assert.match(executor, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
-test("executor requires exact-main CI, preflight, verification-key provision and Worker baseline", () => {
+test("executor requires exact-main CI/preflight, ancestor verification-key provision and Worker baseline", () => {
   for (const required of [
     ".github/workflows/ci.yml",
     ".github/workflows/phase5-rpi5-observation-readonly-preflight.yml",
@@ -82,6 +82,10 @@ test("executor requires exact-main CI, preflight, verification-key provision and
     "CI_GATE_INVALID",
     "PREFLIGHT_GATE_INVALID",
     "VERIFICATION_KEY_PROVISION_GATE_INVALID",
+    "VERIFICATION_KEY_PROVISION_SOURCE_INVALID",
+    "VERIFICATION_KEY_PROVISION_SOURCE_NOT_ANCESTOR",
+    "VERIFICATION_KEY_PROVISION_SOURCE_ANCESTRY_CHECK_FAILED",
+    "VERIFICATION_KEY_PROVISION_SOURCE_ANCESTRY=PASS",
     "WORKER_BASELINE_DRIFT",
     "CONTROL_DB_BINDING_DRIFT",
     "VERIFICATION_KEY_BINDING_DRIFT",
@@ -177,6 +181,7 @@ test("machine contract binds the same fail-closed executor and mutation ceiling"
   assert.equal(contract.executor.build_before_authorization_consumption, true);
   assert.equal(contract.protected_credentials.d1_read_secret_binding, "CLOUDFLARE_D1_READ_TOKEN");
   assert.equal(contract.protected_credentials.workers_scripts_write_secret_binding, "CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN");
+  assert.equal(contract.prewrite_gates.successful_first_attempt_main_verification_key_provision_run_ancestor_of_approved_sha, true);
   assert.equal(contract.prewrite_gates.candidate_delta, "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED_PLAIN_TEXT_TRUE_ONLY");
   assert.equal(contract.prewrite_gates.d1_migrations, "0010_THROUGH_0013_PRESENT_VALID");
   assert.equal(contract.mutation_ceiling.version_upload_count, 1);
@@ -186,6 +191,7 @@ test("machine contract binds the same fail-closed executor and mutation ceiling"
   assert.equal(contract.mutation_ceiling.d1_mutation, false);
   assert.equal(contract.mutation_ceiling.secret_mutation, false);
   assert.equal(contract.mutation_ceiling.queue_mutation, false);
+  assert.equal(contract.between_upload_and_deploy.repeat_exact_main_ci_preflight_and_ancestor_provision_evidence, true);
   assert.equal(contract.between_upload_and_deploy.on_any_mismatch, "STOP_NO_DEPLOY");
   assert.equal(contract.postdeploy.secret_value_observed, false);
 });
