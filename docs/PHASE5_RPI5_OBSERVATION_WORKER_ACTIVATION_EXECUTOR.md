@@ -76,10 +76,12 @@ The bounded diagnostic receipt is limited to fixed markers:
 - `WRANGLER_FAILURE_DIAGNOSTIC=AVAILABLE|UNAVAILABLE`
 - `WRANGLER_FAILURE_REASON=<bounded reason>`
 - `WRANGLER_FAILURE_CLASS=AUTH|PERMISSION|CONFIG|STRICT_CONFLICT|UNKNOWN`
+- `WRANGLER_FAILURE_CODE=<integer>|NONE`
+- `WRANGLER_FAILURE_RETRY_AFTER_MS=<non-negative integer>|NONE`
 - `WRANGLER_FAILURE_DETAIL=<sanitized fixed detail>`
 - `WRANGLER_FAILURE_RAW_FIELDS_EMITTED=NO`
 
-Classification may inspect Wrangler's structured `type` / `code` / `name` / `message`-style signals, but their raw contents are never emitted. Token, secret, authorization, credential, private/config/value/body/header/request/response-like fields are not copied into the receipt. Missing, unreadable, oversized or wholly malformed structured output produces an `UNAVAILABLE` diagnostic rather than falling back to stdout/stderr. A partially malformed file may still classify parseable records while recording that malformed lines were suppressed.
+Classification may inspect Wrangler's structured `type` / `code` / `name` / `message`-style signals, but their raw contents are never emitted. For one exact Wrangler `command-failed` version-1 record, only its integer `code` and finite non-negative integer `retry_after_ms` may cross the public receipt boundary; absent, invalid or multiple such records emit `NONE` rather than guessing. Token, secret, authorization, credential, private/config/value/body/header/request/response-like fields are not copied into the receipt. Missing, unreadable, oversized or wholly malformed structured output produces an `UNAVAILABLE` diagnostic rather than falling back to stdout/stderr. A partially malformed file may still classify parseable records while recording that malformed lines were suppressed.
 
 These markers are evidence only. They do not retry the failed write, alter the one-shot authorization-consumption boundary, select a version, roll back anything, or authorize another mutation.
 
