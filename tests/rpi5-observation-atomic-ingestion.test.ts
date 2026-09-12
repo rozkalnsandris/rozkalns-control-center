@@ -315,10 +315,8 @@ test("atomic runtime composition stays source-only and production activation rem
   for (const forbidden of [/\bfetch\s*\(/i, /\bssh\b/i, /\bsudo\b/i, /private[_-]?key/i]) {
     assert.doesNotMatch(`${source}\n${runtime}`, forbidden);
   }
-  for (const binding of [
-    "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED",
-    "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS",
-  ]) {
-    assert.equal(wrangler.includes(binding), false, `unexpected production activation: ${binding}`);
-  }
+  const config = JSON.parse(wrangler) as { vars?: Record<string, unknown>; secrets?: { required?: string[] } };
+  assert.ok(!Object.prototype.hasOwnProperty.call(config.vars ?? {}, "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED"));
+  assert.ok(!Object.prototype.hasOwnProperty.call(config.vars ?? {}, "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
+  assert.ok(config.secrets?.required?.includes("CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
 });

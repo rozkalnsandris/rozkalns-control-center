@@ -79,6 +79,7 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
     "GITHUB_WEBHOOK_SECRET",
     "CONTROL_TELEGRAM_BOT_TOKEN",
     "CONTROL_TELEGRAM_CHAT_ID",
+    "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS",
   ]);
   assert.doesNotMatch(wrangler, /-----BEGIN|ghs_|test-webhook-secret|contents:write/i);
 

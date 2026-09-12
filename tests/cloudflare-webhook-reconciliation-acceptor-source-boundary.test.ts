@@ -33,6 +33,7 @@ test("recoverable webhook Queue adapter is exposed only through the exact fail-c
     "GITHUB_WEBHOOK_SECRET",
     "CONTROL_TELEGRAM_BOT_TOKEN",
     "CONTROL_TELEGRAM_CHAT_ID",
+    "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS",
   ]);
   assert.deepEqual(wrangler.queues.producers, [
     {

@@ -147,12 +147,10 @@ test("Worker wiring is source-present while production activation and key values
   assert.match(runtimeSource, /acceptAuthenticatedRpi5Observation/);
   assert.match(runtimeSource, /typeof database\.batch !== "function"/);
 
-  for (const binding of [
-    "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED",
-    "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS",
-  ]) {
-    assert.equal(wrangler.includes(binding), false, `unexpected production activation: ${binding}`);
-  }
+  const config = JSON.parse(wrangler) as { vars?: Record<string, unknown>; secrets?: { required?: string[] } };
+  assert.ok(!Object.prototype.hasOwnProperty.call(config.vars ?? {}, "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED"));
+  assert.ok(!Object.prototype.hasOwnProperty.call(config.vars ?? {}, "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
+  assert.ok(config.secrets?.required?.includes("CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
   assert.equal(wrangler.includes("RPI5_OBSERVATION_PUBLIC_KEY"), false);
   assert.equal(wrangler.includes("RPI5_OBSERVATION_KEY_ID"), false);
 });
