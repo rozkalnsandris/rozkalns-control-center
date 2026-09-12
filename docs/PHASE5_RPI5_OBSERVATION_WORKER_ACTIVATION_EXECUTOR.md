@@ -41,6 +41,8 @@ Verification-key provisioning is one-shot and non-replayable. Later source-only 
 
 ## Exact mutation ceiling
 
+`wrangler.jsonc` declares `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS` under `secrets.required` without any secret value. With repository-pinned Wrangler `4.120.0`, this causes `wrangler versions upload` to model the already-provisioned protected secret as an inherited binding; the upload can validate/preserve that remote secret without placing its value in source, argv, logs, or the candidate manifest. A missing remote required secret fails the upload rather than silently dropping the binding.
+
 The executor materializes an ephemeral config from exact `wrangler.jsonc` and proves that its sole config delta is:
 
 `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED = "true"`

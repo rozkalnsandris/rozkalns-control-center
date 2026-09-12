@@ -59,6 +59,13 @@ test("candidate is public-safe dispatch data while secret/private material is no
   assert.doesNotMatch(workflow, /private[_-]?key|secret[_-]?value/i);
 });
 
+test("source config declares the protected Phase 5 verification-key secret for Wrangler inheritance", () => {
+  const config = JSON.parse(wrangler) as { vars?: Record<string, unknown>; secrets?: { required?: string[] } };
+  assert.ok(config.secrets?.required?.includes("CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
+  assert.ok(!Object.prototype.hasOwnProperty.call(config.vars ?? {}, "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
+  assert.doesNotMatch(wrangler, /CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS[^\n]*:/);
+});
+
 test("executor binds exact candidate bytes, source config and owner authorization tuple", () => {
   for (const required of [
     "CANDIDATE_SHA256_MISMATCH",

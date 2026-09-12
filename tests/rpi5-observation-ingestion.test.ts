@@ -375,14 +375,16 @@ test("verification-key registry and ingestion stay unwired from Worker and Wrang
   );
 
   assert.equal(workerIndex.includes("rpi5-observation-ingestion"), false);
+  const parsedWrangler = JSON.parse(wranglerConfig) as { vars?: Record<string, unknown>; secrets?: { required?: string[] } };
   for (const binding of [
     "RPI5_OBSERVATION_PUBLIC_KEY",
     "RPI5_OBSERVATION_KEY_ID",
-    "RPI5_OBSERVATION_VERIFICATION_KEYS",
     "RPI5_OBSERVATION_REPLAY_STORE",
   ]) {
     assert.equal(wranglerConfig.includes(binding), false, `unexpected live binding: ${binding}`);
   }
+  assert.ok(!Object.prototype.hasOwnProperty.call(parsedWrangler.vars ?? {}, "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
+  assert.ok(parsedWrangler.secrets?.required?.includes("CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS"));
 
   assert.match(ingestionSource, /resolveRpi5ObservationVerificationKey/);
   assert.match(ingestionSource, /verifyRpi5ObservationDeliverySignature/);
