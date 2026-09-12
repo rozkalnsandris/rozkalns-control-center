@@ -1,6 +1,7 @@
 ## Summary
 
 <!-- Why does this change exist? Link the task/issue and master phase. -->
+<!-- AUTO-RUN FULL: replace `Refs #` with the exact `Closes #<frozen target issue>` reference. FAST/GITHUB-ONLY/other lanes may use `Refs #` unless their active contract says otherwise. -->
 
 Refs #
 
@@ -56,6 +57,8 @@ Commands/results:
 - DB migration/write: **no unless explicitly stated and separately approved**
 
 Merge authority must come from the active lane/issue contract. Merge never authorizes deploy, DB/Queue writes, permission or trust-boundary changes, Cloudflare infrastructure mutation, secrets/credentials, or host mutation.
+
+For `AUTO-RUN FULL`, merge readiness additionally requires the canonical PR to close the exact frozen target issue with `Closes #<target_issue>`; after merge, that exact issue must be freshly observed as closed before `DONE` / controller `IDLE`.
 
 ## Ready receipt
 
