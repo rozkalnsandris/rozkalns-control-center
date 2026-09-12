@@ -40,6 +40,9 @@ type AutoRunPolicy = {
   merge: {
     auto_run_full_command_is_explicit_owner_merge_authority_for_the_frozen_issue: boolean;
     strategy: string;
+    canonical_pr_must_close_exact_target_issue: boolean;
+    canonical_pr_closing_reference_format: string;
+    canonical_pr_closing_reference_must_match_frozen_issue: boolean;
     source_head_must_be_frozen_before_any_merge_mechanism: boolean;
     when_immediately_mergeable: string;
     when_blocked_only_by_required_gates_and_head_is_frozen: string;
@@ -60,6 +63,11 @@ type AutoRunPolicy = {
   completion: {
     post_merge_exact_main_verification_required: boolean;
     post_merge_exact_main_ci_required_when_repository_ci_runs_on_push: boolean;
+    post_merge_target_issue_state_revalidation_required: boolean;
+    target_issue_must_be_closed_before_done: boolean;
+    target_issue_closure_mechanism: string;
+    controller_must_not_return_to_idle_while_target_issue_is_open: boolean;
+    open_target_after_merged_pr_state: string;
     controller_returns_to_idle_on_done: boolean;
   };
   platform_constraints: {
@@ -145,6 +153,40 @@ test("hybrid exact-head merge avoids the already-clean auto-merge trap", () => {
     policy.platform_constraints.native_auto_merge_only_applies_when_pull_request_cannot_merge_immediately,
     true,
   );
+});
+
+test("AUTO-RUN FULL cannot become DONE while its exact target issue is open", () => {
+  const policy = readPolicy();
+  const docs = readFileSync("docs/AUTO_RUN_FULL_V2.md", "utf8");
+  const template = readFileSync(".github/PULL_REQUEST_TEMPLATE.md", "utf8");
+
+  assert.equal(policy.merge.canonical_pr_must_close_exact_target_issue, true);
+  assert.equal(
+    policy.merge.canonical_pr_closing_reference_format,
+    "Closes #<target_issue>",
+  );
+  assert.equal(
+    policy.merge.canonical_pr_closing_reference_must_match_frozen_issue,
+    true,
+  );
+  assert.equal(
+    policy.completion.post_merge_target_issue_state_revalidation_required,
+    true,
+  );
+  assert.equal(policy.completion.target_issue_must_be_closed_before_done, true);
+  assert.equal(
+    policy.completion.target_issue_closure_mechanism,
+    "CANONICAL_PR_GITHUB_CLOSING_KEYWORD_ON_MERGE",
+  );
+  assert.equal(
+    policy.completion.controller_must_not_return_to_idle_while_target_issue_is_open,
+    true,
+  );
+  assert.equal(policy.completion.open_target_after_merged_pr_state, "STOP_ERROR");
+  assert.match(docs, /Closes #<target_issue>/);
+  assert.match(docs, /exact target issue freshly re-read as `closed` after merge/);
+  assert.match(template, /Closes #<frozen target issue>/);
+  assert.match(template, /closed before `DONE` \/ controller `IDLE`/);
 });
 
 test("Control production and trust-boundary mutations stay outside FULL", () => {
