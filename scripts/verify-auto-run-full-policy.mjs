@@ -193,6 +193,9 @@ const schema = object({
     auto_run_full_command_is_explicit_owner_merge_authority_for_the_frozen_issue: literal(true),
     strategy: literal("HYBRID_EXACT_HEAD_V2"),
     canonical_pr_only: literal(true),
+    canonical_pr_must_close_exact_target_issue: literal(true),
+    canonical_pr_closing_reference_format: literal("Closes #<target_issue>"),
+    canonical_pr_closing_reference_must_match_frozen_issue: literal(true),
     source_head_must_be_frozen_before_any_merge_mechanism: literal(true),
     fresh_exact_head_revalidation_required: literal(true),
     final_diff_scope_review_required: literal(true),
@@ -240,6 +243,11 @@ const schema = object({
     target_issue_definition_of_done_must_be_satisfied: literal(true),
     post_merge_exact_main_verification_required: literal(true),
     post_merge_exact_main_ci_required_when_repository_ci_runs_on_push: literal(true),
+    post_merge_target_issue_state_revalidation_required: literal(true),
+    target_issue_must_be_closed_before_done: literal(true),
+    target_issue_closure_mechanism: literal("CANONICAL_PR_GITHUB_CLOSING_KEYWORD_ON_MERGE"),
+    controller_must_not_return_to_idle_while_target_issue_is_open: literal(true),
+    open_target_after_merged_pr_state: literal("STOP_ERROR"),
     final_github_receipt_required: literal(true),
     controller_returns_to_idle_on_done: literal(true),
     strict_live_required_but_not_authorized_is_not_done: literal(true),
@@ -427,6 +435,7 @@ function validateCrossFieldInvariants(policy) {
     ["$.continuation.platform_required_app_approval", policy.continuation.platform_required_app_approval],
     ["$.continuation.external_wait", policy.continuation.external_wait],
     ["$.completion.source_only_normal_terminal_state", policy.completion.source_only_normal_terminal_state],
+    ["$.completion.open_target_after_merged_pr_state", policy.completion.open_target_after_merged_pr_state],
   ]) {
     if (!states.has(state)) {
       fail(path, `references unknown state ${JSON.stringify(state)}`);
