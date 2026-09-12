@@ -10,6 +10,8 @@ type Diagnostics = {
   diagnostic: string;
   reason: string;
   classification: string;
+  failure_code: number | null;
+  retry_after_ms: number | null;
   detail: string;
   raw_fields_emitted: boolean;
 };
@@ -30,6 +32,22 @@ function readDiagnostics(outputPath: string): Diagnostics {
   });
   assert.equal(child.status, 0, child.stderr || child.error?.message);
   return JSON.parse(child.stdout) as Diagnostics;
+}
+
+function emitDiagnostics(outputPath: string): string[] {
+  const moduleUrl = pathToFileURL(resolve(DIAGNOSTICS_PATH)).href;
+  const program = [
+    `import { emitWranglerFailureDiagnostics } from ${JSON.stringify(moduleUrl)};`,
+    "const lines = [];",
+    "emitWranglerFailureDiagnostics(process.env.WRANGLER_DIAGNOSTIC_TEST_FILE, (line) => lines.push(line));",
+    "process.stdout.write(JSON.stringify(lines));",
+  ].join("\n");
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", program], {
+    encoding: "utf8",
+    env: { ...process.env, WRANGLER_DIAGNOSTIC_TEST_FILE: outputPath },
+  });
+  assert.equal(child.status, 0, child.stderr || child.error?.message);
+  return JSON.parse(child.stdout) as string[];
 }
 
 function withTempOutput(content: string | null, run: (path: string) => void): void {
@@ -75,6 +93,60 @@ test("Wrangler diagnostics classify common failure families without returning ra
   }
 });
 
+test("Wrangler diagnostics expose only public-safe command-failed code and retry metadata", () => {
+  const payload = {
+    type: "command-failed",
+    version: 1,
+    code: 10001,
+    message: "Opaque upstream failure that must not be emitted",
+    retry_after_ms: 2500,
+    response: { body: "TOPSECRET_RESPONSE_BODY" },
+  };
+
+  withTempOutput(`${JSON.stringify(payload)}\n`, (path) => {
+    const result = readDiagnostics(path);
+    assert.equal(result.failure_code, 10001);
+    assert.equal(result.retry_after_ms, 2500);
+    assert.equal(result.raw_fields_emitted, false);
+    assert.ok(!JSON.stringify(result).includes(payload.message));
+    assert.ok(!JSON.stringify(result).includes("TOPSECRET_RESPONSE_BODY"));
+
+    assert.deepEqual(emitDiagnostics(path), [
+      "WRANGLER_FAILURE_DIAGNOSTIC=AVAILABLE",
+      "WRANGLER_FAILURE_REASON=STRUCTURED_OUTPUT_PARSED",
+      "WRANGLER_FAILURE_CLASS=UNKNOWN",
+      "WRANGLER_FAILURE_CODE=10001",
+      "WRANGLER_FAILURE_RETRY_AFTER_MS=2500",
+      "WRANGLER_FAILURE_DETAIL=STRUCTURED_ERROR_PRESENT_RAW_DETAIL_SUPPRESSED",
+      "WRANGLER_FAILURE_RAW_FIELDS_EMITTED=NO",
+    ]);
+  });
+});
+
+test("Wrangler diagnostics fail closed on invalid or ambiguous command-failed metadata", () => {
+  withTempOutput(`${JSON.stringify({
+    type: "command-failed",
+    version: 1,
+    code: "10001",
+    message: "invalid code shape",
+    retry_after_ms: -1,
+  })}\n`, (path) => {
+    const result = readDiagnostics(path);
+    assert.equal(result.failure_code, null);
+    assert.equal(result.retry_after_ms, null);
+  });
+
+  const conflicting = [
+    { type: "command-failed", version: 1, code: 10001, retry_after_ms: 1000 },
+    { type: "command-failed", version: 1, code: 10002, retry_after_ms: 2000 },
+  ].map((record) => JSON.stringify(record)).join("\n") + "\n";
+  withTempOutput(conflicting, (path) => {
+    const result = readDiagnostics(path);
+    assert.equal(result.failure_code, null);
+    assert.equal(result.retry_after_ms, null);
+  });
+});
+
 test("Wrangler diagnostics suppress secret-like fields and values even when used for classification", () => {
   const secrets = [
     "TOPSECRET_TOKEN_123",
@@ -107,6 +179,8 @@ test("Wrangler diagnostics fail closed to bounded unavailable receipts for missi
       diagnostic: "UNAVAILABLE",
       reason: "OUTPUT_MISSING",
       classification: "UNKNOWN",
+      failure_code: null,
+      retry_after_ms: null,
       detail: "SANITIZED_STRUCTURED_OUTPUT_UNAVAILABLE",
       raw_fields_emitted: false,
     });
@@ -118,6 +192,8 @@ test("Wrangler diagnostics fail closed to bounded unavailable receipts for missi
       diagnostic: "UNAVAILABLE",
       reason: "OUTPUT_MALFORMED",
       classification: "UNKNOWN",
+      failure_code: null,
+      retry_after_ms: null,
       detail: "SANITIZED_STRUCTURED_OUTPUT_UNAVAILABLE",
       raw_fields_emitted: false,
     });

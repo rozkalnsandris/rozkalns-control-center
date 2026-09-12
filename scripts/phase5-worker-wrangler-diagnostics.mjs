@@ -11,6 +11,8 @@ function unavailable(reason) {
     diagnostic: "UNAVAILABLE",
     reason,
     classification: "UNKNOWN",
+    failure_code: null,
+    retry_after_ms: null,
     detail: "SANITIZED_STRUCTURED_OUTPUT_UNAVAILABLE",
     raw_fields_emitted: false,
   };
@@ -52,6 +54,25 @@ function classify(signals) {
   return "UNKNOWN";
 }
 
+function commandFailureMetadata(records) {
+  const failures = records.filter((record) =>
+    record &&
+    typeof record === "object" &&
+    !Array.isArray(record) &&
+    record.type === "command-failed" &&
+    record.version === 1
+  );
+  if (failures.length !== 1) return { failure_code: null, retry_after_ms: null };
+
+  const [failure] = failures;
+  return {
+    failure_code: Number.isSafeInteger(failure.code) ? failure.code : null,
+    retry_after_ms: Number.isSafeInteger(failure.retry_after_ms) && failure.retry_after_ms >= 0
+      ? failure.retry_after_ms
+      : null,
+  };
+}
+
 export function parseWranglerFailureDiagnostics(raw) {
   if (typeof raw !== "string" || raw.length === 0) return unavailable("OUTPUT_EMPTY");
 
@@ -74,10 +95,12 @@ export function parseWranglerFailureDiagnostics(raw) {
   const signals = [];
   for (const record of records) collectSignals(record, signals);
   const classification = classify(signals);
+  const metadata = commandFailureMetadata(records);
   return {
     diagnostic: "AVAILABLE",
     reason: malformed ? "PARTIAL_MALFORMED_LINES_SUPPRESSED" : "STRUCTURED_OUTPUT_PARSED",
     classification,
+    ...metadata,
     detail: classification === "UNKNOWN"
       ? "STRUCTURED_ERROR_PRESENT_RAW_DETAIL_SUPPRESSED"
       : `${classification}_SIGNAL_PRESENT_RAW_DETAIL_SUPPRESSED`,
@@ -104,6 +127,8 @@ export function emitWranglerFailureDiagnostics(outputPath, write = (line) => con
   write(`WRANGLER_FAILURE_DIAGNOSTIC=${result.diagnostic}`);
   write(`WRANGLER_FAILURE_REASON=${result.reason}`);
   write(`WRANGLER_FAILURE_CLASS=${result.classification}`);
+  write(`WRANGLER_FAILURE_CODE=${result.failure_code ?? "NONE"}`);
+  write(`WRANGLER_FAILURE_RETRY_AFTER_MS=${result.retry_after_ms ?? "NONE"}`);
   write(`WRANGLER_FAILURE_DETAIL=${result.detail}`);
   write(`WRANGLER_FAILURE_RAW_FIELDS_EMITTED=${result.raw_fields_emitted ? "YES" : "NO"}`);
 }
