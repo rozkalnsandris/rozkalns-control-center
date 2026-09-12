@@ -16,7 +16,7 @@ FAST-LANE v2.2 remains the safe discovery, audit and non-FULL continuation lane.
 
 A valid FULL activation targets exactly one open issue and aims to complete:
 
-`fresh GitHub state -> durable activation receipt -> post-receipt main stability -> controller activation -> branch -> source/tests/docs -> Draft PR -> CI/review -> scope-preserving corrections -> frozen exact head -> guarded merge -> exact-main verification -> final receipt`
+`fresh GitHub state -> durable activation receipt -> post-receipt main stability -> controller activation -> branch -> source/tests/docs -> Draft PR -> CI/review -> scope-preserving corrections -> frozen exact head -> guarded merge -> exact target issue closed -> exact-main verification -> final receipt`
 
 Routine CI failure, review findings, ordinary merge conflict resolution, session end and read-only polling are technical continuation states, not owner gates.
 
@@ -56,13 +56,16 @@ After source is complete:
 
 1. Freeze the canonical PR head. No further source correction should be expected.
 2. Perform the final exact-head diff/scope review and fresh policy/review/mergeability read.
-3. If the PR is already immediately mergeable and all required gates pass, use **direct squash merge with `expected_head_sha`**.
-4. If the exact head is frozen but merge is blocked only by required GitHub checks/reviews that are still pending, and repository-level auto-merge is enabled, native auto-merge may be armed.
-5. Never push a new source commit after native auto-merge is armed. If a correction becomes necessary, auto-merge must first be safely disabled; inability or ambiguity in doing so is `STOP_ERROR`.
-6. Any head change invalidates all prior merge readiness and requires a fresh final review/check cycle.
-7. Never bypass rulesets, force merge, rewrite history or treat merge as production authorization.
+3. Before merge readiness, require the canonical PR body to contain the exact GitHub closing reference `Closes #<target_issue>` for the frozen FULL target. `Refs #...` is insufficient for FULL completion, and a closing reference to another issue does not satisfy the gate.
+4. If the PR is already immediately mergeable and all required gates pass, use **direct squash merge with `expected_head_sha`**.
+5. If the exact head is frozen but merge is blocked only by required GitHub checks/reviews that are still pending, and repository-level auto-merge is enabled, native auto-merge may be armed.
+6. Never push a new source commit after native auto-merge is armed. If a correction becomes necessary, auto-merge must first be safely disabled; inability or ambiguity in doing so is `STOP_ERROR`.
+7. Any head change invalidates all prior merge readiness and requires a fresh final review/check cycle.
+8. Never bypass rulesets, force merge, rewrite history or treat merge as production authorization.
 
 Repository-level `Allow auto-merge` is optional for correctness because the direct exact-head path remains valid for already-ready PRs.
+
+The closing reference is part of the FULL completion safety contract, not a convenience. After merge, fresh-read the exact frozen target issue. GitHub must report that issue as `closed` before the run can become `DONE` or controller #499 can return to `IDLE`. If the canonical PR merged but the exact target is still open, preserve evidence and enter `STOP_ERROR`; do not silently declare completion or substitute an unrelated issue close.
 
 ## Control production/live boundary
 
@@ -101,10 +104,14 @@ An hourly Scheduled Task may act as watchdog/fallback and must reconstruct state
 For source-only issues, `DONE` requires:
 
 - issue Definition of Done satisfied;
+- canonical PR contains the exact `Closes #<target_issue>` reference for the frozen FULL target;
 - canonical PR merged under the frozen FULL authority;
+- exact target issue freshly re-read as `closed` after merge;
 - exact new `main` re-read;
 - exact-main CI verified when the repository runs CI on push;
 - final GitHub receipt recorded;
-- controller #499 returned to `IDLE`.
+- controller #499 returned to `IDLE` only after the target-closed check passes.
+
+A merged PR with an open frozen target is `STOP_ERROR`, not `DONE`, and the controller must not be returned to `IDLE` on that basis.
 
 If unapproved strict live work remains necessary, the run is not `DONE`; it is `PAUSED_OWNER_LIVE_GATE`.
