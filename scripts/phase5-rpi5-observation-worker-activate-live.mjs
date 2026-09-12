@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { checkGitAncestor } from "./phase5-git-provenance.mjs";
 import { emitWranglerFailureDiagnostics } from "./phase5-worker-wrangler-diagnostics.mjs";
 
 const REPO = "rozkalnsandris/rozkalns-control-center";
@@ -484,14 +485,26 @@ async function assertGitHubEvidence(a, candidate) {
     provision?.name !== "Phase 5 RPi5 observation verification-key provision" ||
     provision?.path !== PROVISION_PATH ||
     provision?.head_branch !== "main" ||
-    provision?.head_sha !== a.sha ||
     provision?.event !== "workflow_dispatch" ||
     provision?.status !== "completed" ||
     provision?.conclusion !== "success" ||
     provision?.run_attempt !== 1
   ) {
-    stop("VERIFICATION_KEY_PROVISION_GATE_INVALID", "named verification-key provision run is not successful exact-main first-attempt evidence");
+    stop("VERIFICATION_KEY_PROVISION_GATE_INVALID", "named verification-key provision run is not successful first-attempt main evidence");
   }
+
+  const provisionSha = provision?.head_sha ?? "";
+  const provenance = checkGitAncestor(provisionSha, a.sha, { cwd: process.cwd(), env: cleanEnv() });
+  if (!provenance.ok) {
+    if (provenance.reason === "INVALID_SHA") {
+      stop("VERIFICATION_KEY_PROVISION_SOURCE_INVALID", "provision run source SHA is malformed");
+    }
+    if (provenance.reason === "NOT_ANCESTOR") {
+      stop("VERIFICATION_KEY_PROVISION_SOURCE_NOT_ANCESTOR", "provision run source is not an ancestor of the approved activation source");
+    }
+    stop("VERIFICATION_KEY_PROVISION_SOURCE_ANCESTRY_CHECK_FAILED", "could not prove verification-key provision source ancestry");
+  }
+  console.log("VERIFICATION_KEY_PROVISION_SOURCE_ANCESTRY=PASS");
 
   if (provision?.inputs?.key_id !== undefined && provision.inputs.key_id !== a.keyId) {
     stop("VERIFICATION_KEY_PROVISION_KEY_ID_DRIFT", "provision run public key_id differs from authorization");
