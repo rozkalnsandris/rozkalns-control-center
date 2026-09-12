@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { emitWranglerFailureDiagnostics } from "./phase5-worker-wrangler-diagnostics.mjs";
 
 const REPO = "rozkalnsandris/rozkalns-control-center";
 const WORKFLOW_PATH = ".github/workflows/phase5-rpi5-observation-worker-activate-live.yml";
@@ -696,6 +697,7 @@ function runWranglerWrite(args, outputPath) {
     }),
   });
   if (result.error || result.status !== 0) {
+    emitWranglerFailureDiagnostics(outputPath);
     stop("WRANGLER_WRITE_FAILED", `wrangler exited ${result.status ?? "unknown"}`);
   }
 }
