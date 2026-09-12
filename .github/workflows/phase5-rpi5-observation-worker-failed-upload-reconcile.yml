@@ -15,6 +15,10 @@ on:
         description: Exact failed Phase 5 Worker activation run to reconcile
         required: true
         type: string
+      failed_source_sha:
+        description: Exact source SHA executed by the failed activation run
+        required: true
+        type: string
       expected_deployment:
         description: Exact pre-attempt active Worker deployment
         required: true
@@ -46,6 +50,7 @@ jobs:
       APPROVED_SHA: ${{ inputs.approved_sha }}
       EXPECTED_CI_RUN: ${{ inputs.expected_ci_run }}
       FAILED_ACTIVATION_RUN: ${{ inputs.failed_activation_run }}
+      FAILED_SOURCE_SHA: ${{ inputs.failed_source_sha }}
       EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
       EXPECTED_VERSION: ${{ inputs.expected_version }}
       EXPECTED_NON_TARGET_BINDINGS_SHA256: ${{ inputs.expected_non_target_bindings_sha256 }}

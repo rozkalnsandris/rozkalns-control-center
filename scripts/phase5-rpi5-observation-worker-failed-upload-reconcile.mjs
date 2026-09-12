@@ -101,6 +101,7 @@ function inputs() {
     sha: input("APPROVED_SHA"),
     ciRun: input("EXPECTED_CI_RUN"),
     failedRun: input("FAILED_ACTIVATION_RUN"),
+    failedSourceSha: input("FAILED_SOURCE_SHA"),
     deployment: input("EXPECTED_DEPLOYMENT"),
     version: input("EXPECTED_VERSION"),
     nonTargetBindingsSha256: input("EXPECTED_NON_TARGET_BINDINGS_SHA256"),
@@ -108,7 +109,9 @@ function inputs() {
 }
 
 function assertInputs(a) {
-  if (!SHA1.test(a.sha)) stop("APPROVED_SHA_INVALID", "approved SHA must be 40 lowercase hex characters");
+  if (!SHA1.test(a.sha) || !SHA1.test(a.failedSourceSha)) {
+    stop("SOURCE_SHA_INVALID", "approved and failed source SHAs must be 40 lowercase hex characters");
+  }
   if (!RUN_ID.test(a.ciRun) || !RUN_ID.test(a.failedRun)) {
     stop("RUN_ID_INVALID", "CI and failed activation run ids must be positive integers");
   }
@@ -147,9 +150,25 @@ function parseInstant(value, code) {
   return millis;
 }
 
+async function assertSourceContinuity(a) {
+  const compare = await gh(`/compare/${a.failedSourceSha}...${a.sha}`);
+  if (
+    compare?.merge_base_commit?.sha !== a.failedSourceSha ||
+    !["ahead", "identical"].includes(compare?.status)
+  ) {
+    stop("FAILED_SOURCE_NOT_CURRENT_MAIN_ANCESTOR", "failed activation source is not an ancestor of current reconciliation main");
+  }
+
+  const failedConfig = await gh(`/contents/wrangler.jsonc?ref=${a.failedSourceSha}`);
+  const currentConfig = await gh(`/contents/wrangler.jsonc?ref=${a.sha}`);
+  if (!failedConfig?.sha || failedConfig.sha !== currentConfig?.sha) {
+    stop("WRANGLER_CONFIG_DRIFT_SINCE_FAILED_SOURCE", "Worker source configuration changed since failed activation source");
+  }
+}
+
 async function assertGitHubEvidence(a) {
   const main = await gh("/branches/main");
-  if (main?.commit?.sha !== a.sha) stop("MAIN_SHA_DRIFT", "current main differs from approved SHA");
+  if (main?.commit?.sha !== a.sha) stop("MAIN_SHA_DRIFT", "current main differs from approved reconciliation SHA");
 
   const ci = await gh(`/actions/runs/${a.ciRun}`);
   if (
@@ -161,26 +180,28 @@ async function assertGitHubEvidence(a) {
     ci?.status !== "completed" ||
     ci?.conclusion !== "success"
   ) {
-    stop("CI_GATE_INVALID", "named CI is not successful exact-main push CI");
+    stop("CI_GATE_INVALID", "named CI is not successful exact-current-main push CI");
   }
+
+  await assertSourceContinuity(a);
 
   const failed = await gh(`/actions/runs/${a.failedRun}`);
   if (
     failed?.name !== ACTIVATION_WORKFLOW_NAME ||
     failed?.path !== ACTIVATION_WORKFLOW_PATH ||
     failed?.head_branch !== "main" ||
-    failed?.head_sha !== a.sha ||
+    failed?.head_sha !== a.failedSourceSha ||
     failed?.event !== "workflow_dispatch" ||
     failed?.status !== "completed" ||
     failed?.conclusion !== "failure" ||
     failed?.run_attempt !== 1
   ) {
-    stop("FAILED_ACTIVATION_RUN_INVALID", "named run is not the exact first-attempt failed activation on approved main");
+    stop("FAILED_ACTIVATION_RUN_INVALID", "named run is not the exact first-attempt failed activation on the bound failed source");
   }
 
   const jobs = await gh(`/actions/runs/${a.failedRun}/jobs?per_page=100`);
   const matchingJobs = Array.isArray(jobs?.jobs)
-    ? jobs.jobs.filter((job) => job?.name === ACTIVATION_JOB_NAME && job?.head_sha === a.sha)
+    ? jobs.jobs.filter((job) => job?.name === ACTIVATION_JOB_NAME && job?.head_sha === a.failedSourceSha)
     : [];
   if (matchingJobs.length !== 1 || matchingJobs[0]?.conclusion !== "failure") {
     stop("FAILED_ACTIVATION_JOB_INVALID", "failed activation must contain exactly one matching failed job");
@@ -244,12 +265,12 @@ async function assertRuntimeConfig(version) {
   const sourceConfig = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
   const runtime = version?.resources?.script_runtime;
   if (!runtime || runtime.compatibility_date !== sourceConfig.compatibility_date) {
-    stop("CANDIDATE_COMPATIBILITY_DATE_DRIFT", "candidate compatibility date differs from approved source");
+    stop("CANDIDATE_COMPATIBILITY_DATE_DRIFT", "candidate compatibility date differs from failed activation source");
   }
   const expectedFlags = Array.isArray(sourceConfig.compatibility_flags) ? [...sourceConfig.compatibility_flags].sort() : [];
   const observedFlags = Array.isArray(runtime.compatibility_flags) ? [...runtime.compatibility_flags].sort() : [];
   if (JSON.stringify(observedFlags) !== JSON.stringify(expectedFlags)) {
-    stop("CANDIDATE_COMPATIBILITY_FLAGS_DRIFT", "candidate compatibility flags differ from approved source");
+    stop("CANDIDATE_COMPATIBILITY_FLAGS_DRIFT", "candidate compatibility flags differ from failed activation source");
   }
   const scriptEtag = version?.resources?.script?.etag;
   if (typeof scriptEtag !== "string" || scriptEtag.length === 0) {
@@ -325,6 +346,7 @@ async function main() {
   console.log(`SOURCE_SHA=${a.sha}`);
   console.log(`CI_RUN_ID=${a.ciRun}`);
   console.log(`FAILED_ACTIVATION_RUN=${a.failedRun}`);
+  console.log(`FAILED_ACTIVATION_SOURCE_SHA=${a.failedSourceSha}`);
   console.log(`FAILED_MUTATION_STEP_STARTED_AT=${evidence.stepStartedAt}`);
   console.log(`FAILED_MUTATION_STEP_COMPLETED_AT=${evidence.stepCompletedAt}`);
   console.log(`ACTIVE_DEPLOYMENT=${a.deployment}`);

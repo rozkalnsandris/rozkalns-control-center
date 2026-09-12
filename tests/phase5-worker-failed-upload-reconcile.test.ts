@@ -20,17 +20,32 @@ test("failed-upload reconciliation workflow is manual and read-only credential s
   assert.match(workflow, /persist-credentials: false/);
 });
 
-test("workflow binds exact source, CI, failed activation and pre-attempt Worker baseline", () => {
+test("workflow binds current source, failed source, CI, failed activation and pre-attempt Worker baseline", () => {
   for (const required of [
     "approved_sha:",
     "expected_ci_run:",
     "failed_activation_run:",
+    "failed_source_sha:",
     "expected_deployment:",
     "expected_version:",
     "expected_non_target_bindings_sha256:",
   ]) assert.match(workflow, new RegExp(required));
+  assert.match(workflow, /FAILED_SOURCE_SHA: \$\{\{ inputs\.failed_source_sha \}\}/);
   assert.match(workflow, /ref: \$\{\{ inputs\.approved_sha \}\}/);
   assert.match(workflow, /phase5-rpi5-observation-worker-failed-upload-reconcile\.mjs/);
+});
+
+test("reconciler permits post-fix current main only when failed source remains an ancestor with unchanged Worker config", () => {
+  for (const required of [
+    "/compare/${a.failedSourceSha}...${a.sha}",
+    "FAILED_SOURCE_NOT_CURRENT_MAIN_ANCESTOR",
+    "/contents/wrangler.jsonc?ref=${a.failedSourceSha}",
+    "/contents/wrangler.jsonc?ref=${a.sha}",
+    "WRANGLER_CONFIG_DRIFT_SINCE_FAILED_SOURCE",
+    "failed?.head_sha !== a.failedSourceSha",
+    "job?.head_sha === a.failedSourceSha",
+  ]) assert.ok(reconciler.includes(required), `missing source-continuity invariant: ${required}`);
+  assert.doesNotMatch(reconciler, /failed\?\.head_sha !== a\.sha/);
 });
 
 test("reconciler proves exact failed mutation step and uses its bounded time window", () => {
@@ -100,7 +115,7 @@ test("candidate digest algorithm remains in parity with activation/preflight can
   ]) assert.ok(reconciler.includes(required), `missing digest parity snippet: ${required}`);
 });
 
-test("candidate runtime configuration is tied to approved source", () => {
+test("candidate runtime configuration is tied to unchanged failed-source Worker config", () => {
   assert.match(reconciler, /readFile\("wrangler\.jsonc", "utf8"\)/);
   assert.match(reconciler, /CANDIDATE_COMPATIBILITY_DATE_DRIFT/);
   assert.match(reconciler, /CANDIDATE_COMPATIBILITY_FLAGS_DRIFT/);
@@ -118,6 +133,7 @@ test("PASS and STOP receipts prove reconciliation is zero-mutation and grants no
   for (const marker of [
     "PHASE5_WORKER_FAILED_UPLOAD_RECONCILE=PASS",
     "PHASE5_WORKER_FAILED_UPLOAD_RECONCILE=STOP",
+    "FAILED_ACTIVATION_SOURCE_SHA",
     "RECOVERY_MUTATION_AUTHORIZED=NO",
     "WORKER_MUTATION=NO",
     "WORKER_UPLOAD=NO",
