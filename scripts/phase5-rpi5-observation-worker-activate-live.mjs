@@ -50,6 +50,19 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const RUN_ID = /^[1-9][0-9]*$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+const WRITE_CREDENTIAL_PREFLIGHT_PATH = resolve("scripts", "phase5-worker-write-credential-preflight.mjs");
+const WRITE_CREDENTIAL_PREFLIGHT_FAILURES = new Set([
+  "WORKERS_WRITE_CREDENTIAL_PREFLIGHT_INPUT_INVALID",
+  "WORKERS_WRITE_CREDENTIAL_VERIFY_NETWORK_FAILED",
+  "WORKERS_WRITE_CREDENTIAL_VERIFY_HTTP_NOT_200",
+  "WORKERS_WRITE_CREDENTIAL_VERIFY_JSON_INVALID",
+  "WORKERS_WRITE_CREDENTIAL_TOKEN_NOT_ACTIVE",
+  "WORKERS_WRITE_CREDENTIAL_TARGET_READ_NETWORK_FAILED",
+  "WORKERS_WRITE_CREDENTIAL_TARGET_READ_HTTP_NOT_200",
+  "WORKERS_WRITE_CREDENTIAL_TARGET_READ_JSON_INVALID",
+  "WORKERS_WRITE_CREDENTIAL_TARGET_READ_INVALID",
+  "WORKERS_WRITE_CREDENTIAL_PREFLIGHT_UNEXPECTED_ERROR",
+]);
 
 let mutationStarted = false;
 let uploadedVersion = "";
@@ -661,6 +674,58 @@ async function materializeCandidateConfig(sourceConfig) {
   return path;
 }
 
+function assertWriteCredentialPreflight() {
+  const result = spawnSync(process.execPath, [WRITE_CREDENTIAL_PREFLIGHT_PATH], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: cleanEnv({
+      CLOUDFLARE_API_TOKEN: input("CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN"),
+      CLOUDFLARE_ACCOUNT_ID: CF_ACCOUNT_ID,
+      PHASE5_WORKER_NAME: WORKER_NAME,
+    }),
+  });
+
+  if (result.error || result.stderr || ![0, 2].includes(result.status ?? -1)) {
+    stop("WORKERS_WRITE_CREDENTIAL_PREFLIGHT_PROCESS_FAILED", "write credential preflight child did not return a bounded receipt");
+  }
+
+  let receipt;
+  try {
+    receipt = JSON.parse(result.stdout.trim());
+  } catch {
+    stop("WORKERS_WRITE_CREDENTIAL_PREFLIGHT_RECEIPT_INVALID", "write credential preflight receipt was not valid JSON");
+  }
+
+  if (receipt?.schema_version !== 1 || typeof receipt?.ok !== "boolean") {
+    stop("WORKERS_WRITE_CREDENTIAL_PREFLIGHT_RECEIPT_INVALID", "write credential preflight receipt schema was invalid");
+  }
+
+  if (!receipt.ok) {
+    if (result.status !== 2 || !WRITE_CREDENTIAL_PREFLIGHT_FAILURES.has(receipt.code)) {
+      stop("WORKERS_WRITE_CREDENTIAL_PREFLIGHT_RECEIPT_INVALID", "write credential preflight failure receipt was invalid");
+    }
+    console.error(`WORKERS_WRITE_CREDENTIAL_PREFLIGHT_CODE=${receipt.code}`);
+    if (Number.isInteger(receipt.http_status) && receipt.http_status >= 100 && receipt.http_status <= 599) {
+      console.error(`WORKERS_WRITE_CREDENTIAL_PREFLIGHT_HTTP_STATUS=${receipt.http_status}`);
+    }
+    stop(receipt.code, "dedicated Workers Scripts write credential failed read-only prewrite verification");
+  }
+
+  if (
+    result.status !== 0 ||
+    receipt.token_status !== "ACTIVE" ||
+    receipt.target_read !== "PASS" ||
+    receipt.write_permission_proven !== false
+  ) {
+    stop("WORKERS_WRITE_CREDENTIAL_PREFLIGHT_RECEIPT_INVALID", "write credential preflight success receipt was invalid");
+  }
+
+  console.log("WORKERS_WRITE_CREDENTIAL_TOKEN_STATUS=ACTIVE");
+  console.log("WORKERS_WRITE_CREDENTIAL_TARGET_READ=PASS");
+  console.log("WORKERS_WRITE_PERMISSION_PROVEN=NO");
+}
+
 function requireRead(path) {
   const result = spawnSync(
     process.execPath,
@@ -838,6 +903,7 @@ async function main() {
   await assertGitHubEvidence(a, candidate);
   await assertD1Ready();
   await assertBaseline(a, candidate);
+  assertWriteCredentialPreflight();
 
   const versionId = await uploadCandidate(a, candidateConfigPath);
   await assertUploadedCandidate(versionId, candidate);

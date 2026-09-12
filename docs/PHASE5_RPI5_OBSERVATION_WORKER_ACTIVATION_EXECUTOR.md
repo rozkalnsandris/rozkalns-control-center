@@ -32,9 +32,10 @@ Before authorization can be consumed, the executor requires all of the following
 - active Worker baseline equal to the owner-authorized deployment/version at 100% traffic;
 - dormant ingest baseline (`ABSENT` or plain-text `false`), protected `CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS:secret_text` with no readable value, unchanged `CONTROL_DB`, and exact non-target binding digest;
 - D1 resource identity `rozkalns-control-production` / `8504e986-faf0-450c-bfb5-41b5dbf8be09` / `eu`;
-- GET/SELECT-only proof that migrations `0010` through `0013` and the reviewed Phase 5 schema/index are present-valid.
+- GET/SELECT-only proof that migrations `0010` through `0013` and the reviewed Phase 5 schema/index are present-valid;
+- a final isolated-child GET-only liveness check proving the dedicated write credential is active and can read the exact target Worker version inventory. This proves credential liveness/resource reachability only; it does **not** prove `Workers Scripts Write`.
 
-The workflow exposes only public-safe dispatch inputs. `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_D1_READ_TOKEN` are read-only evidence credentials. `CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN` is a dedicated protected Workers Scripts write token and is scoped only into the Wrangler mutation child processes.
+The workflow exposes only public-safe dispatch inputs. `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_D1_READ_TOKEN` are read-only evidence credentials. `CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN` is a dedicated protected Workers Scripts write token. It is scoped only into an isolated GET-only credential-preflight child and the Wrangler mutation child processes; it is never placed on argv or emitted. The preflight uses `GET /user/tokens/verify` plus `GET .../versions?per_page=1` and emits only `ACTIVE` / target-read `PASS` markers. Because Worker GET endpoints accept read or write permission, this guard deliberately emits `WORKERS_WRITE_PERMISSION_PROVEN=NO` rather than treating read success as write-scope proof.
 
 Verification-key provisioning is one-shot and non-replayable. Later source-only merges therefore do not require re-provisioning the secret: the executor requires the successful provision run SHA to remain in the Git ancestry of the exact approved activation SHA. Malformed, unrelated or diverged provision SHAs fail closed before LIVE authority can be consumed, while all exact-current-main CI/preflight and current Worker baseline checks remain mandatory.
 
@@ -46,12 +47,13 @@ The executor materializes an ephemeral config from exact `wrangler.jsonc` and pr
 
 All other config remains equal. The only permitted production mutation sequence is:
 
-1. emit `WORKER_VERSION_UPLOAD_STARTED=YES` and `AUTHORIZATION_CONSUMED=YES`;
-2. execute exactly one `wrangler versions upload` using the exact candidate config, with automatic resource provisioning disabled;
-3. GET the exact returned version and prove ingest is plain-text `true`, the verification-key binding remains protected, `CONTROL_DB` is unchanged, and the non-target binding digest is unchanged;
-4. repeat exact-main/GitHub evidence, D1 present-valid evidence and the active baseline drift guard;
-5. only then emit `EXACT_VERIFIED_VERSION_DEPLOY_STARTED=YES` and execute exactly one `wrangler versions deploy <verified-version>@100%`;
-6. perform GET/SELECT-only postdeploy reconciliation.
+1. immediately before mutation, require `WORKERS_WRITE_CREDENTIAL_TOKEN_STATUS=ACTIVE` and `WORKERS_WRITE_CREDENTIAL_TARGET_READ=PASS`, while retaining `WORKERS_WRITE_PERMISSION_PROVEN=NO`;
+2. emit `WORKER_VERSION_UPLOAD_STARTED=YES` and `AUTHORIZATION_CONSUMED=YES`;
+3. execute exactly one `wrangler versions upload` using the exact candidate config, with automatic resource provisioning disabled;
+4. GET the exact returned version and prove ingest is plain-text `true`, the verification-key binding remains protected, `CONTROL_DB` is unchanged, and the non-target binding digest is unchanged;
+5. repeat exact-main/GitHub evidence, D1 present-valid evidence and the active baseline drift guard;
+6. only then emit `EXACT_VERIFIED_VERSION_DEPLOY_STARTED=YES` and execute exactly one `wrangler versions deploy <verified-version>@100%`;
+7. perform GET/SELECT-only postdeploy reconciliation.
 
 Ordinary `wrangler deploy` is forbidden because it combines version creation and activation and removes the required GET verification barrier. `wrangler triggers deploy` is also absent/forbidden. Cloudflare documents `wrangler versions upload` as creating a version without immediate deployment and documents trigger application (routes, domains and cron) as a separate `wrangler triggers deploy` command.
 
@@ -93,6 +95,9 @@ A successful later LIVE run may emit public-safe markers including:
 - `D1_PHASE5_GATE=PRESENT_VALID_0010_THROUGH_0013`
 - `SOURCE_CONFIG_DELTA=INGEST_ONLY`
 - `TRIGGER_ROUTE_CUSTOM_DOMAIN_QUEUE_MUTATION_PATH=ABSENT`
+- `WORKERS_WRITE_CREDENTIAL_TOKEN_STATUS=ACTIVE`
+- `WORKERS_WRITE_CREDENTIAL_TARGET_READ=PASS`
+- `WORKERS_WRITE_PERMISSION_PROVEN=NO`
 - `WORKER_VERSION_UPLOAD_STARTED=YES`
 - `UPLOADED_CANDIDATE_GET_VERIFY=PASS`
 - `PREDEPLOY_DRIFT_GUARD=PASS`
