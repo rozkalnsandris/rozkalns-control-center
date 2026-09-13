@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "contract": "PHASE5_RPI5_OBSERVATION_VERIFICATION_KEY_RECONCILE_V1",
+  "repository": "rozkalnsandris/rozkalns-control-center",
+  "authority": {
+    "source_contract_only": true,
+    "live_authority_granted": false,
+    "merge_authorizes_live": false,
+    "authorization_consumed_at": "FIRST_AUTHORIZED_SECRET_PUT",
+    "on_error_timeout_drift_or_ambiguity_after_mutation": "STOP_NO_RETRY_ROLLBACK_CLEANUP_OR_ALTERNATE_MUTATION"
+  },
+  "target": {
+    "worker": "rozkalns-control",
+    "binding": "CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS",
+    "registry_version": "control-phase5-rpi5-verification-keys-v1",
+    "registry_exact_key_count": 1,
+    "key_id": "PUBLIC_SAFE",
+    "public_key": "CANONICAL_RAW_ED25519_BASE64URL_32_BYTES"
+  },
+  "preconditions": {
+    "requires_exact_current_main": true,
+    "requires_successful_exact_main_ci": true,
+    "requires_successful_first_attempt_post_activation_verify": true,
+    "post_activation_verify_workflow": ".github/workflows/phase5-rpi5-observation-worker-post-activation-verify.yml",
+    "requires_exact_worker_deployment": true,
+    "requires_exact_worker_version": true,
+    "requires_single_version_traffic_percent": 100,
+    "requires_ingest_binding": "CONTROL_RPI5_OBSERVATION_INGEST_ENABLED:plain_text:true",
+    "requires_verification_key_binding": "PRESENT_PROTECTED_SECRET_TEXT_VALUE_UNOBSERVED",
+    "requires_control_db": "8504e986-faf0-450c-bfb5-41b5dbf8be09",
+    "requires_clean_exact_source_checkout": true,
+    "requires_expected_runtime_config": true
+  },
+  "executor": {
+    "workflow": ".github/workflows/phase5-rpi5-observation-verification-key-reconcile-live.yml",
+    "script": "scripts/phase5-rpi5-observation-verification-key-reconcile-live.mjs",
+    "github_environment": "production-verification-key-live",
+    "workers_read_secret_binding": "CLOUDFLARE_API_TOKEN",
+    "workers_write_secret_binding": "CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN",
+    "registry_secret_binding_required": false,
+    "public_key_dispatch_input_allowed": true,
+    "authorization_binds_public_key_sha256": true
+  },
+  "mutation": {
+    "requires_separate_owner_live_authorization": true,
+    "mutation_ceiling": "ONE_WRANGLER_SECRET_PUT_FOR_CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS_ONLY",
+    "wrangler_secret_put_creates_and_deploys_new_worker_version": true,
+    "d1_mutation": false,
+    "queue_mutation": false,
+    "route_dns_access_mutation": false,
+    "rpi5_mutation": false,
+    "automatic_retry_rollback_cleanup_or_alternate_mutation": false
+  },
+  "postwrite": {
+    "requires_new_active_deployment": true,
+    "requires_new_active_version": true,
+    "requires_single_version_traffic_percent": 100,
+    "requires_ingest_binding_unchanged_true": true,
+    "requires_verification_key_binding": "PRESENT_PROTECTED_SECRET_TEXT_VALUE_UNOBSERVED",
+    "requires_non_target_binding_inventory_unchanged": true,
+    "requires_control_db_unchanged": true,
+    "requires_runtime_config_unchanged": true
+  },
+  "future_owner_command_template": "AUTHORIZE LIVE PHASE5 VERIFICATION KEY RECONCILE rozkalns-control-center source_sha=<sha> ci_run=<ci_run_id> post_activation_verify_run=<run_id> deployment=<deployment_id> version=<version_id> binding=CONTROL_RPI5_OBSERVATION_VERIFICATION_KEYS key_id=<public_key_id> public_key_sha256=<sha256_of_raw_ed25519_public_key>"
+}
