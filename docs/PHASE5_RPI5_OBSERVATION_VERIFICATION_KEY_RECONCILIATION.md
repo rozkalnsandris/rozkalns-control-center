@@ -4,7 +4,7 @@ This document defines the source-only post-activation reconciliation path for `C
 
 It exists because the original verification-key provisioner is deliberately limited to the dormant baseline: the target secret must be absent and observation ingest must not yet be active. Once the Worker is already active with `CONTROL_RPI5_OBSERVATION_INGEST_ENABLED=true` and the target binding present as protected `secret_text`, that initial one-shot must not be replayed.
 
-The machine contract is `.github/phase5-rpi5-observation-verification-key-reconcile-contract.json`. The future LIVE workflow is `.github/workflows/phase5-rpi5-observation-verification-key-reconcile-live.yml`, executed by `scripts/phase5-rpi5-observation-verification-key-reconcile-live.mjs`.
+The machine contract is `.github/phase5-rpi5-observation-verification-key-reconcile-contract.json`. The future LIVE workflow is `.github/workflows/phase5-rpi5-observation-verification-key-reconcile-live.yml`, executed by `scripts/phase5-rpi5-observation-verification-key-reconcile-live.mjs`. The workflow is gated by the dedicated GitHub Environment `production-verification-key-live`.
 
 ## Authority boundary
 
