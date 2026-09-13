@@ -1,0 +1,93 @@
+name: Phase 5 RPi5 observation verification-key post-activation reconcile
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact current main SHA authorized for post-activation verification-key reconciliation
+        required: true
+        type: string
+      expected_ci_run:
+        description: Exact successful push CI run on approved_sha
+        required: true
+        type: string
+      expected_post_activation_verify_run:
+        description: Exact successful first-attempt post-activation GET-only verifier run on approved_sha
+        required: true
+        type: string
+      expected_deployment:
+        description: Exact active Worker deployment observed by the approved verifier
+        required: true
+        type: string
+      expected_version:
+        description: Exact active Worker version observed by the approved verifier
+        required: true
+        type: string
+      key_id:
+        description: Public key identifier from the RPi5 credential receipt
+        required: true
+        type: string
+      public_key_base64url:
+        description: Public-safe canonical raw Ed25519 public key from the RPi5 credential receipt
+        required: true
+        type: string
+      binding:
+        description: Exact Worker secret binding to reconcile
+        required: true
+        type: string
+      authorization:
+        description: Exact owner LIVE authorization string binding every public input
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: phase5-rpi5-observation-verification-key-reconcile-live
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: one-shot post-activation verification-key reconcile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production-verification-key-live
+    env:
+      APPROVED_SHA: ${{ inputs.approved_sha }}
+      EXPECTED_CI_RUN: ${{ inputs.expected_ci_run }}
+      EXPECTED_POST_ACTIVATION_VERIFY_RUN: ${{ inputs.expected_post_activation_verify_run }}
+      EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+      AUTHORIZED_KEY_ID: ${{ inputs.key_id }}
+      AUTHORIZED_PUBLIC_KEY_BASE64URL: ${{ inputs.public_key_base64url }}
+      EXPECTED_BINDING: ${{ inputs.binding }}
+      OWNER_AUTHORIZATION: ${{ inputs.authorization }}
+      GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout exact authorized source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.approved_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup canonical Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Verify canonical Node version
+        run: node scripts/verify-node-version.mjs
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Execute one-shot post-activation verification-key reconcile
+        env:
+          CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_SCRIPTS_WRITE_TOKEN }}
+        run: node scripts/phase5-rpi5-observation-verification-key-reconcile-live.mjs
