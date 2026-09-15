@@ -1,7 +1,7 @@
-import type { DecisionReadModel, MockAction, ProjectReadModel } from "../shared/control-model.js";
+import type { DecisionReadModel, DecisionAction, ProjectReadModel } from "../shared/control-model.js";
 import { resolveManagedProjectPolicy } from "../shared/project-policy.js";
 
-const GITHUB_WRITE_ACTIONS = new Set<MockAction>(["MERGE", "NEEDS_CHANGES"]);
+const GITHUB_WRITE_ACTIONS = new Set<DecisionAction>(["MERGE", "NEEDS_CHANGES"]);
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -25,6 +25,7 @@ export interface AuthoritativeGitHubWriteEligibility {
 export interface NeedsChangesEligibilityOptions {
   readonly fetcher?: FetchLike;
   readonly signal?: AbortSignal;
+  readonly now?: () => number;
 }
 
 const noGitHubWriteEligibility: AuthoritativeGitHubWriteEligibility = {
@@ -113,7 +114,7 @@ export function applyAuthoritativeGitHubWriteEligibility(
   const suppressed = suppressUnverifiedGitHubWriteActions(item);
   if (!hasLiveDashboardActionSignal(item)) return suppressed;
 
-  const verifiedActions: MockAction[] = [];
+  const verifiedActions: DecisionAction[] = [];
   if (eligibility.merge) verifiedActions.push("MERGE");
   if (eligibility.needsChanges) verifiedActions.push("NEEDS_CHANGES");
   if (verifiedActions.length === 0) return suppressed;
@@ -160,6 +161,9 @@ export async function readAuthoritativeGitHubWriteEligibility(
     if (!response.ok) return noGitHubWriteEligibility;
     const payload: unknown = await response.json();
     if (!projectedResultMatches(payload, candidate)) return noGitHubWriteEligibility;
+    if (!isRecord(payload) || typeof payload.observedAt !== "string") return noGitHubWriteEligibility;
+    const age = (options.now ?? Date.now)() - Date.parse(payload.observedAt);
+    if (!Number.isFinite(age) || age < 0 || age > 60_000) return noGitHubWriteEligibility;
     return {
       merge: candidate.canMerge,
       needsChanges: candidate.canRequestChanges,

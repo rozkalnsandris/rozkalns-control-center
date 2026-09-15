@@ -19,7 +19,15 @@ export type DeployImpact =
   | "DB_HOST_APPLY_REQUIRED"
   | "UNKNOWN";
 
-export type MockAction = "MERGE" | "NEEDS_CHANGES" | "LATER" | "OPEN_PR";
+export const DECISION_ACTIONS = ["OPEN_PR", "MERGE", "NEEDS_CHANGES", "LATER", "RETRY_CI", "CONTINUE", "PAUSE"] as const;
+export type DecisionAction = (typeof DECISION_ACTIONS)[number];
+export type DecisionActionState = { state: "enabled"; reason: null } | { state: "disabled" | "unavailable"; reason: string };
+export type DecisionActionStates = Record<DecisionAction, DecisionActionState>;
+export interface ContinuationActionTarget {
+  campaignId: string;
+  revision: string;
+  expectedMainSha: string;
+}
 
 export interface ProjectReadModel {
   id: string;
@@ -50,7 +58,12 @@ export interface DecisionReadModel {
   mainSha: string;
   reason: string;
   lastReconciledAt: string;
-  allowedActions: MockAction[];
+  allowedActions: DecisionAction[];
+  /** Legacy domain producers may omit presentation; the dashboard API requires it. */
+  actionStates?: DecisionActionStates;
+  continuation?: ContinuationActionTarget;
+  /** UI-local expiry; never mutation authority. */
+  actionEligibilityExpiresAt?: number;
 }
 
 export interface ControlDashboardData {

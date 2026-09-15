@@ -1,4 +1,5 @@
 import { readCloudflareGitHubDashboardSnapshot } from "../integrations/github/cloudflare-dashboard-runtime.js";
+import { normalizeDecisionActions, decisionSnapshotBlock } from "../shared/decision-action-model.js";
 import type { CloudflareGitHubRuntimeBindings } from "../integrations/github/cloudflare-worker-runtime.js";
 import {
   productionVisibilityForProject,
@@ -86,7 +87,11 @@ export async function handleGitHubDashboardRequest(
 
   try {
     const snapshot = await execute({ bindings, observedAt });
-    return json(snapshot);
+    return json({ ...snapshot, decisions: snapshot.decisions.map((item) => {
+      const project = snapshot.projects.find((candidate) => candidate.id === item.projectId);
+      if (!project) throw new Error("Unknown decision project");
+      return normalizeDecisionActions(item, project, { live: true, nowMs: Date.parse(observedAt), blockedReason: decisionSnapshotBlock({ ...item, lastReconciledAt: snapshot.generatedAt }, Date.parse(observedAt)) ?? undefined });
+    }) });
   } catch {
     return json({ error: "LIVE_DASHBOARD_FAILED" }, 502);
   }

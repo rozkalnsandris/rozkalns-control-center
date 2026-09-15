@@ -1,7 +1,7 @@
-import type { DecisionReadModel, MockAction, ProjectReadModel } from "../shared/control-model.js";
+import type { DecisionReadModel, DecisionAction, ProjectReadModel } from "../shared/control-model.js";
 import { laterDecisionStateFingerprint } from "../shared/later-decision.js";
 
-export type MutatingDecisionAction = Exclude<MockAction, "OPEN_PR">;
+export type MutatingDecisionAction = Exclude<DecisionAction, "OPEN_PR">;
 
 export interface DecisionActionTarget {
   action: MutatingDecisionAction;
@@ -10,13 +10,13 @@ export interface DecisionActionTarget {
 }
 
 export interface DecisionActionRequest {
-  path: "/api/github/merge" | "/api/github/needs-changes" | "/api/github/later";
+  path: "/api/github/merge" | "/api/github/needs-changes" | "/api/github/later" | "/api/control/continuation";
   body: Record<string, unknown>;
 }
 
 export interface DecisionActionRequestOptions {
   reviewBody?: string;
-  requestIdFactory?: (action: "MERGE" | "NEEDS_CHANGES") => string;
+  requestIdFactory?: (action: MutatingDecisionAction) => string;
 }
 
 export class DecisionActionClientError extends Error {
@@ -59,8 +59,8 @@ function requireRequestId(value: string): string {
   return value;
 }
 
-function defaultRequestId(action: "MERGE" | "NEEDS_CHANGES"): string {
-  const prefix = action === "MERGE" ? "rcmerge_" : "rcneeds_";
+function defaultRequestId(action: MutatingDecisionAction): string {
+  const prefix = action === "MERGE" ? "rcmerge_" : action === "NEEDS_CHANGES" ? "rcneeds_" : `rc_${action.toLowerCase()}_`;
   return `${prefix}${crypto.randomUUID().replace(/-/g, "_")}`;
 }
 
@@ -81,7 +81,12 @@ function requireReviewBody(value: string | undefined): string {
 }
 
 function requireActionStillAllowed(target: DecisionActionTarget): void {
-  if (!target.item.allowedActions.includes(target.action)) fail("ACTION_NOT_ALLOWED");
+  const expires = target.item.actionEligibilityExpiresAt;
+  if (expires !== undefined && (!Number.isFinite(expires) || Date.now() > expires)) fail("ACTION_ELIGIBILITY_EXPIRED");
+  if (target.item.actionStates && target.item.actionStates[target.action].state !== "enabled") fail("ACTION_NOT_ALLOWED");
+  if (target.action === "CONTINUE" || target.action === "PAUSE") {
+    if (target.item.actionStates?.[target.action].state !== "enabled") fail("ACTION_NOT_ALLOWED");
+  } else if (!target.item.allowedActions.includes(target.action)) fail("ACTION_NOT_ALLOWED");
   if (target.item.projectId !== target.project.id) fail("PROJECT_IDENTITY_MISMATCH");
   if (target.project.repository.trim() === "") fail("PROJECT_IDENTITY_MISMATCH");
 }
@@ -91,6 +96,13 @@ export function buildDecisionActionRequest(
   options: DecisionActionRequestOptions = {},
 ): DecisionActionRequest {
   requireActionStillAllowed(target);
+
+  if (target.action === "RETRY_CI") fail("RETRY_CI_CAPABILITY_UNAVAILABLE");
+  if (target.action === "CONTINUE" || target.action === "PAUSE") {
+    const continuation = target.item.continuation;
+    if (!continuation || !/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/.test(continuation.campaignId) || !/^[0-9a-f]{64}$/.test(continuation.revision) || continuation.expectedMainSha !== requireSha(target.item.mainSha)) fail("INVALID_DECISION_IDENTITY");
+    return { path: "/api/control/continuation", body: { ...continuation, action: target.action, repository: target.project.repository, requestId: requireRequestId((options.requestIdFactory ?? defaultRequestId)(target.action)) } };
+  }
 
   if (target.action === "LATER") {
     return {
@@ -175,6 +187,7 @@ export function decisionActionErrorMessage(error: unknown): string {
   }
 
   const messages: Record<string, string> = {
+    ACTION_ELIGIBILITY_EXPIRED: "Action eligibility expired; refresh required",
     INVALID_DECISION_IDENTITY: "Decision identity is incomplete",
     INVALID_DECISION_SHA: "Decision SHA evidence is incomplete",
     STALE_DECISION_HEAD: "Decision head changed; refresh required",

@@ -6,6 +6,8 @@ export type WorkerLogRoute =
   | "GITHUB_NEEDS_CHANGES"
   | "GITHUB_MERGE"
   | "GITHUB_LATER"
+  | "CONTINUATION_ACTION"
+  | "CONTINUATION_PREFLIGHT"
   | "GITHUB_WEBHOOK_DELIVERIES"
   | "GITHUB_WEBHOOK"
   | "NOT_FOUND"
@@ -48,6 +50,8 @@ const REQUEST_ROUTES = new Map<string, WorkerLogRoute>([
   ["/api/github/needs-changes", "GITHUB_NEEDS_CHANGES"],
   ["/api/github/merge", "GITHUB_MERGE"],
   ["/api/github/later", "GITHUB_LATER"],
+  ["/api/control/continuation", "CONTINUATION_ACTION"],
+  ["/api/control/continuation/preflight", "CONTINUATION_PREFLIGHT"],
   ["/api/github/webhook-deliveries", "GITHUB_WEBHOOK_DELIVERIES"],
   ["/api/github/webhook", "GITHUB_WEBHOOK"],
 ]);
