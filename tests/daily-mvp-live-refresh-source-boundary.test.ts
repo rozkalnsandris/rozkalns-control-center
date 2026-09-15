@@ -21,7 +21,12 @@ test("Daily MVP refresh stays explicit and action-aware while canonical dashboar
 
   assert.doesNotMatch(appSource, /method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);
   assert.doesNotMatch(appSource, /\/api\/github\/needs-changes["']/);
-  assert.doesNotMatch(appSource, /setInterval|setTimeout/);
+  // The owner panel may expire local eligibility without polling GitHub.
+  const clock = appSource.match(/window\.setInterval\(\(\)=>\{([\s\S]*?)\},5000\)/);
+  assert.ok(clock, "local freshness clock is present");
+  assert.doesNotMatch(clock[1], /fetch|readControlJson|refreshLiveDashboard|setRefreshSequence|postDecisionAction/);
+  assert.match(clock[1], /classifyDashboardFreshness/);
+  assert.match(clock[1], /setLiveState/);
 
   assert.match(mainSource, /\.\/daily-mvp\.css/);
   assert.match(refreshCss, /\.control-status-strip__refresh/);

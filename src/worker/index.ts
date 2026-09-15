@@ -13,6 +13,8 @@ import {
   type Rpi5ObservationRuntimeBindings,
 } from "../integrations/cloudflare/rpi5-observation-runtime";
 import { buildHealthPayload } from "../shared/health";
+import { CONTINUATION_ACTION_PATH, CONTINUATION_PREFLIGHT_PATH, handleContinuationActionRequest } from "./continuation-action-route";
+import { resolveContinuationActionRuntime, type ContinuationActionBindings } from "./continuation-action-runtime";
 import { handleGitHubDashboardRequest } from "./github-dashboard-route";
 import {
   GITHUB_LATER_ROUTE_PATH,
@@ -101,6 +103,10 @@ function resolveLaterRuntime(env: Env) {
 
 async function routeWorkerRequest(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === CONTINUATION_ACTION_PATH || url.pathname === CONTINUATION_PREFLIGHT_PATH) {
+      return handleContinuationActionRequest(request, resolveContinuationActionRuntime(env as unknown as ContinuationActionBindings));
+    }
 
     if (request.method === "GET" && url.pathname === "/api/health") {
       return Response.json(buildHealthPayload(env.CF_VERSION_METADATA.id), {

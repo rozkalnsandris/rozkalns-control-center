@@ -51,7 +51,7 @@ function projected(overrides: Record<string, unknown> = {}): Record<string, unkn
     repository: project.repository,
     issueNumber: 4,
     pullNumber: 5,
-    observedAt: "2026-09-01T18:00:00.000Z",
+    observedAt: new Date().toISOString(),
     commitStatusCoverage: "NOT_REQUESTED",
     policy: { coverage: "COMPLETE", sources: ["RULESET"], blockedReasons: [] },
     decision: decision({

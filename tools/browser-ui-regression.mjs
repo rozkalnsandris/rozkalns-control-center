@@ -25,11 +25,16 @@ async function waitForDashboardRequestAfter(previousCount, label, timeoutMillise
 async function runFixtureDeepLinkRegression(sessionId) {
   const decisionTarget = targetId("fixture-rpi5-controller");
   await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=fixture#${decisionTarget}`);
-  const evidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-666978747572652d727069352d636f6e74726f6c6c6572")}); if(!target||!document.body.innerText.includes("FIXTURE MODE"))return null; if(document.activeElement!==target)return null; const rect=target.getBoundingClientRect(); return {activeId:document.activeElement?.id??null,visible:rect.bottom>0&&rect.top<window.innerHeight,fixtureLabel:document.body.innerText.includes("Fixture fallback has no live mutation authority"),mutatingButtons:Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()).filter((label)=>["Merge","Needs changes","Later"].includes(label))};`, "fixture deep-link focus");
+  const evidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-666978747572652d727069352d636f6e74726f6c6c6572")}); if(!target||!document.body.innerText.includes("FIXTURE MODE"))return null; if(document.activeElement!==target)return null; const rect=target.getBoundingClientRect(); return {activeId:document.activeElement?.id??null,visible:rect.bottom>0&&rect.top<window.innerHeight,fixtureLabel:document.body.innerText.includes("Fixture fallback has no live mutation authority"),mutatingButtons:Array.from(target.querySelectorAll('button:not([aria-disabled="true"])')).map((button)=>button.textContent?.trim()).filter((label)=>["Merge","Needs changes","Later"].includes(label))};`, "fixture deep-link focus");
   assert.equal(evidence.activeId, decisionTarget);
   assert.equal(evidence.visible, true);
   assert.equal(evidence.fixtureLabel, true);
   assert.deepEqual(evidence.mutatingButtons, []);
+  const panel = await execute(sessionId, `const card=document.getElementById(${JSON.stringify(decisionTarget)}); return { actions: Array.from(card.querySelectorAll('[data-decision-action]')).map((item)=>item.dataset.decisionAction), reasons:card.querySelectorAll('.action-panel__entry small').length, overflow:document.documentElement.scrollWidth>window.innerWidth, touch:Array.from(card.querySelectorAll('[data-decision-action]')).every((item)=>item.getBoundingClientRect().height>=48) };`);
+  assert.deepEqual(panel.actions, ["OPEN_PR", "MERGE", "NEEDS_CHANGES", "LATER", "RETRY_CI", "CONTINUE", "PAUSE"]);
+  assert.ok(panel.reasons >= 6);
+  assert.equal(panel.overflow, false);
+  assert.equal(panel.touch, true);
   console.log("browser regression: fixture deep-link focus and action suppression PASS");
 }
 
@@ -37,7 +42,7 @@ async function runConfirmedActionRegression(sessionId) {
   const decisionTarget = targetId("browser-live-merge");
   await fetch(`${APP_ORIGIN}/__browser/reset`, { method: "POST" });
   await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=actions#${decisionTarget}`);
-  const liveEvidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE CONTROL"))return null; const labels=Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()); if(!labels.includes("Needs changes")||!labels.includes("Merge"))return null; return {labels,hasMerge:labels.includes("Merge"),hasLater:labels.includes("Later")};`, "authoritative GitHub write controls");
+  const liveEvidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE CONTROL"))return null; const labels=Array.from(target.querySelectorAll('button:not([aria-disabled="true"])')).map((button)=>button.textContent?.trim()); if(!labels.includes("Needs changes")||!labels.includes("Merge"))return null; return {labels,hasMerge:labels.includes("Merge"),hasLater:labels.includes("Later")};`, "authoritative GitHub write controls");
   assert.equal(liveEvidence.hasMerge, true);
   assert.equal(liveEvidence.hasLater, true);
   const hydratedState = await browserState();
@@ -80,7 +85,7 @@ async function runConfirmedActionRegression(sessionId) {
   assert.equal(actionEvidence.actionRequests[0].body.expectedMainSha, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   assert.equal(actionEvidence.actionRequests[0].body.body, reviewBody);
   assert.match(actionEvidence.actionRequests[0].body.requestId, /^rcneeds_[A-Za-z0-9_]{32,}$/);
-  const postRefresh = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE CONTROL"))return null; const labels=Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()); return labels.includes("Needs changes")&&labels.includes("Merge")?true:null;`, "post-action authoritative refresh");
+  const postRefresh = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE CONTROL"))return null; const labels=Array.from(target.querySelectorAll('button:not([aria-disabled="true"])')).map((button)=>button.textContent?.trim()); return labels.includes("Needs changes")&&labels.includes("Merge")?true:null;`, "post-action authoritative refresh");
   assert.equal(postRefresh, true);
   console.log("browser regression: authoritative Merge and Needs-changes controls PASS");
 }
@@ -89,7 +94,7 @@ async function runStaleSnapshotRegression(sessionId) {
   const decisionTarget = targetId("browser-live-merge");
   await fetch(`${APP_ORIGIN}/__browser/reset`, { method: "POST" });
   await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=stale#${decisionTarget}`);
-  await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE CONTROL"))return null; const labels=Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()); return labels.includes("Needs changes")&&labels.includes("Merge")&&labels.includes("Later");`, "fresh authoritative GitHub write controls");
+  await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE CONTROL"))return null; const labels=Array.from(target.querySelectorAll('button:not([aria-disabled="true"])')).map((button)=>button.textContent?.trim()); return labels.includes("Needs changes")&&labels.includes("Merge")&&labels.includes("Later");`, "fresh authoritative GitHub write controls");
   const beforeRefresh = await browserState();
   assert.equal(Number.isSafeInteger(beforeRefresh.dashboardRequests), true);
   assert.ok(beforeRefresh.reconcileRequests >= 1);
@@ -97,7 +102,7 @@ async function runStaleSnapshotRegression(sessionId) {
   assert.equal(armResponse.status, 204);
   await clickFreshSelector(sessionId, 'button[aria-label="Refresh live GitHub state"]');
   await waitForDashboardRequestAfter(beforeRefresh.dashboardRequests, "stale refresh fixture request");
-  const staleEvidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE · STALE"))return null; const buttonLabels=Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()); const openPr=Array.from(target.querySelectorAll("a")).find((link)=>link.textContent?.trim()==="Open PR"); return {staleStatus:document.body.innerText.includes("Live service error · keeping Snapshot"),cachedDecisionVisible:target.textContent?.includes("Browser regression live decision")??false,mutatingButtons:buttonLabels.filter((label)=>["Merge","Needs changes","Later"].includes(label)),openPrHref:openPr?.href??null};`, "stale snapshot action suppression");
+  const staleEvidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE · STALE"))return null; const buttonLabels=Array.from(target.querySelectorAll('button:not([aria-disabled="true"])')).map((button)=>button.textContent?.trim()); const openPr=Array.from(target.querySelectorAll("a")).find((link)=>link.textContent?.trim()==="Open PR"); return {staleStatus:document.body.innerText.includes("Live service error · keeping Snapshot"),cachedDecisionVisible:target.textContent?.includes("Browser regression live decision")??false,mutatingButtons:buttonLabels.filter((label)=>["Merge","Needs changes","Later"].includes(label)),openPrHref:openPr?.href??null};`, "stale snapshot action suppression");
   const afterRefresh = await browserState();
   assert.equal(staleEvidence.staleStatus, true);
   assert.equal(staleEvidence.cachedDecisionVisible, true);
@@ -111,11 +116,16 @@ async function runAgedSnapshotRegression(sessionId) {
   const decisionTarget = targetId("browser-live-merge");
   await fetch(`${APP_ORIGIN}/__browser/reset`, { method: "POST" });
   await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=aged#${decisionTarget}`);
-  const evidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE · STALE"))return null; const labels=Array.from(target.querySelectorAll("button")).map((button)=>button.textContent?.trim()); const openPr=Array.from(target.querySelectorAll("a")).find((link)=>link.textContent?.trim()==="Open PR"); return {freshness:document.body.innerText.includes("five-minute freshness limit"),cachedDecisionVisible:target.textContent?.includes("Browser regression live decision")??false,mutatingButtons:labels.filter((label)=>["Merge","Needs changes","Later"].includes(label)),openPrHref:openPr?.href??null};`, "aged snapshot classification");
+  const evidence = await waitForBrowser(sessionId, `const target=document.getElementById(${JSON.stringify("decision-62726f777365722d6c6976652d6d65726765")}); if(!target||!document.body.innerText.includes("LIVE · STALE"))return null; const labels=Array.from(target.querySelectorAll('button:not([aria-disabled="true"])')).map((button)=>button.textContent?.trim()); const openPr=Array.from(target.querySelectorAll("a")).find((link)=>link.textContent?.trim()==="Open PR"); return {freshness:document.body.innerText.includes("five-minute freshness limit"),cachedDecisionVisible:target.textContent?.includes("Browser regression live decision")??false,mutatingButtons:labels.filter((label)=>["Merge","Needs changes","Later"].includes(label)),openPrHref:openPr?.href??null};`, "aged snapshot classification");
   const state = await browserState();
   assert.equal(evidence.freshness, true);
   assert.equal(evidence.cachedDecisionVisible, true);
   assert.deepEqual(evidence.mutatingButtons, []);
+  const panel = await execute(sessionId, `const card=document.getElementById(${JSON.stringify(decisionTarget)}); return { actions: Array.from(card.querySelectorAll('[data-decision-action]')).map((item)=>item.dataset.decisionAction), reasons:card.querySelectorAll('.action-panel__entry small').length, overflow:document.documentElement.scrollWidth>window.innerWidth, touch:Array.from(card.querySelectorAll('[data-decision-action]')).every((item)=>item.getBoundingClientRect().height>=48) };`);
+  assert.deepEqual(panel.actions, ["OPEN_PR", "MERGE", "NEEDS_CHANGES", "LATER", "RETRY_CI", "CONTINUE", "PAUSE"]);
+  assert.ok(panel.reasons >= 6);
+  assert.equal(panel.overflow, false);
+  assert.equal(panel.touch, true);
   assert.equal(evidence.openPrHref, "https://github.com/rozkalnsandris/ops-workflows/pull/999");
   assert.equal(state.reconcileRequests, 0);
   console.log("browser regression: over-age snapshot classification and action suppression PASS");

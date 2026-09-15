@@ -30,6 +30,14 @@
 .decision-action-dialog__actions { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 20px; }
 .decision-action-dialog__actions .action-button { min-height: 48px; }
 
+.action-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.action-panel__entry { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.action-panel__entry .action-button { width: 100%; min-height: 48px; white-space: normal; overflow-wrap: anywhere; }
+.action-panel__entry small { color: var(--text-muted, #475569); font-size: 0.78rem; line-height: 1.4; overflow-wrap: anywhere; }
+.action-panel [aria-disabled="true"] { background: #e8ebef; color: #4b5563; border-color: #cbd5e1; cursor: default; box-shadow: none; }
+.action-panel .action-button:focus-visible { outline: 3px solid #245ea8; outline-offset: 3px; }
+.action-panel [aria-disabled="true"]:hover { background: #e8ebef; color: #4b5563; transform: none; }
+
 @media (min-width: 560px) {
   .decision-action-overlay { place-items: center; }
   .decision-action-dialog__actions { grid-template-columns: 1fr 1fr; }

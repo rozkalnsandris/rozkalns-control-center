@@ -1,4 +1,4 @@
-import type { DecisionReadModel, MockAction } from "./control-model.js";
+import type { DecisionReadModel, DecisionAction } from "./control-model.js";
 
 export type LaterDecisionErrorCode =
   | "INVALID_INPUT"
@@ -61,7 +61,7 @@ const DEPLOY_IMPACTS = new Set([
   "DB_HOST_APPLY_REQUIRED",
   "UNKNOWN",
 ]);
-const ACTIONS = new Set<MockAction>(["MERGE", "NEEDS_CHANGES", "LATER", "OPEN_PR"]);
+const ACTIONS = new Set<DecisionAction>(["MERGE", "NEEDS_CHANGES", "LATER", "OPEN_PR"]);
 
 function fail(code: LaterDecisionErrorCode): never {
   throw new LaterDecisionError(code);
@@ -112,11 +112,11 @@ function requireEnum(value: unknown, allowed: ReadonlySet<string>): string {
   return value;
 }
 
-function normalizedActions(value: unknown): MockAction[] {
+function normalizedActions(value: unknown): DecisionAction[] {
   if (!Array.isArray(value)) fail("INVALID_INPUT");
   const actions = value.map((action) => {
-    if (typeof action !== "string" || !ACTIONS.has(action as MockAction)) fail("INVALID_INPUT");
-    return action as MockAction;
+    if (typeof action !== "string" || !ACTIONS.has(action as DecisionAction)) fail("INVALID_INPUT");
+    return action as DecisionAction;
   });
   if (new Set(actions).size !== actions.length) fail("INVALID_INPUT");
   return [...actions].sort();
