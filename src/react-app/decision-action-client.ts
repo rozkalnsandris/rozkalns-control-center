@@ -60,7 +60,7 @@ function requireRequestId(value: string): string {
 }
 
 function defaultRequestId(action: MutatingDecisionAction): string {
-  const prefix = `rc_${action.toLowerCase()}_`;
+  const prefix = action === "MERGE" ? "rcmerge_" : action === "NEEDS_CHANGES" ? "rcneeds_" : `rc_${action.toLowerCase()}_`;
   return `${prefix}${crypto.randomUUID().replace(/-/g, "_")}`;
 }
 
