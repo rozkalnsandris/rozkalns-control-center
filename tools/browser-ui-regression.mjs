@@ -131,6 +131,29 @@ async function runAgedSnapshotRegression(sessionId) {
   console.log("browser regression: over-age snapshot classification and action suppression PASS");
 }
 
+async function runContinuationSessionRegression(sessionId) {
+  const cardId = targetId("browser-live-merge");
+  const url = `${APP_ORIGIN}/?browserScenario=continuation-session#${cardId}`;
+  await fetch(`${APP_ORIGIN}/__browser/reset`, { method: "POST" });
+  await navigate(sessionId, url);
+  await waitForBrowser(sessionId, `const card=document.getElementById(${JSON.stringify(cardId)});return card?.textContent.includes("Owner sign-in required")&&card.querySelector('[data-decision-action="CONTINUE"]')?.getAttribute("aria-disabled")==="true";`, "continuation session denial");
+  await execute(sessionId, `document.querySelector('[data-decision-action="CONTINUE"]').click();`);
+  assert.equal(await execute(sessionId, `return document.querySelector('[role="dialog"]')!==null;`), false);
+  // Local navigation fixture only: real Cloudflare login remains a LIVE GET gate.
+  await navigate(sessionId, `${APP_ORIGIN}/__browser/continuation-login`);
+  await waitForBrowser(sessionId, `const card=document.getElementById(${JSON.stringify(cardId)});return document.activeElement===card&&card.querySelector('[data-decision-action="CONTINUE"]')?.getAttribute("aria-disabled")==="false";`, "owner return to exact decision");
+  assert.equal(await execute(sessionId, `return document.querySelector('[role="dialog"]')!==null;`), false);
+  assert.deepEqual((await browserState()).actionRequests, []);
+  await clickFreshSelector(sessionId, '[data-decision-action="CONTINUE"]');
+  await waitForBrowser(sessionId, `return document.querySelector('[data-confirm-action="CONTINUE"]')!==null;`, "fresh continuation confirmation");
+  await clickFreshSelector(sessionId, '[role="dialog"] .action-button--tertiary');
+  await fetch(`${APP_ORIGIN}/__browser/reset`, { method: "POST" });
+  await navigate(sessionId, url);
+  await waitForBrowser(sessionId, 'return document.body.innerText.includes("Owner sign-in required");', "expired continuation session");
+  assert.deepEqual((await browserState()).actionRequests, []);
+  console.log("browser regression: continuation session denial and explicit confirmation after simulated login PASS");
+}
+
 async function runOperationalObservabilityRegression(sessionId) {
   await navigate(sessionId, `${APP_ORIGIN}/?browserScenario=actions`);
   const healthy = await waitForBrowser(sessionId, `const card=document.querySelector('.system-health'); if(!card||!card.textContent.includes('HEALTHY'))return null; return {counts:card.textContent.includes('Non-terminal')&&card.textContent.includes('Dead-lettered'),observed:card.textContent.includes('Observed'),rateLimit:card.textContent.includes('GitHub API')&&card.textContent.includes('4500'),mutationControls:Array.from(card.querySelectorAll('button')).length};`, "healthy reconciliation evidence");
@@ -163,6 +186,7 @@ try {
   await runStaleSnapshotRegression(sessionId);
   await runAgedSnapshotRegression(sessionId);
   await runOperationalObservabilityRegression(sessionId);
+  await runContinuationSessionRegression(sessionId);
 } catch (error) {
   console.error("browser regression failed");
   console.error(error);

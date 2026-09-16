@@ -4,6 +4,7 @@ import { DECISION_ACTIONS, type DecisionReadModel, type ProjectReadModel } from 
 import { enabledAction, isDecisionActionStates, normalizeDecisionActions, RETRY_CI_UNAVAILABLE_REASON } from "../src/shared/decision-action-model.js";
 import { retryCiEligibility, type RetryCiExecution } from "../src/shared/retry-ci.js";
 import { buildDecisionActionRequest } from "../src/react-app/decision-action-client.js";
+import { readContinuationEligibility } from "../src/react-app/continuation-eligibility-client.js";
 
 const now = Date.parse("2026-09-15T12:00:00.000Z");
 const project: ProjectReadModel = { id: "ops-workflows", repository: "rozkalnsandris/ops-workflows", displayName: "Ops Workflows", enabled: true, productionAdapter: "none", status: "WAITING", openIssues: 1, openPullRequests: 1 };
@@ -71,4 +72,29 @@ test("expired confirmation cannot submit a mutation", () => {
   const item = normalize();
   item.actionEligibilityExpiresAt = Date.now() - 1;
   assert.throws(() => buildDecisionActionRequest({ action: "LATER", item, project }), /Decision action failed/);
+});
+
+test("continuation Access denial remains disabled and never follows a login redirect", async (context) => {
+  const item = { ...decision, lastReconciledAt: new Date().toISOString() };
+  let response = new Response(null, { status: 403 });
+  const fetchMock = context.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
+    assert.equal(init?.method, "GET");
+    assert.equal(init?.redirect, "manual");
+    assert.equal(init?.credentials, "same-origin");
+    return response;
+  });
+  for (const status of [301, 302, 401, 403]) {
+    response = new Response(null, { status });
+    const result = await readContinuationEligibility(item, project, new AbortController().signal);
+    assert.equal(result.states.CONTINUE.state, "disabled");
+    assert.match(result.states.CONTINUE.reason!, /Owner sign-in required/);
+    assert.deepEqual(result.states.PAUSE, result.states.CONTINUE);
+    assert.equal(result.continuation, undefined);
+  }
+  response = new Response(null);
+  Object.defineProperty(response, "type", { value: "opaqueredirect" });
+  assert.match((await readContinuationEligibility(item, project, new AbortController().signal)).states.CONTINUE.reason!, /Owner sign-in required/);
+  response = new Response(null, { status: 503 });
+  assert.match((await readContinuationEligibility(item, project, new AbortController().signal)).states.CONTINUE.reason!, /runtime unavailable/);
+  assert.equal(fetchMock.mock.callCount(), 6);
 });

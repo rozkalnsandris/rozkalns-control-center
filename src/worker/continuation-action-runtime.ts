@@ -21,7 +21,7 @@ export function resolveContinuationActionRuntime(bindings: ContinuationActionBin
   const audience = bindings.CONTROL_CONTINUATION_ACCESS_AUDIENCE;
   if (!db || typeof db.batch !== "function" || !issuer || !audience) return null;
   try {
-    const auth = new CloudflareAccessRequestAuthenticator({ issuer, audience });
+    const auth = new CloudflareAccessRequestAuthenticator({ issuer, audience, humanOnly: true });
     const github = createCloudflareGitHubReadRuntime({ bindings });
     const reader = new D1ContinuationCampaignReader(db);
     const store = new D1ContinuationActionStore(db);

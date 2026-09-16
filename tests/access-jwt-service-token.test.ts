@@ -72,8 +72,8 @@ class StaticResolver implements CloudflareAccessSigningKeyResolver {
   }
 }
 
-function verifier() {
-  return new CloudflareAccessJwtVerifier({ issuer: ISSUER, audience: AUDIENCE }, new StaticResolver());
+function verifier(humanOnly = false) {
+  return new CloudflareAccessJwtVerifier({ issuer: ISSUER, audience: AUDIENCE, humanOnly }, new StaticResolver());
 }
 
 async function rejectsCode(promise: Promise<unknown>, code: string): Promise<void> {
@@ -192,4 +192,26 @@ test("keeps service-token temporal claims coherent and bounded", async () => {
     ),
     "ACCESS_JWT_CLAIMS_INVALID",
   );
+});
+
+test("human-only verification requires signed interactive identity and email", async () => {
+  assert.deepEqual(await verifier(true).verifyToken(makeToken({ claims: identityClaims() }), NOW),
+    { subject: "user-123", email: "andris@example.test" });
+  for (const claims of [serviceClaims(), identityClaims({ email: null }), identityClaims({ email: undefined })]) {
+    await rejectsCode(verifier(true).verifyToken(makeToken({ claims }), NOW), "ACCESS_JWT_HUMAN_REQUIRED");
+  }
+  // The opt-in never changes existing service-token consumers.
+  assert.equal((await verifier().verifyToken(makeToken(), NOW)).email, null);
+});
+
+test("human-only restriction cannot bypass cryptographic, audience or temporal checks", async () => {
+  await rejectsCode(verifier(true).verifyToken(makeToken({ claims: identityClaims(), signingKey: secondary.privateKey }), NOW), "ACCESS_JWT_SIGNATURE_INVALID");
+  for (const [overrides, code] of [
+    [{ aud: ["wrong"] }, "ACCESS_JWT_AUDIENCE_INVALID"],
+    [{ iss: "https://other.cloudflareaccess.com" }, "ACCESS_JWT_ISSUER_INVALID"],
+    [{ exp: NOW_SECONDS }, "ACCESS_JWT_EXPIRED"],
+    [{ nbf: NOW_SECONDS + 1 }, "ACCESS_JWT_NOT_YET_VALID"],
+  ] as const) {
+    await rejectsCode(verifier(true).verifyToken(makeToken({ claims: identityClaims(overrides) }), NOW), code);
+  }
 });

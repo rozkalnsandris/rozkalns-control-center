@@ -38,6 +38,7 @@ export class CloudflareAccessAuthenticationError extends Error {
 export interface CloudflareAccessRequestAuthenticatorConfig {
   readonly issuer: string;
   readonly audience: string;
+  readonly humanOnly?: boolean;
   readonly cacheTtlMs?: number;
   readonly timeoutMs?: number;
 }
@@ -77,7 +78,7 @@ export class CloudflareAccessRequestAuthenticator {
     });
 
     this.#verifier = new CloudflareAccessJwtVerifier(
-      { issuer: config.issuer, audience: config.audience },
+      { issuer: config.issuer, audience: config.audience, humanOnly: config.humanOnly === true },
       resolver,
     );
   }
