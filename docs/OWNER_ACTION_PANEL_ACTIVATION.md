@@ -22,8 +22,9 @@ rejected; provider errors and protected configuration never enter the receipt.
 The existing production-readonly-reconcile environment supplies:
 - CLOUDFLARE_API_TOKEN for Worker metadata GETs;
 - CLOUDFLARE_D1_READ_TOKEN for fixed D1 resource/schema/aggregate SELECTs;
-- CLOUDFLARE_ACCESS_READ_TOKEN for bounded Access application/policy GETs when
-  a protected health response must be classified;
+- CLOUDFLARE_ACCESS_READ_TOKEN for bounded Access application/policy and, only
+  after a protected health 403, Service Token metadata GETs when that response
+  must be classified;
 - optional CONTROL_ACCESS_CLIENT_ID / CONTROL_ACCESS_CLIENT_SECRET for GET
   /api/health and the UI shell. Missing Access credentials are NOT_PROVEN, not PASS.
 No secret is created, rotated, exported or printed.
@@ -192,10 +193,15 @@ most-specific matching Access applications, their policies, non-identity policie
 and Service Token selectors. It never prints an Access response body, header,
 application/policy ID, audience, client ID, client secret, selector or token.
 The diagnostic may make fixed Access Apps-and-Policies GETs after that one failed
-health GET; this is response classification, not a retry. Mapping the protected
-client ID to a Service Token is deliberately NOT_PROVEN because that requires the
-separate `Access: Service Tokens Read` permission, which this workflow neither
-assumes nor requests.
+health GET; this is response classification, not a retry. When a matching policy
+has a Service Token selector, it may also list at most ten pages of 100 Service
+Token metadata records using the same existing read token and compare the
+protected client ID privately. The receipt contains only a bounded proof/denial
+enum: never token/application/policy IDs, names, audiences, selectors, client IDs,
+secrets, bodies or headers. A 401/403 is `NOT_PROVEN_SERVICE_TOKENS_READ_DENIED`,
+not proof of authentication or a reason to retry. Cloudflare documents this GET
+as requiring `Access: Service Tokens Read` (or its broader write alternative);
+this workflow neither assumes nor requests either permission.
 
 After a failed run, preserve its exact source SHA/run ID and sanitized receipt.
 Review the identified contract against official documentation before proposing

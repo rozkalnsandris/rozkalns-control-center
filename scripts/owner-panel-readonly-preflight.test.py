@@ -173,6 +173,7 @@ class DiagnosticsTest(unittest.TestCase):
             "unexpected": "synthetic-protected-response",
         }).encode()
         app_id = "33333333-3333-4333-8333-333333333333"
+        service_token_id = "44444444-4444-4444-8444-444444444444"
         calls = []
 
         def read(url, token, sql=None, **kwargs):
@@ -187,7 +188,13 @@ class DiagnosticsTest(unittest.TestCase):
             if url == p.access_app_policies_url(app_id, 1):
                 return {"success": True, "result": [{
                     "decision": "non_identity",
-                    "include": [{"service_token": {"token_id": "synthetic-private-selector"}}],
+                    "include": [{"service_token": {"token_id": service_token_id}}],
+                }]}
+            if url == p.access_service_tokens_url(1):
+                return {"success": True, "result": [{
+                    "id": service_token_id,
+                    "client_id": "synthetic-client-id",
+                    "enabled": True,
                 }]}
             if url == p.GH + "/branches/main":
                 return {"commit": {"sha": env["GITHUB_SHA"]}}
@@ -222,12 +229,36 @@ class DiagnosticsTest(unittest.TestCase):
             "matching_policy_count": 1,
             "non_identity_policy_count": 1,
             "service_token_selector_policy_count": 1,
-            "service_token_match": "NOT_PROVEN_SEPARATE_READ_SCOPE",
+            "service_token_match": "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
         })
         self.assertIn(p.access_apps_url(1), calls)
         self.assertIn(p.access_app_policies_url(app_id, 1), calls)
-        self.assertFalse(any("service_tokens" in url for url in calls))
+        self.assertIn(p.access_service_tokens_url(1), calls)
         self.assertNotIn("synthetic", output.getvalue())
+
+    def test_service_token_read_denial_is_bounded_and_does_not_leak_provider_data(self):
+        app_id = "33333333-3333-4333-8333-333333333333"
+        token_id = "44444444-4444-4444-8444-444444444444"
+        private_body = unittest.mock.Mock()
+
+        def read(url, _token, **_kwargs):
+            if url == p.access_apps_url(1):
+                return {"success": True, "result": [{
+                    "id": app_id, "type": "self_hosted",
+                    "destinations": [{"type": "public", "uri": p.ORIGIN + "/api/health"}],
+                }]}
+            if url == p.access_app_policies_url(app_id, 1):
+                return {"success": True, "result": [{
+                    "include": [{"service_token": {"token_id": token_id}}],
+                }]}
+            if url == p.access_service_tokens_url(1):
+                raise p.urllib.error.HTTPError(url, 403, "synthetic-private", {}, private_body)
+            self.fail("Unexpected URL")
+
+        result = p.health_access_applicability("synthetic-access-read", "synthetic-client-id", read)
+        self.assertEqual(result["service_token_match"], "NOT_PROVEN_SERVICE_TOKENS_READ_DENIED")
+        self.assertNotIn("synthetic", json.dumps(result))
+        private_body.read.assert_not_called()
 
     def test_health_403_body_read_is_bounded_and_unrecognized_data_stays_unpublished(self):
         body = io.BytesIO(b"{" + b"x" * (p.HEALTH_DIAGNOSTIC_MAX_BYTES + 1))

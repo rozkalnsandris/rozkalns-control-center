@@ -57,6 +57,15 @@ ACCESS_POLICY_DIAGNOSTICS = frozenset((
     "NOT_PROVEN_ACCESS_READ_CREDENTIAL_ABSENT",
     "NOT_PROVEN_ACCESS_READ_FAILED",
     "NOT_PROVEN_SEPARATE_READ_SCOPE",
+    "NOT_PROVEN_NO_SERVICE_TOKEN_SELECTOR",
+    "NOT_PROVEN_ACCESS_CLIENT_ID_ABSENT",
+    "NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID",
+    "NOT_PROVEN_SERVICE_TOKENS_READ_DENIED",
+    "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED",
+    "NOT_PROVEN_SERVICE_TOKEN_CLIENT_ID_NOT_LISTED",
+    "NOT_PROVEN_SERVICE_TOKEN_NOT_SELECTED",
+    "NOT_PROVEN_SERVICE_TOKEN_DISABLED",
+    "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
 ))
 
 
@@ -207,8 +216,12 @@ def request(url, token, sql=None, access=None, html=False):
         re.escape(ACCESS + "/apps/") + r"([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/policies\?per_page=100&page=([1-9]|10)",
         url,
     )
+    access_service_tokens_match = re.fullmatch(
+        re.escape(ACCESS + "/service_tokens") + r"\?per_page=100&page=([1-9]|10)", url
+    )
     require(url in allowed or (url.startswith(version_path) and uuid(url[len(version_path):]))
-            or access_app_match is not None or access_policy_match is not None, "URL_NOT_ALLOWED")
+            or access_app_match is not None or access_policy_match is not None
+            or access_service_tokens_match is not None, "URL_NOT_ALLOWED")
     require(sql is None or (url == CF + "/d1/database/" + DB + "/query" and sql in SQL_ALLOWLIST), "SQL_NOT_ALLOWED")
     headers = {"Accept": "application/json", "Cache-Control": "no-store"}
     if token:
@@ -234,6 +247,11 @@ def access_apps_url(page):
 def access_app_policies_url(app_id, page):
     require(uuid(app_id) and type(page) is int and 1 <= page <= 10, "URL_NOT_ALLOWED")
     return ACCESS + "/apps/" + app_id + "/policies?per_page=100&page=" + str(page)
+
+
+def access_service_tokens_url(page):
+    require(type(page) is int and 1 <= page <= 10, "URL_NOT_ALLOWED")
+    return ACCESS + "/service_tokens?per_page=100&page=" + str(page)
 
 
 def access_pages(read, token, make_url):
@@ -292,6 +310,56 @@ def service_token_selector(policy):
     )
 
 
+def service_token_policy_selectors(policies):
+    any_valid = False
+    token_ids = set()
+    invalid = False
+    for policy in policies:
+        includes = policy.get("include") if isinstance(policy, dict) else None
+        if not isinstance(includes, list):
+            continue
+        for rule in includes:
+            if not isinstance(rule, dict):
+                continue
+            if "any_valid_service_token" in rule:
+                any_valid = True
+            if "service_token" in rule:
+                selector = rule["service_token"]
+                token_id = selector.get("token_id") if isinstance(selector, dict) else None
+                if uuid(token_id):
+                    token_ids.add(token_id)
+                else:
+                    invalid = True
+    return any_valid, token_ids, invalid
+
+
+def service_token_match(policies, access_client_id, access_read_token, read):
+    any_valid, token_ids, invalid = service_token_policy_selectors(policies)
+    if not any_valid and not token_ids:
+        return "NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID" if invalid else "NOT_PROVEN_NO_SERVICE_TOKEN_SELECTOR"
+    if invalid or not access_client_id:
+        return "NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID" if invalid else "NOT_PROVEN_ACCESS_CLIENT_ID_ABSENT"
+    try:
+        tokens = access_pages(read, access_read_token, access_service_tokens_url)
+    except urllib.error.HTTPError as error:
+        return "NOT_PROVEN_SERVICE_TOKENS_READ_DENIED" if error.code in (401, 403) else "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED"
+    except (PreflightError, urllib.error.URLError, TimeoutError, json.JSONDecodeError,
+            UnicodeDecodeError, KeyError, TypeError, AttributeError, IndexError, OSError):
+        return "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED"
+    if not all(isinstance(token, dict) and uuid(token.get("id"))
+               and isinstance(token.get("client_id"), str) and type(token.get("enabled")) is bool
+               for token in tokens):
+        return "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED"
+    client_tokens = [token for token in tokens if token["client_id"] == access_client_id]
+    if not client_tokens:
+        return "NOT_PROVEN_SERVICE_TOKEN_CLIENT_ID_NOT_LISTED"
+    selected = [token for token in client_tokens if any_valid or token["id"] in token_ids]
+    if not selected:
+        return "NOT_PROVEN_SERVICE_TOKEN_NOT_SELECTED"
+    return ("PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED" if any(token["enabled"] for token in selected)
+            else "NOT_PROVEN_SERVICE_TOKEN_DISABLED")
+
+
 def unavailable_access_applicability(reason):
     return {
         "matching_application_count": 0,
@@ -302,7 +370,7 @@ def unavailable_access_applicability(reason):
     }
 
 
-def health_access_applicability(access_read_token, read):
+def health_access_applicability(access_read_token, access_client_id, read):
     if not access_read_token:
         return unavailable_access_applicability("NOT_PROVEN_ACCESS_READ_CREDENTIAL_ABSENT")
     try:
@@ -326,10 +394,9 @@ def health_access_applicability(access_read_token, read):
                 1 for policy in policies if policy.get("decision", policy.get("action")) in ("non_identity", "service_auth")
             ),
             "service_token_selector_policy_count": sum(1 for policy in policies if service_token_selector(policy)),
-            # Mapping the protected client ID to a service-token record requires
-            # the distinct Access: Service Tokens Read scope, which this source
-            # diagnostic never assumes or requests.
-            "service_token_match": "NOT_PROVEN_SEPARATE_READ_SCOPE",
+            # This fixed metadata read runs only after the one failed health GET.
+            # IDs and client values stay private; the receipt carries an enum only.
+            "service_token_match": service_token_match(policies, access_client_id, access_read_token, read),
         }
     except (PreflightError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
             json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError, IndexError, OSError):
@@ -363,7 +430,8 @@ def health_403_diagnostic(error, env, read):
             "access_client_secret": bool(env.get("CONTROL_ACCESS_CLIENT_SECRET")),
             "access_read_token": bool(env.get("CLOUDFLARE_ACCESS_READ_TOKEN")),
         },
-        "access_applicability": health_access_applicability(env.get("CLOUDFLARE_ACCESS_READ_TOKEN", ""), read),
+        "access_applicability": health_access_applicability(
+            env.get("CLOUDFLARE_ACCESS_READ_TOKEN", ""), env.get("CONTROL_ACCESS_CLIENT_ID", ""), read),
     }
 
 
