@@ -1,0 +1,129 @@
+# Owner Action Panel activation preparation
+
+This is the preparation contract for the seven-action panel merged in PR #684.
+It does not authorize production changes. Retry CI remains unavailable under
+its separate Actions-write/executor gate. Existing Merge/Needs changes/Later
+security and the panel vocabulary are unchanged.
+
+## Why a new preflight is necessary
+
+The Daily MVP preflight freezes a historical Worker version/deployment.
+The Phase 5 dormant preflight rejects an already-active observation binding and
+only examines migrations 0010-0013. The retired production-d1 workflow cannot run.
+None proves the continuation 0007/0014 schema, continuation bindings or campaign
+association needed by the new panel. Do not replay historical activation jobs.
+
+Run owner-panel-readonly-preflight.yml manually from freshly verified main after
+its source merge and exact-main CI. Its fixed-target script uses GET plus three
+allowlisted SELECT statements through D1's query API. There is no arbitrary SQL,
+workflow target, URL, rollout command, mutation probe or retry. Redirects are
+rejected; provider errors and protected configuration never enter the receipt.
+
+The existing production-readonly-reconcile environment supplies:
+- CLOUDFLARE_API_TOKEN for Worker metadata GETs;
+- CLOUDFLARE_D1_READ_TOKEN for fixed D1 resource/schema/aggregate SELECTs;
+- optional CONTROL_ACCESS_CLIENT_ID / CONTROL_ACCESS_CLIENT_SECRET for GET
+  /api/health and the UI shell. Missing Access credentials are NOT_PROVEN, not PASS.
+No secret is created, rotated, exported or printed.
+
+Receipt evidence includes exact source/main CI, a single active version at 100%,
+deployment/version identities, a non-target binding digest, exact schema comparison
+against source migrations, migration 0014 SHA-256, aggregate existing-campaign/PR
+association counts, health/version identity and UI-shell digest where accessible.
+The shell digest is not proof that React rendered seven actions. Binding metadata
+does not prove the GitHub private key works or the Access owner policy is correct.
+The receipt therefore never emits activation_ready=true.
+
+## Exact targets and prerequisites
+
+Account: 70e29dbca0e8363358659102d2b74178.
+Worker: rozkalns-control. Origin: https://control.rozkalns.net.
+D1: rozkalns-control-production, 8504e986-faf0-450c-bfb5-41b5dbf8be09, jurisdiction eu.
+CONTROL_DB must bind that exact D1 ID.
+
+The activation candidate must contain these three plain-text bindings:
+- CONTROL_CONTINUATION_RUNTIME_ENABLED = exactly true;
+- CONTROL_CONTINUATION_ACCESS_ISSUER = https://super-salad-2357.cloudflareaccess.com;
+- CONTROL_CONTINUATION_ACCESS_AUDIENCE =
+  a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc.
+
+The issuer/audience above are the existing source-reviewed human-action Access
+identity, not permission to change an Access policy. Before enabling the route,
+GET evidence must prove the existing owner policy covers the continuation paths
+and denies unauthenticated access. If it does not, stop for a separate Access
+scope decision. Do not create a new audience or broaden a bypass/service policy.
+
+Reuse GITHUB_APP_CLIENT_ID Iv23likDoFtVeWBJfdFS,
+GITHUB_APP_INSTALLATION_ID 153121564 and the protected
+GITHUB_APP_PRIVATE_KEY_PEM binding. Presence is not credential usability.
+An authenticated existing GitHub read/preflight must prove the selected managed
+repository can be read with the existing scoped installation session.
+Do not mint/export tokens in the inventory or expand permissions.
+
+Migration 0007 must already be recorded with matching continuation_campaigns and
+continuation_tasks schemas. Existing campaign records must identify an exact
+current task with an active PR for the card preflight's unique join. A missing
+campaign is a product prerequisite, not permission to insert a fixture or seed
+a production campaign. An incomplete task/human gate legitimately blocks Continue.
+
+Migration 0014 is CREATE TABLE continuation_action_audit only, with the exact
+source constraints. If its history record AND exact table exist, do not reapply.
+If both are absent and all predecessor migration/schema evidence is coherent,
+the separate D1 gate may apply only 0014 and record that migration once.
+Partial/mismatched evidence must STOP; never repair/drop/recreate automatically.
+Do not run an unrestricted migrations apply over unknown pending migrations.
+Do not reuse the Phase 5 executor, whose whitelist is 0011-0013.
+
+## Later bounded LIVE plan — not authorization
+
+Freeze a fresh final deployable source SHA, exact-main CI, active deployment,
+active version, non-target binding digest, migration checksum and D1 pre-state
+before requesting execution. Unknown values are not valid authorization fields.
+
+1. D1 prerequisite gate, only if 0014 is absent consistently: one exact migration
+   apply and its single migration-ledger entry; zero campaign/task/decision data
+   writes. Re-read ledger and exact schema afterwards. No other migration.
+2. Candidate configuration/build: preserve every non-target binding and existing
+   secret reference, including already-active Phase 5 configuration absent from
+   an older checked-in Wrangler file. Permit only the three continuation vars
+   above to differ. Do not copy protected values into source or a public artifact.
+   A plain generic deploy of the current Wrangler config is not sufficient proof
+   that externally activated bindings will survive.
+3. Worker/UI rollout gate: one candidate version upload, at most two deployment
+   writes (old@100% + candidate@0%, then candidate@100%), no automatic rollback,
+   retry or cleanup. Source SHA and baseline drift stop the sequence.
+4. Before promotion, GET candidate health with exact version override, verify
+   candidate settings and non-target digest, fetch exact candidate UI assets,
+   and use authenticated continuation GET preflight for an existing exact card.
+   Verify full actionStates vocabulary and fail-closed unauthorized behavior.
+   Do not send Continue, Pause, Merge, Later, Needs changes or Retry CI mutations.
+5. After promotion, repeat GET/version/UI/schema checks. Record actual mutation
+   counts and observed version/deployment. A later explicit owner button press
+   remains a separate authenticated action.
+
+The existing production-worker-composite-live.yml defines the UPLOAD1/DEPLOY2
+shape, but its health-only candidate smoke and checked-in configuration are not
+by themselves the full continuation activation gate. The final bounded operator
+must preserve/compare non-target bindings and verify the panel/continuation
+read paths before promotion; choose/finalize it after the fresh inventory.
+Do not present its generic authorization string as authorization for D1,
+Access, binding expansion or continuation action canaries.
+
+## Readiness and stop rules
+
+Source CI/PR approval is not a production inventory receipt. Inventory success
+is not owner policy/credential/campaign eligibility and is not LIVE authority.
+Stop at the source merge gate if this manual workflow has not reached main.
+After merge, run only the inventory, then finalize the exact later D1 and Worker
+envelopes from its evidence. If no workflow-dispatch capability is available in
+the session, report that executor limitation; never rerun an unrelated old job
+as a substitute or request fresh production permissions merely to obtain reads.
+
+No deployment, D1 apply, Cloudflare/Access/binding/secret change, GitHub App
+permission change, production decision POST, notification send or RPi5 operation
+is performed by this preparation. The RPi5 #532 lane is excluded.
+
+Official platform references checked during preparation:
+- https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/
+- https://developers.cloudflare.com/workers/versions-and-deployments/
+- https://developers.cloudflare.com/workers/versions-and-deployments/version-overrides/
