@@ -127,3 +127,36 @@ Official platform references checked during preparation:
 - https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/
 - https://developers.cloudflare.com/workers/versions-and-deployments/
 - https://developers.cloudflare.com/workers/versions-and-deployments/version-overrides/
+
+## Safe failure diagnostics
+
+A failed inventory exits 1 and emits a STOP receipt with an allowlisted stage,
+a local contract/error-category code and a numeric HTTP status when available.
+It never prints exception text, URLs, headers, provider error bodies, credentials
+or partial inventory. Unknown errors remain sanitized and fail closed.
+No failure causes a retry or any subsequent inventory request.
+
+Stages distinguish environment validation, GitHub main/CI, Worker deployment and
+version/bindings, D1 identity/history/schema/campaign counts, health/UI and the
+final main/deployment drift guards. Contract validation failures retain their
+locally defined codes, including D1_ZERO_WRITES_NOT_PROVEN. Missing D1 write
+metadata is still a stop, even though the provider API describes it as optional.
+
+HTTP_ERROR with 403 alone does not prove a missing permission: GitHub also uses
+403 for rate limiting. HTTP status 3xx means the redirect was rejected; do not
+follow it with credentials. NETWORK_ERROR, NETWORK_TIMEOUT and
+RESPONSE_DECODE_ERROR distinguish transport/decoding failures without exporting
+their messages. RESPONSE_SHAPE_INVALID identifies unusable response structure.
+The stage identifies the failed phase, not a proven provider root cause.
+
+After a failed run, preserve its exact source SHA/run ID and sanitized receipt.
+Review the identified contract against official documentation before proposing
+a scoped correction. Do not weaken checks or expand permissions to force PASS.
+Follow the repository recovery gate; this diagnostic receipt is not retry,
+merge or LIVE authorization. A new main run is needed after a reviewed source
+fix is merged; rerunning an old SHA does not test the fix.
+
+Diagnostic references checked:
+- https://docs.python.org/3/library/urllib.error.html
+- https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api
+- https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/
