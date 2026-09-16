@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import urllib.error
 import urllib.request
 
 REPO = "rozkalnsandris/rozkalns-control-center"
@@ -33,9 +34,50 @@ CAMPAIGNS = ("SELECT COUNT(*) AS campaign_count, "
 SQL_ALLOWLIST = frozenset((MIGRATIONS, SCHEMA, CAMPAIGNS))
 
 
+FAILURE_CODES = frozenset((
+    "DEPLOYMENTS_INVALID",
+    "BASELINE_NOT_SINGLE_VERSION",
+    "BASELINE_NOT_100_PERCENT",
+    "BINDINGS_INVALID",
+    "DUPLICATE_BINDING",
+    "D1_RESPONSE_INVALID",
+    "D1_ZERO_WRITES_NOT_PROVEN",
+    "SCHEMA_INVALID",
+    "SCHEMA_DUPLICATE",
+    "SOURCE_SCHEMA_INVALID",
+    "URL_NOT_ALLOWED",
+    "SQL_NOT_ALLOWED",
+    "ACCESS_DESTINATION_INVALID",
+    "RESPONSE_TOO_LARGE",
+    "MAIN_DISPATCH_REQUIRED",
+    "SHA_INVALID",
+    "REQUIRED_READ_CREDENTIAL_ABSENT",
+    "CF_RESPONSE_INVALID",
+    "MAIN_DRIFT",
+    "EXACT_MAIN_CI_MISSING",
+    "EXACT_MAIN_CI_NOT_PASS",
+    "VERSION_DRIFT",
+    "D1_IDENTITY_INVALID",
+    "MIGRATION_HISTORY_AMBIGUOUS",
+    "CAMPAIGN_COUNT_INVALID",
+    "HEALTH_IDENTITY_INVALID",
+    "UI_SHELL_INVALID",
+    "FINAL_MAIN_DRIFT",
+    "FINAL_DEPLOYMENT_DRIFT",
+))
+STAGES = frozenset(("ENVIRONMENT", "GITHUB_MAIN", "GITHUB_CI", "WORKER_DEPLOYMENTS",
+                    "WORKER_VERSION_BINDINGS", "D1_IDENTITY", "D1_MIGRATIONS",
+                    "D1_SCHEMA", "D1_CAMPAIGNS", "WORKER_HEALTH", "UI_SHELL",
+                    "FINAL_MAIN", "FINAL_DEPLOYMENT"))
+
+
+class PreflightError(ValueError):
+    """Only locally defined contract codes may enter the public receipt."""
+
+
 def require(ok, code):
     if not ok:
-        raise ValueError(code)
+        raise PreflightError(code)
 
 
 def digest(value):
@@ -146,7 +188,9 @@ def request(url, token, sql=None, access=None, html=False):
         return raw if html else json.loads(raw)
 
 
-def run(env, root, read=request):
+def run(env, root, read=request, diagnostic=None):
+    diagnostic = {} if diagnostic is None else diagnostic
+    diagnostic["stage"] = "ENVIRONMENT"
     require(env.get("GITHUB_EVENT_NAME") == "workflow_dispatch" and env.get("GITHUB_REF_NAME") == "main",
             "MAIN_DISPATCH_REQUIRED")
     sha = env.get("GITHUB_SHA", "")
@@ -160,25 +204,33 @@ def run(env, root, read=request):
         return payload["result"]
     def select(sql):
         return select_rows(read(CF + "/d1/database/" + DB + "/query", env["CLOUDFLARE_D1_READ_TOKEN"], sql=sql))
+    diagnostic["stage"] = "GITHUB_MAIN"
     require(gh("/branches/main")["commit"]["sha"] == sha, "MAIN_DRIFT")
+    diagnostic["stage"] = "GITHUB_CI"
     runs = gh("/actions/workflows/ci.yml/runs?event=push&branch=main&per_page=10")["workflow_runs"]
     matches = [r for r in runs if r.get("head_sha") == sha and r.get("event") == "push"
                and r.get("head_branch") == "main" and r.get("path") == ".github/workflows/ci.yml"]
     require(bool(matches), "EXACT_MAIN_CI_MISSING")
     latest = max(matches, key=lambda r: r["run_number"])
     require(latest.get("status") == "completed" and latest.get("conclusion") == "success", "EXACT_MAIN_CI_NOT_PASS")
+    diagnostic["stage"] = "WORKER_DEPLOYMENTS"
     deployment, version = baseline(cf("/workers/scripts/" + WORKER + "/deployments"))
+    diagnostic["stage"] = "WORKER_VERSION_BINDINGS"
     details = cf("/workers/scripts/" + WORKER + "/versions/" + version)
     require(details.get("id") == version, "VERSION_DRIFT")
     bindings = binding_inventory(details["resources"]["bindings"])
+    diagnostic["stage"] = "D1_IDENTITY"
     database = cf("/d1/database/" + DB, d1=True)
     require(database.get("uuid") == DB and database.get("name") == "rozkalns-control-production"
             and database.get("jurisdiction") == "eu", "D1_IDENTITY_INVALID")
+    diagnostic["stage"] = "D1_MIGRATIONS"
     names = [r["name"] for r in select(MIGRATIONS)]
     require(len(names) < 100 and len(names) == len(set(names)), "MIGRATION_HISTORY_AMBIGUOUS")
+    diagnostic["stage"] = "D1_SCHEMA"
     schema = schema_inventory(select(SCHEMA), names, root)
     counts = "NOT_READ_SCHEMA_UNAVAILABLE"
     if schema["continuation_campaigns"] == schema["continuation_tasks"] == "MATCH":
+        diagnostic["stage"] = "D1_CAMPAIGNS"
         rows = select(CAMPAIGNS)
         require(len(rows) == 1, "CAMPAIGN_COUNT_INVALID")
         counts = rows[0]
@@ -188,14 +240,18 @@ def run(env, root, read=request):
     ui = "NOT_PROVEN_ACCESS_CREDENTIALS_ABSENT"
     if env.get("CONTROL_ACCESS_CLIENT_ID") and env.get("CONTROL_ACCESS_CLIENT_SECRET"):
         access = (env["CONTROL_ACCESS_CLIENT_ID"], env["CONTROL_ACCESS_CLIENT_SECRET"])
+        diagnostic["stage"] = "WORKER_HEALTH"
         observed = read(ORIGIN + "/api/health", None, access=access)
         require(observed.get("status") == "ok" and observed.get("service") == WORKER
                 and observed.get("workerVersion") == version, "HEALTH_IDENTITY_INVALID")
         health = "MATCH"
+        diagnostic["stage"] = "UI_SHELL"
         page = read(ORIGIN + "/", None, access=access, html=True)
         require(b'id="root"' in page and b"<script" in page, "UI_SHELL_INVALID")
         ui = {"shell_sha256": hashlib.sha256(page).hexdigest(), "seven_action_runtime": "NOT_PROVEN_BY_HTML"}
+    diagnostic["stage"] = "FINAL_MAIN"
     require(gh("/branches/main")["commit"]["sha"] == sha, "FINAL_MAIN_DRIFT")
+    diagnostic["stage"] = "FINAL_DEPLOYMENT"
     require(baseline(cf("/workers/scripts/" + WORKER + "/deployments")) == (deployment, version),
             "FINAL_DEPLOYMENT_DRIFT")
     return {"schema_version": 1, "source_sha": sha, "ci_run_id": latest["id"],
@@ -209,11 +265,42 @@ def run(env, root, read=request):
             "next_gate": "REVIEW_READONLY_EVIDENCE_AND_BOUND_LIVE_SCOPE"}
 
 
-if __name__ == "__main__":
+def failure_receipt(error, diagnostic):
+    # Never stringify exceptions, URLs, bodies, headers or provider messages.
+    code = "UNEXPECTED_ERROR"
+    status = None
+    if isinstance(error, PreflightError):
+        code = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str and error.args[0] in FAILURE_CODES else "CONTRACT_ERROR"
+    elif isinstance(error, urllib.error.HTTPError):
+        code = "HTTP_ERROR"
+        status = error.code if type(error.code) is int and 300 <= error.code <= 599 else None
+    elif isinstance(error, TimeoutError):
+        code = "NETWORK_TIMEOUT"
+    elif isinstance(error, urllib.error.URLError):
+        code = "NETWORK_ERROR"
+    elif isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+        code = "RESPONSE_DECODE_ERROR"
+    elif isinstance(error, (KeyError, TypeError, AttributeError, IndexError)):
+        code = "RESPONSE_SHAPE_INVALID"
+    elif isinstance(error, OSError):
+        code = "IO_ERROR"
+    stage = diagnostic.get("stage")
+    return {"preflight": "STOP", "reason": "READONLY_EVIDENCE_FAILED_CLOSED",
+            "stage": stage if type(stage) is str and stage in STAGES else "UNKNOWN",
+            "code": code, "http_status": status,
+            "production_mutations": 0, "activation_ready": False}
+
+
+def main(env, root, read=request):
+    diagnostic = {}
     try:
-        print(json.dumps(run(os.environ, Path(__file__).resolve().parents[1]), sort_keys=True))
-    except Exception:
-        # Never print provider errors, raw responses, request headers, or credentials.
-        print(json.dumps({"preflight": "STOP", "reason": "READONLY_EVIDENCE_FAILED_CLOSED",
-                          "production_mutations": 0, "activation_ready": False}))
-        sys.exit(1)
+        receipt = run(env, root, read, diagnostic)
+    except Exception as error:
+        print(json.dumps(failure_receipt(error, diagnostic), sort_keys=True))
+        return 1
+    print(json.dumps(receipt, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(os.environ, Path(__file__).resolve().parents[1]))

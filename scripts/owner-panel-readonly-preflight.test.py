@@ -1,4 +1,8 @@
+import contextlib
+import io
+import json
 import importlib.util
+from unittest.mock import patch
 from pathlib import Path
 import sqlite3
 import unittest
@@ -101,11 +105,94 @@ class PreflightTest(unittest.TestCase):
         self.assertEqual(len([sql for _, sql in calls if sql]), 3)
         self.assertTrue(all(sql is None or sql in p.SQL_ALLOWLIST for _, sql in calls))
         self.assertNotIn("synthetic", str(result))
+        env["CONTROL_ACCESS_CLIENT_ID"] = "synthetic"
+        env["CONTROL_ACCESS_CLIENT_SECRET"] = "synthetic"
+        def complete_read(url, token, **kwargs):
+            if url == p.ORIGIN + "/api/health":
+                return {"status": "ok", "service": p.WORKER, "workerVersion": VERSION}
+            if url == p.ORIGIN + "/":
+                return b'<div id="root"></div><script src="/assets/app.js"></script>'
+            return read(url, token, **kwargs)
+        stages = ["GITHUB_MAIN", "GITHUB_CI", "WORKER_DEPLOYMENTS",
+                  "WORKER_VERSION_BINDINGS", "D1_IDENTITY", "D1_MIGRATIONS",
+                  "D1_SCHEMA", "D1_CAMPAIGNS", "WORKER_HEALTH", "UI_SHELL",
+                  "FINAL_MAIN", "FINAL_DEPLOYMENT"]
+        for fail_at, stage in enumerate(stages, 1):
+            with self.subTest(stage=stage):
+                attempted = []
+                def failed_read(url, token, **kwargs):
+                    attempted.append(url)
+                    if len(attempted) == fail_at:
+                        raise p.urllib.error.HTTPError(url, 403, "synthetic-protected", {}, None)
+                    return complete_read(url, token, **kwargs)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = p.main(env, ROOT, failed_read)
+                self.assertEqual(status, 1)
+                receipt = json.loads(output.getvalue())
+                self.assertEqual(receipt["stage"], stage)
+                self.assertEqual(receipt["code"], "HTTP_ERROR")
+                self.assertEqual(receipt["http_status"], 403)
+                self.assertEqual(len(attempted), fail_at)
+                self.assertNotIn("synthetic", output.getvalue())
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(p.main(env, ROOT, complete_read), 0)
+        self.assertFalse(json.loads(output.getvalue())["activation_ready"])
         env["GITHUB_REF_NAME"] = "feature"
         before = len(calls)
         with self.assertRaisesRegex(ValueError, "MAIN_DISPATCH"):
             p.run(env, ROOT, read)
         self.assertEqual(len(calls), before)
+
+
+class DiagnosticsTest(unittest.TestCase):
+    def test_error_categories_and_protected_data_are_sanitized(self):
+        marker = "synthetic-protected-value"
+        cases = [
+            (p.PreflightError("MAIN_DRIFT"), "MAIN_DRIFT", None),
+            (p.PreflightError(marker), "CONTRACT_ERROR", None),
+            (p.PreflightError(["MAIN_DRIFT"]), "CONTRACT_ERROR", None),
+            (p.urllib.error.HTTPError(marker, 403, marker, {"secret": marker}, io.BytesIO(marker.encode())), "HTTP_ERROR", 403),
+            (p.urllib.error.HTTPError(marker, marker, marker, {}, None), "HTTP_ERROR", None),
+            (p.urllib.error.URLError(marker), "NETWORK_ERROR", None),
+            (TimeoutError(marker), "NETWORK_TIMEOUT", None),
+            (json.JSONDecodeError(marker, marker, 0), "RESPONSE_DECODE_ERROR", None),
+            (KeyError(marker), "RESPONSE_SHAPE_INVALID", None),
+            (OSError(marker), "IO_ERROR", None),
+            (ValueError(marker), "UNEXPECTED_ERROR", None),
+        ]
+        for error, code, status in cases:
+            with self.subTest(code=code):
+                receipt = p.failure_receipt(error, {"stage": "D1_SCHEMA"})
+                self.assertEqual(receipt["stage"], "D1_SCHEMA")
+                self.assertEqual(receipt["code"], code)
+                self.assertEqual(receipt["http_status"], status)
+                self.assertFalse(receipt["activation_ready"])
+                self.assertEqual(receipt["production_mutations"], 0)
+                self.assertNotIn(marker, json.dumps(receipt))
+        for stage in (marker, []):
+            self.assertEqual(p.failure_receipt(ValueError(marker), {"stage": stage})["stage"], "UNKNOWN")
+
+    def test_cli_contract_failure_is_nonzero_without_network(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            status = p.main({}, ROOT, lambda *args: self.fail("Unexpected request"))
+        self.assertEqual(status, 1)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["stage"], "ENVIRONMENT")
+        self.assertEqual(receipt["code"], "MAIN_DISPATCH_REQUIRED")
+
+    def test_http_error_never_reads_body_or_retries(self):
+        body = unittest.mock.Mock()
+        error = p.urllib.error.HTTPError(p.GH + "/branches/main", 429, "synthetic-protected", {}, body)
+        with patch.object(p.urllib.request, "build_opener") as build:
+            build.return_value.open.side_effect = error
+            with self.assertRaises(p.urllib.error.HTTPError):
+                p.request(p.GH + "/branches/main", "synthetic-token")
+            self.assertEqual(build.return_value.open.call_count, 1)
+            self.assertEqual(build.return_value.open.call_args.args[0].get_method(), "GET")
+            body.read.assert_not_called()
 
 
 if __name__ == "__main__":
