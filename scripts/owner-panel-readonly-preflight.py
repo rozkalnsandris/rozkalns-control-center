@@ -16,6 +16,7 @@ WORKER = "rozkalns-control"
 ORIGIN = "https://control.rozkalns.net"
 CF = "https://api.cloudflare.com/client/v4/accounts/" + ACCOUNT
 GH = "https://api.github.com/repos/" + REPO
+ACCESS = CF + "/access"
 TARGET_BINDINGS = {
     "CONTROL_CONTINUATION_RUNTIME_ENABLED",
     "CONTROL_CONTINUATION_ACCESS_ISSUER",
@@ -31,6 +32,32 @@ CAMPAIGNS = ("SELECT COUNT(*) AS campaign_count, "
              "AND t.active_pull_request_number IS NOT NULL) THEN 1 ELSE 0 END) AS linked_count "
              "FROM continuation_campaigns c")
 SQL_ALLOWLIST = frozenset((MIGRATIONS, SCHEMA, CAMPAIGNS))
+HEALTH_DIAGNOSTIC_MAX_BYTES = 65_536
+HEALTH_ACCESS_RESPONSE_CLASSES = frozenset((
+    "BODY_TOO_LARGE",
+    "BODY_UNAVAILABLE",
+    "NON_JSON",
+    "JSON_UNRECOGNIZED",
+    "WORKER_ACCESS_AUTHENTICATION_FAILED",
+    "WORKER_ACCESS_JWT_AUDIENCE_INVALID",
+    "WORKER_ACCESS_JWT_CLAIMS_INVALID",
+    "WORKER_ACCESS_JWT_EXPIRED",
+    "WORKER_ACCESS_JWT_HEADER_INVALID",
+    "WORKER_ACCESS_JWT_HUMAN_REQUIRED",
+    "WORKER_ACCESS_JWT_ISSUED_IN_FUTURE",
+    "WORKER_ACCESS_JWT_ISSUER_INVALID",
+    "WORKER_ACCESS_JWT_KEY_INVALID",
+    "WORKER_ACCESS_JWT_KEY_UNAVAILABLE",
+    "WORKER_ACCESS_JWT_MALFORMED",
+    "WORKER_ACCESS_JWT_MISSING",
+    "WORKER_ACCESS_JWT_NOT_YET_VALID",
+    "WORKER_ACCESS_JWT_SIGNATURE_INVALID",
+))
+ACCESS_POLICY_DIAGNOSTICS = frozenset((
+    "NOT_PROVEN_ACCESS_READ_CREDENTIAL_ABSENT",
+    "NOT_PROVEN_ACCESS_READ_FAILED",
+    "NOT_PROVEN_SEPARATE_READ_SCOPE",
+))
 
 
 FAILURE_CODES = frozenset((
@@ -175,7 +202,13 @@ def request(url, token, sql=None, access=None, html=False):
                CF + "/workers/scripts/" + WORKER + "/deployments", CF + "/d1/database/" + DB,
                CF + "/d1/database/" + DB + "/query", ORIGIN + "/api/health", ORIGIN + "/"}
     version_path = CF + "/workers/scripts/" + WORKER + "/versions/"
-    require(url in allowed or (url.startswith(version_path) and uuid(url[len(version_path):])), "URL_NOT_ALLOWED")
+    access_app_match = re.fullmatch(re.escape(ACCESS + "/apps") + r"\?per_page=100&page=([1-9]|10)", url)
+    access_policy_match = re.fullmatch(
+        re.escape(ACCESS + "/apps/") + r"([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/policies\?per_page=100&page=([1-9]|10)",
+        url,
+    )
+    require(url in allowed or (url.startswith(version_path) and uuid(url[len(version_path):]))
+            or access_app_match is not None or access_policy_match is not None, "URL_NOT_ALLOWED")
     require(sql is None or (url == CF + "/d1/database/" + DB + "/query" and sql in SQL_ALLOWLIST), "SQL_NOT_ALLOWED")
     headers = {"Accept": "application/json", "Cache-Control": "no-store"}
     if token:
@@ -191,6 +224,168 @@ def request(url, token, sql=None, access=None, html=False):
         raw = response.read(2_000_001)
         require(len(raw) <= 2_000_000, "RESPONSE_TOO_LARGE")
         return raw if html else json.loads(raw)
+
+
+def access_apps_url(page):
+    require(type(page) is int and 1 <= page <= 10, "URL_NOT_ALLOWED")
+    return ACCESS + "/apps?per_page=100&page=" + str(page)
+
+
+def access_app_policies_url(app_id, page):
+    require(uuid(app_id) and type(page) is int and 1 <= page <= 10, "URL_NOT_ALLOWED")
+    return ACCESS + "/apps/" + app_id + "/policies?per_page=100&page=" + str(page)
+
+
+def access_pages(read, token, make_url):
+    rows = []
+    for page in range(1, 11):
+        payload = read(make_url(page), token)
+        require(payload.get("success") is True and isinstance(payload.get("result"), list), "CF_RESPONSE_INVALID")
+        current = payload["result"]
+        require(len(current) <= 100, "CF_RESPONSE_INVALID")
+        rows.extend(current)
+        require(len(rows) <= 1_000, "CF_RESPONSE_INVALID")
+        if len(current) < 100:
+            return rows
+    raise PreflightError("CF_RESPONSE_INVALID")
+
+
+def access_public_destinations(app):
+    destinations = app.get("destinations") if isinstance(app, dict) else None
+    if isinstance(destinations, list) and destinations:
+        values = [d.get("uri") for d in destinations
+                  if isinstance(d, dict) and d.get("type", "public") == "public"]
+    else:
+        values = [app.get("domain")] if isinstance(app, dict) else []
+    normalized = []
+    for value in values:
+        if not isinstance(value, str) or not 0 < len(value) <= 512:
+            continue
+        value = re.sub(r"^https?://", "", value.strip(), flags=re.IGNORECASE).rstrip("/")
+        if not value or "?" in value or "#" in value:
+            continue
+        host, separator, path = value.partition("/")
+        host = host.lower()
+        if host not in ("control.rozkalns.net", "*.rozkalns.net"):
+            continue
+        normalized.append((host, "/" + path if separator else ""))
+    return normalized
+
+
+def health_access_match_score(app):
+    if not isinstance(app, dict) or app.get("type") != "self_hosted" or not uuid(app.get("id")):
+        return None
+    scores = []
+    for host, path in access_public_destinations(app):
+        pattern = path or "/*"
+        if re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), "/api/health") is None:
+            continue
+        scores.append(len(host.replace("*", "")) + len(pattern.replace("*", "")))
+    return max(scores, default=None)
+
+
+def service_token_selector(policy):
+    includes = policy.get("include") if isinstance(policy, dict) else None
+    return isinstance(includes, list) and any(
+        isinstance(rule, dict) and ("service_token" in rule or "any_valid_service_token" in rule)
+        for rule in includes
+    )
+
+
+def unavailable_access_applicability(reason):
+    return {
+        "matching_application_count": 0,
+        "matching_policy_count": 0,
+        "non_identity_policy_count": 0,
+        "service_token_selector_policy_count": 0,
+        "service_token_match": reason,
+    }
+
+
+def health_access_applicability(access_read_token, read):
+    if not access_read_token:
+        return unavailable_access_applicability("NOT_PROVEN_ACCESS_READ_CREDENTIAL_ABSENT")
+    try:
+        apps = access_pages(read, access_read_token, access_apps_url)
+        candidates = [(score, app["id"]) for app in apps if (score := health_access_match_score(app)) is not None]
+        if not candidates:
+            return unavailable_access_applicability("NOT_PROVEN_SEPARATE_READ_SCOPE")
+        best_score = max(score for score, _ in candidates)
+        app_ids = sorted({app_id for score, app_id in candidates if score == best_score})
+        require(1 <= len(app_ids) <= 20, "CF_RESPONSE_INVALID")
+        policies = []
+        for app_id in app_ids:
+            policies.extend(access_pages(read, access_read_token,
+                                         lambda page, app_id=app_id: access_app_policies_url(app_id, page)))
+            require(len(policies) <= 200, "CF_RESPONSE_INVALID")
+        require(all(isinstance(policy, dict) for policy in policies), "CF_RESPONSE_INVALID")
+        return {
+            "matching_application_count": len(app_ids),
+            "matching_policy_count": len(policies),
+            "non_identity_policy_count": sum(
+                1 for policy in policies if policy.get("decision", policy.get("action")) in ("non_identity", "service_auth")
+            ),
+            "service_token_selector_policy_count": sum(1 for policy in policies if service_token_selector(policy)),
+            # Mapping the protected client ID to a service-token record requires
+            # the distinct Access: Service Tokens Read scope, which this source
+            # diagnostic never assumes or requests.
+            "service_token_match": "NOT_PROVEN_SEPARATE_READ_SCOPE",
+        }
+    except (PreflightError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
+            json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError, IndexError, OSError):
+        return unavailable_access_applicability("NOT_PROVEN_ACCESS_READ_FAILED")
+
+
+def health_403_response_class(error):
+    try:
+        raw = error.read(HEALTH_DIAGNOSTIC_MAX_BYTES + 1)
+    except (OSError, ValueError, AttributeError):
+        return "BODY_UNAVAILABLE"
+    if not isinstance(raw, bytes) or len(raw) > HEALTH_DIAGNOSTIC_MAX_BYTES:
+        return "BODY_TOO_LARGE"
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return "NON_JSON"
+    if not isinstance(payload, dict) or payload.get("error") != "ACCESS_AUTHENTICATION_FAILED":
+        return "JSON_UNRECOGNIZED"
+    diagnostic = payload.get("diagnostic")
+    candidate = "WORKER_" + diagnostic if isinstance(diagnostic, str) else "WORKER_ACCESS_AUTHENTICATION_FAILED"
+    return candidate if candidate in HEALTH_ACCESS_RESPONSE_CLASSES else "WORKER_ACCESS_AUTHENTICATION_FAILED"
+
+
+def health_403_diagnostic(error, env, read):
+    response_class = health_403_response_class(error)
+    return {
+        "response_class": response_class if response_class in HEALTH_ACCESS_RESPONSE_CLASSES else "BODY_UNAVAILABLE",
+        "credential_presence": {
+            "access_client_id": bool(env.get("CONTROL_ACCESS_CLIENT_ID")),
+            "access_client_secret": bool(env.get("CONTROL_ACCESS_CLIENT_SECRET")),
+            "access_read_token": bool(env.get("CLOUDFLARE_ACCESS_READ_TOKEN")),
+        },
+        "access_applicability": health_access_applicability(env.get("CLOUDFLARE_ACCESS_READ_TOKEN", ""), read),
+    }
+
+
+def public_health_403_diagnostic(value):
+    if not isinstance(value, dict) or value.get("response_class") not in HEALTH_ACCESS_RESPONSE_CLASSES:
+        return None
+    presence = value.get("credential_presence")
+    applicability = value.get("access_applicability")
+    if not isinstance(presence, dict) or not isinstance(applicability, dict):
+        return None
+    if set(presence) != {"access_client_id", "access_client_secret", "access_read_token"} or not all(
+            type(presence[name]) is bool for name in presence):
+        return None
+    required = {"matching_application_count", "matching_policy_count", "non_identity_policy_count",
+                "service_token_selector_policy_count", "service_token_match"}
+    if set(applicability) != required or applicability.get("service_token_match") not in ACCESS_POLICY_DIAGNOSTICS:
+        return None
+    counts = [applicability[name] for name in required if name != "service_token_match"]
+    if not all(type(count) is int and 0 <= count <= 200 for count in counts):
+        return None
+    return {"response_class": value["response_class"], "credential_presence": presence,
+            "access_applicability": applicability}
 
 
 def run(env, root, read=request, diagnostic=None):
@@ -246,7 +441,14 @@ def run(env, root, read=request, diagnostic=None):
     if env.get("CONTROL_ACCESS_CLIENT_ID") and env.get("CONTROL_ACCESS_CLIENT_SECRET"):
         access = (env["CONTROL_ACCESS_CLIENT_ID"], env["CONTROL_ACCESS_CLIENT_SECRET"])
         diagnostic["stage"] = "WORKER_HEALTH"
-        observed = read(ORIGIN + "/api/health", None, access=access)
+        try:
+            observed = read(ORIGIN + "/api/health", None, access=access)
+        except urllib.error.HTTPError as error:
+            if error.code == 403:
+                # This is a single, fixed-target diagnostic sequence, not a
+                # health retry. It publishes only allowlisted classifications.
+                diagnostic["health_403"] = health_403_diagnostic(error, env, read)
+            raise
         require(observed.get("status") == "ok" and observed.get("service") == WORKER
                 and observed.get("workerVersion") == version, "HEALTH_IDENTITY_INVALID")
         health = "MATCH"
@@ -290,10 +492,14 @@ def failure_receipt(error, diagnostic):
     elif isinstance(error, OSError):
         code = "IO_ERROR"
     stage = diagnostic.get("stage")
-    return {"preflight": "STOP", "reason": "READONLY_EVIDENCE_FAILED_CLOSED",
-            "stage": stage if type(stage) is str and stage in STAGES else "UNKNOWN",
-            "code": code, "http_status": status,
-            "production_mutations": 0, "activation_ready": False}
+    receipt = {"preflight": "STOP", "reason": "READONLY_EVIDENCE_FAILED_CLOSED",
+               "stage": stage if type(stage) is str and stage in STAGES else "UNKNOWN",
+               "code": code, "http_status": status,
+               "production_mutations": 0, "activation_ready": False}
+    health_403 = public_health_403_diagnostic(diagnostic.get("health_403"))
+    if receipt["stage"] == "WORKER_HEALTH" and code == "HTTP_ERROR" and status == 403 and health_403:
+        receipt["health_403"] = health_403
+    return receipt
 
 
 def main(env, root, read=request):
