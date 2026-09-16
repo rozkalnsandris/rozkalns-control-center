@@ -148,8 +148,13 @@ async function runContinuationSessionRegression(sessionId) {
   await waitForBrowser(sessionId, `return document.querySelector('[data-confirm-action="CONTINUE"]')!==null;`, "fresh continuation confirmation");
   await clickFreshSelector(sessionId, '[role="dialog"] .action-button--tertiary');
   await fetch(`${APP_ORIGIN}/__browser/reset`, { method: "POST" });
-  await navigate(sessionId, url);
-  await waitForBrowser(sessionId, 'return document.body.innerText.includes("Owner sign-in required");', "expired continuation session");
+  // Navigating to the same fragment URL need not reload or fetch eligibility.
+  // Exercise the operator's explicit Refresh and require a new canonical read.
+  await clickFreshSelector(sessionId, 'button[aria-label="Refresh live GitHub state"]');
+  await waitForDashboardRequestAfter(0, "expired session canonical refresh");
+  await waitForBrowser(sessionId, `const card=document.getElementById(${JSON.stringify(cardId)});return card?.textContent.includes("Owner sign-in required")&&card.querySelector('[data-decision-action="CONTINUE"]')?.getAttribute("aria-disabled")==="true";`, "expired continuation session");
+  assert.equal(await execute(sessionId, `return location.hash;`), `#${cardId}`);
+  assert.equal(await execute(sessionId, `return document.querySelector('[role="dialog"]')!==null;`), false);
   assert.deepEqual((await browserState()).actionRequests, []);
   console.log("browser regression: continuation session denial and explicit confirmation after simulated login PASS");
 }
