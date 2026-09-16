@@ -22,6 +22,8 @@ rejected; provider errors and protected configuration never enter the receipt.
 The existing production-readonly-reconcile environment supplies:
 - CLOUDFLARE_API_TOKEN for Worker metadata GETs;
 - CLOUDFLARE_D1_READ_TOKEN for fixed D1 resource/schema/aggregate SELECTs;
+- CLOUDFLARE_ACCESS_READ_TOKEN for bounded Access application/policy GETs when
+  a protected health response must be classified;
 - optional CONTROL_ACCESS_CLIENT_ID / CONTROL_ACCESS_CLIENT_SECRET for GET
   /api/health and the UI shell. Missing Access credentials are NOT_PROVEN, not PASS.
 No secret is created, rotated, exported or printed.
@@ -182,6 +184,18 @@ follow it with credentials. NETWORK_ERROR, NETWORK_TIMEOUT and
 RESPONSE_DECODE_ERROR distinguish transport/decoding failures without exporting
 their messages. RESPONSE_SHAPE_INVALID identifies unusable response structure.
 The stage identifies the failed phase, not a proven provider root cause.
+
+For the fixed `/api/health` request only, an HTTP 403 also emits a bounded
+`health_403` classification. It contains credential-presence booleans, one of a
+small allowlist of Worker/JSON/non-JSON response classes, and only counts of the
+most-specific matching Access applications, their policies, non-identity policies
+and Service Token selectors. It never prints an Access response body, header,
+application/policy ID, audience, client ID, client secret, selector or token.
+The diagnostic may make fixed Access Apps-and-Policies GETs after that one failed
+health GET; this is response classification, not a retry. Mapping the protected
+client ID to a Service Token is deliberately NOT_PROVEN because that requires the
+separate `Access: Service Tokens Read` permission, which this workflow neither
+assumes nor requests.
 
 After a failed run, preserve its exact source SHA/run ID and sanitized receipt.
 Review the identified contract against official documentation before proposing

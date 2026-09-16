@@ -157,6 +157,86 @@ class PreflightTest(unittest.TestCase):
 
 
 class DiagnosticsTest(unittest.TestCase):
+    def test_health_403_is_classified_without_exposing_response_or_policy_selectors(self):
+        env = {
+            "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF_NAME": "main",
+            "GITHUB_SHA": "a" * 40, "GITHUB_TOKEN": "synthetic-github",
+            "CLOUDFLARE_WORKERS_READ_TOKEN": "synthetic-workers",
+            "CLOUDFLARE_D1_READ_TOKEN": "synthetic-d1",
+            "CONTROL_ACCESS_CLIENT_ID": "synthetic-client-id",
+            "CONTROL_ACCESS_CLIENT_SECRET": "synthetic-client-secret",
+            "CLOUDFLARE_ACCESS_READ_TOKEN": "synthetic-access-read",
+        }
+        health_body = json.dumps({
+            "error": "ACCESS_AUTHENTICATION_FAILED",
+            "diagnostic": "ACCESS_JWT_AUDIENCE_INVALID",
+            "unexpected": "synthetic-protected-response",
+        }).encode()
+        app_id = "33333333-3333-4333-8333-333333333333"
+        calls = []
+
+        def read(url, token, sql=None, **kwargs):
+            calls.append(url)
+            if url == p.ORIGIN + "/api/health":
+                raise p.urllib.error.HTTPError(url, 403, "synthetic-protected", {}, io.BytesIO(health_body))
+            if url == p.access_apps_url(1):
+                return {"success": True, "result": [{
+                    "id": app_id, "type": "self_hosted",
+                    "destinations": [{"type": "public", "uri": p.ORIGIN + "/api/health"}],
+                }]}
+            if url == p.access_app_policies_url(app_id, 1):
+                return {"success": True, "result": [{
+                    "decision": "non_identity",
+                    "include": [{"service_token": {"token_id": "synthetic-private-selector"}}],
+                }]}
+            if url == p.GH + "/branches/main":
+                return {"commit": {"sha": env["GITHUB_SHA"]}}
+            if url.startswith(p.GH + "/actions/workflows/"):
+                return {"workflow_runs": [{"id": 1, "run_number": 1, "head_sha": env["GITHUB_SHA"],
+                        "event": "push", "head_branch": "main", "path": ".github/workflows/ci.yml",
+                        "status": "completed", "conclusion": "success"}]}
+            if url.endswith("/deployments"):
+                return {"success": True, "result": {"deployments": [{"id": DEPLOYMENT,
+                        "versions": [{"version_id": VERSION, "percentage": 100}]}]}}
+            if "/versions/" in url:
+                return {"success": True, "result": {"id": VERSION, "resources": {"bindings": []}}}
+            if url.endswith("/query"):
+                data = ([{"name": "0007_continuation_campaigns.sql"}, {"name": "0014_continuation_action_audit.sql"}]
+                        if sql == p.MIGRATIONS else schema_rows() if sql == p.SCHEMA else
+                        [{"campaign_count": 0, "linked_count": None}])
+                return {"success": True, "result": [{"success": True, "results": data,
+                        "meta": {"changed_db": False, "rows_written": 0, "changes": 0}}]}
+            return {"success": True, "result": {"uuid": p.DB, "name": "rozkalns-control-production", "jurisdiction": "eu"}}
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(p.main(env, ROOT, read), 1)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["stage"], "WORKER_HEALTH")
+        self.assertEqual(receipt["health_403"]["response_class"], "WORKER_ACCESS_JWT_AUDIENCE_INVALID")
+        self.assertEqual(receipt["health_403"]["credential_presence"], {
+            "access_client_id": True, "access_client_secret": True, "access_read_token": True,
+        })
+        self.assertEqual(receipt["health_403"]["access_applicability"], {
+            "matching_application_count": 1,
+            "matching_policy_count": 1,
+            "non_identity_policy_count": 1,
+            "service_token_selector_policy_count": 1,
+            "service_token_match": "NOT_PROVEN_SEPARATE_READ_SCOPE",
+        })
+        self.assertIn(p.access_apps_url(1), calls)
+        self.assertIn(p.access_app_policies_url(app_id, 1), calls)
+        self.assertFalse(any("service_tokens" in url for url in calls))
+        self.assertNotIn("synthetic", output.getvalue())
+
+    def test_health_403_body_read_is_bounded_and_unrecognized_data_stays_unpublished(self):
+        body = io.BytesIO(b"{" + b"x" * (p.HEALTH_DIAGNOSTIC_MAX_BYTES + 1))
+        error = p.urllib.error.HTTPError(p.ORIGIN + "/api/health", 403, "synthetic", {}, body)
+        result = p.health_403_diagnostic(error, {}, lambda *_args, **_kwargs: self.fail("Unexpected Access read"))
+        self.assertEqual(result["response_class"], "BODY_TOO_LARGE")
+        self.assertEqual(result["access_applicability"]["service_token_match"], "NOT_PROVEN_ACCESS_READ_CREDENTIAL_ABSENT")
+        self.assertNotIn("x", json.dumps(result))
+
     def test_error_categories_and_protected_data_are_sanitized(self):
         marker = "synthetic-protected-value"
         cases = [
