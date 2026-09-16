@@ -19,6 +19,7 @@ export type CloudflareAccessJwtErrorCode =
   | "ACCESS_JWT_KEY_INVALID"
   | "ACCESS_JWT_SIGNATURE_INVALID"
   | "ACCESS_JWT_CLAIMS_INVALID"
+  | "ACCESS_JWT_HUMAN_REQUIRED"
   | "ACCESS_JWT_ISSUER_INVALID"
   | "ACCESS_JWT_AUDIENCE_INVALID"
   | "ACCESS_JWT_EXPIRED"
@@ -67,6 +68,7 @@ export interface CloudflareAccessPrincipal {
 export interface CloudflareAccessJwtVerifierConfig {
   readonly issuer: string;
   readonly audience: string;
+  readonly humanOnly?: boolean;
 }
 
 interface JwtHeader {
@@ -289,6 +291,7 @@ async function parseClaims(
   expectedIssuer: string,
   expectedAudience: string,
   nowSeconds: number,
+  humanOnly: boolean,
 ): Promise<JwtClaims> {
   const raw = parseJsonSegment(encodedPayload, "ACCESS_JWT_CLAIMS_INVALID");
   if (!isRecord(raw) || raw.type !== "app") fail("ACCESS_JWT_CLAIMS_INVALID");
@@ -307,6 +310,7 @@ async function parseClaims(
   let email: string | null = null;
 
   if (raw.sub === "") {
+    if (humanOnly) fail("ACCESS_JWT_HUMAN_REQUIRED");
     const commonName = boundedOpaqueString(raw.common_name, MAX_SERVICE_TOKEN_COMMON_NAME_LENGTH);
     if (!commonName || raw.email !== undefined || raw.identity_nonce !== undefined) {
       fail("ACCESS_JWT_CLAIMS_INVALID");
@@ -333,6 +337,8 @@ async function parseClaims(
     if (nbf > nowSeconds) fail("ACCESS_JWT_NOT_YET_VALID");
   }
 
+  if (humanOnly && email === null) fail("ACCESS_JWT_HUMAN_REQUIRED");
+
   return {
     type: "app",
     iss: expectedIssuer,
@@ -348,11 +354,13 @@ async function parseClaims(
 export class CloudflareAccessJwtVerifier {
   readonly #issuer: string;
   readonly #audience: string;
+  readonly #humanOnly: boolean;
   readonly #resolver: CloudflareAccessSigningKeyResolver;
 
   constructor(config: CloudflareAccessJwtVerifierConfig, resolver: CloudflareAccessSigningKeyResolver) {
     this.#issuer = normalizeIssuer(config.issuer);
     this.#audience = normalizeAudience(config.audience);
+    this.#humanOnly = config.humanOnly === true;
     this.#resolver = resolver;
   }
 
@@ -399,7 +407,7 @@ export class CloudflareAccessJwtVerifier {
 
     const nowMs = now.getTime();
     if (!Number.isFinite(nowMs)) fail("ACCESS_JWT_CLAIMS_INVALID");
-    const claims = await parseClaims(encodedPayload, this.#issuer, this.#audience, Math.floor(nowMs / 1000));
+    const claims = await parseClaims(encodedPayload, this.#issuer, this.#audience, Math.floor(nowMs / 1000), this.#humanOnly);
 
     return { subject: claims.subject, email: claims.email };
   }

@@ -22,7 +22,6 @@ TARGET_BINDINGS = {
     "CONTROL_CONTINUATION_ACCESS_AUDIENCE",
 }
 EXPECTED_ISSUER = "https://super-salad-2357.cloudflareaccess.com"
-EXPECTED_AUDIENCE = "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc"
 MIGRATIONS = "SELECT name FROM d1_migrations ORDER BY id LIMIT 100"
 SCHEMA = ("SELECT name, sql FROM sqlite_schema WHERE type = 'table' AND name IN "
           "('continuation_campaigns','continuation_tasks','continuation_action_audit') ORDER BY name")
@@ -109,13 +108,19 @@ def binding_inventory(bindings):
     expected = {
         "CONTROL_CONTINUATION_RUNTIME_ENABLED": "true",
         "CONTROL_CONTINUATION_ACCESS_ISSUER": EXPECTED_ISSUER,
-        "CONTROL_CONTINUATION_ACCESS_AUDIENCE": EXPECTED_AUDIENCE,
         "GITHUB_APP_CLIENT_ID": "Iv23likDoFtVeWBJfdFS",
         "GITHUB_APP_INSTALLATION_ID": "153121564",
     }
     for name, value in expected.items():
         b = by_name.get(name)
         result[name] = "ABSENT" if b is None else "MATCH" if b.get("type") == "plain_text" and b.get("text") == value else "DIFFERENT"
+    audience = by_name.get("CONTROL_CONTINUATION_ACCESS_AUDIENCE")
+    result["CONTROL_CONTINUATION_ACCESS_AUDIENCE"] = (
+        "ABSENT" if audience is None else "PRESENT_UNVERIFIED"
+        if audience.get("type") == "plain_text" and isinstance(audience.get("text"), str)
+        and re.fullmatch(r"[A-Za-z0-9._:+/-]{1,200}", audience["text"]) else "INVALID"
+    )
+    # Only a separately verified human-only Access application can prove audience.
     private_key = by_name.get("GITHUB_APP_PRIVATE_KEY_PEM", {})
     result["GITHUB_APP_PRIVATE_KEY_PEM"] = "PRESENT_PROTECTED" if private_key.get("type") in ("secret_text", "secret_key") else "ABSENT_OR_INVALID"
     db = by_name.get("CONTROL_DB", {})

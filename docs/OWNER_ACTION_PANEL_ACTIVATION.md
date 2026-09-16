@@ -44,14 +44,48 @@ CONTROL_DB must bind that exact D1 ID.
 The activation candidate must contain these three plain-text bindings:
 - CONTROL_CONTINUATION_RUNTIME_ENABLED = exactly true;
 - CONTROL_CONTINUATION_ACCESS_ISSUER = https://super-salad-2357.cloudflareaccess.com;
-- CONTROL_CONTINUATION_ACCESS_AUDIENCE =
-  a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc.
+- CONTROL_CONTINUATION_ACCESS_AUDIENCE = the observed audience of the separately
+  approved dedicated human-only continuation Access application.
 
-The issuer/audience above are the existing source-reviewed human-action Access
-identity, not permission to change an Access policy. Before enabling the route,
-GET evidence must prove the existing owner policy covers the continuation paths
-and denies unauthenticated access. If it does not, stop for a separate Access
-scope decision. Do not create a new audience or broaden a bypass/service policy.
+Verify the issuer against current Access evidence. The historical action-app
+audience is not the continuation audience: its observed policy is service-only
+and its destinations do not cover continuation. Never reuse the wildcard app
+audience or fabricate a new audience. Inventory reports PRESENT_UNVERIFIED for
+an audience binding; presence alone cannot prove its policy or destination scope.
+
+Issue #689 defines the separate Access prerequisite: at most one new self-hosted
+application, named Rozkalns Control owner continuation, and one Allow policy
+including only the privately supplied exact owner email. Destinations are exactly
+control.rozkalns.net/api/control/continuation and
+control.rozkalns.net/api/control/continuation/preflight. Path protection includes
+descendants; Worker routes remain exact. No Everyone, domain-wide, Family group,
+IP bypass or Service Auth selector. Verify the exact existing login provider;
+do not infer an identity mapping or create an IdP. Keep raw identity selectors
+and authentication material out of public source/evidence. Proposed session is
+1h with HttpOnly and SameSite=Lax, subject to actual browser verification.
+
+Before any separately authorized Access write, freeze target absence, exact
+owner/IdP/payload and non-target configuration digests. Existing target or drift
+means STOP. Attach only the owner policy at application creation; an unattached
+policy may be prepared first, but never create an unprotected application.
+The returned application ID/audience and unchanged non-target configuration must
+be verified with GET before a later Worker activation envelope can be frozen.
+No existing app/policy, IdP, secret or permission may change under that envelope.
+
+Continuation alone opts into cryptographic human-only JWT verification: service
+claims and missing human identity are rejected before domain/store access.
+Other authenticator consumers retain their existing behavior. The Worker guard
+does not substitute for the exact owner selector in the dedicated Access policy.
+
+The client keeps mutations disabled on Access redirects/401/403 and explains
+that owner sign-in is required. Local browser tests simulate sign-in/expiry and
+return to the exact card with a new explicit confirmation; they do not prove
+Cloudflare login or provision an application. Before activation, verify real
+top-level login for the dedicated application, return to the exact decision,
+fresh GET eligibility, and no automatic POST. A root-app cookie, machine CI,
+disabled-runtime 503 or method 405 alone does not prove human authentication.
+No token extraction or service-token substitution is allowed. Health 403 remains
+a separate read-only diagnosis; this application does not repair it.
 
 Reuse GITHUB_APP_CLIENT_ID Iv23likDoFtVeWBJfdFS,
 GITHUB_APP_INSTALLATION_ID 153121564 and the protected

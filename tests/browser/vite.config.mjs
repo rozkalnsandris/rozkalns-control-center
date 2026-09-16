@@ -13,17 +13,24 @@ function sendJson(response, statusCode, payload) { response.statusCode = statusC
 function scenarioFromReferer(request) { const referer = request.headers.referer; if (!referer) return null; try { return new URL(referer).searchParams.get("browserScenario"); } catch { return null; } }
 async function readJsonBody(request) { let body = ""; for await (const chunk of request) { body += chunk.toString(); if (body.length > 12000) throw new Error("browser action request too large"); } return JSON.parse(body); }
 
-export default defineConfig({ plugins: [react(), { name: "control-browser-regression-api", configureServer(server) { let staleArmed = false; let dashboardRequests = 0; let reconcileRequests = 0; let actionRequests = [];
+export default defineConfig({ plugins: [react(), { name: "control-browser-regression-api", configureServer(server) { let staleArmed = false; let dashboardRequests = 0; let reconcileRequests = 0; let actionRequests = []; let continuationSession = false;
   server.middlewares.use((request, response, next) => { const requestUrl = request.url ?? "/";
     if (requestUrl.startsWith("/__browser/arm-stale")) { staleArmed = true; response.statusCode = 204; response.end(); return; }
-    if (requestUrl.startsWith("/__browser/reset")) { staleArmed = false; dashboardRequests = 0; reconcileRequests = 0; actionRequests = []; response.statusCode = 204; response.end(); return; }
+    if (requestUrl.startsWith("/__browser/reset")) { staleArmed = false; dashboardRequests = 0; reconcileRequests = 0; actionRequests = []; continuationSession = false; response.statusCode = 204; response.end(); return; }
     if (requestUrl.startsWith("/__browser/state")) { sendJson(response, 200, { dashboardRequests, reconcileRequests, actionRequests }); return; }
     if (requestUrl.startsWith("/api/health")) { sendJson(response, 200, { status: "ok", service: "rozkalns-control", phase: "phase-0", workerVersion: "browser-regression" }); return; }
     if (requestUrl.startsWith("/api/github/webhook-deliveries")) { const scenario = scenarioFromReferer(request); if (scenario === "observability-failure") { sendJson(response, 503, { error: "BROWSER_OBSERVABILITY_FAILURE" }); return; } sendJson(response, 200, webhookObservability()); return; }
-    if (requestUrl.startsWith("/api/control/continuation/preflight")) { sendJson(response, 503, { error: "CONTINUATION_DISABLED_OR_RUNTIME_UNAVAILABLE" }); return; }
+    if (requestUrl.startsWith("/__browser/continuation-login")) { continuationSession = true; response.statusCode = 302; response.setHeader("Location", "/?browserScenario=continuation-session#decision-62726f777365722d6c6976652d6d65726765"); response.end(); return; }
+    if (requestUrl.startsWith("/api/control/continuation/preflight")) {
+      if (scenarioFromReferer(request) === "continuation-session") {
+        if (!continuationSession) { sendJson(response, 403, { error: "ACCESS_AUTHENTICATION_FAILED" }); return; }
+        sendJson(response, 200, { repository: "rozkalnsandris/ops-workflows", decisionId: liveDecision.id, observedAt: new Date().toISOString(), continuation: { campaignId: "browser-campaign", expectedMainSha: liveDecision.mainSha, revision: "a".repeat(64) }, states: { CONTINUE: { state: "enabled", reason: null }, PAUSE: disabled("Continuation already paused") } }); return;
+      }
+      sendJson(response, 503, { error: "CONTINUATION_DISABLED_OR_RUNTIME_UNAVAILABLE" }); return;
+    }
     if (requestUrl.startsWith("/api/github/dashboard")) { dashboardRequests += 1; const scenario = scenarioFromReferer(request); if (scenario === "fixture") { sendJson(response, 503, { error: "LIVE_READ_DISABLED" }); return; } if (scenario === "stale" && staleArmed) { sendJson(response, 500, { error: "BROWSER_TEST_REFRESH_FAILURE" }); return; } sendJson(response, 200, liveDashboard(scenario === "aged" ? 300001 : 0)); return; }
     if (request.method === "GET" && requestUrl.startsWith("/api/github/reconcile?")) { reconcileRequests += 1; const url = new URL(requestUrl, "http://127.0.0.1:4173"); const exact = url.searchParams.get("repository") === "rozkalnsandris/ops-workflows" && url.searchParams.get("issue") === "421" && url.searchParams.get("pull") === "999" && [...url.searchParams.keys()].length === 3; sendJson(response, exact ? 200 : 400, exact ? { ...authoritativeProjection, observedAt: new Date().toISOString() } : { error: "INVALID_BROWSER_RECONCILE_REQUEST" }); return; }
-    if (request.method === "POST" && ["/api/github/merge", "/api/github/needs-changes", "/api/github/later"].includes(requestUrl)) { void readJsonBody(request).then((body) => { actionRequests.push({ path: requestUrl, body }); scheduleTimeout(() => sendJson(response, 200, { ok: true }), 120); }).catch(() => sendJson(response, 400, { error: "INVALID_BROWSER_REQUEST" })); return; }
+    if (request.method === "POST" && ["/api/github/merge", "/api/github/needs-changes", "/api/github/later", "/api/control/continuation"].includes(requestUrl)) { void readJsonBody(request).then((body) => { actionRequests.push({ path: requestUrl, body }); scheduleTimeout(() => sendJson(response, 200, { ok: true }), 120); }).catch(() => sendJson(response, 400, { error: "INVALID_BROWSER_REQUEST" })); return; }
     next();
   });
 } }] });

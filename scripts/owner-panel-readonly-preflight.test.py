@@ -52,6 +52,16 @@ class PreflightTest(unittest.TestCase):
         self.assertIsNone(p.NoRedirect().redirect_request(None, None, 302, "", {}, "https://example.invalid"))
         self.assertTrue(all(sql.startswith("SELECT ") and ";" not in sql for sql in p.SQL_ALLOWLIST))
 
+    def test_audience_metadata_never_proves_human_owner_access(self):
+        name = "CONTROL_CONTINUATION_ACCESS_AUDIENCE"
+        self.assertEqual(p.binding_inventory([])[name], "ABSENT")
+        for value in ("a" * 64, "new-human-app-audience"):
+            result = p.binding_inventory([{"name": name, "type": "plain_text", "text": value}])
+            self.assertEqual(result[name], "PRESENT_UNVERIFIED")
+            self.assertNotIn(value, str(result))
+        for value in ("", "bad audience", None):
+            self.assertEqual(p.binding_inventory([{"name": name, "type": "plain_text", "text": value}])[name], "INVALID")
+
     def test_zero_mutation_metadata_is_mandatory(self):
         payload = {"success": True, "result": [{"success": True, "results": [],
                     "meta": {"changed_db": False, "rows_written": 0}}]}

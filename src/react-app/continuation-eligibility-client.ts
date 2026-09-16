@@ -15,7 +15,8 @@ export async function readContinuationEligibility(item: DecisionReadModel, proje
   if (decisionSnapshotBlock(item)) return blocked("Stale snapshot");
   try {
     const query = new URLSearchParams({ repository: project.repository, decisionId: item.id, expectedMainSha: item.mainSha });
-    const response = await fetch(`/api/control/continuation/preflight?${query}`, { signal, method: "GET", cache: "no-store", credentials: "same-origin", headers: { Accept: "application/json" } });
+    const response = await fetch(`/api/control/continuation/preflight?${query}`, { signal, method: "GET", redirect: "manual", cache: "no-store", credentials: "same-origin", headers: { Accept: "application/json" } });
+    if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400) || response.status === 401 || response.status === 403) return blocked("Owner sign-in required; sign in to continuation Access and refresh this card");
     if (!response.ok) {
       const reason = response.status === 503 ? "Continuation disabled or runtime unavailable" : "Continuation state unavailable or not applicable";
       return blocked(reason);
