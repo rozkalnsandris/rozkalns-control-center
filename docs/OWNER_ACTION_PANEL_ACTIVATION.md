@@ -243,6 +243,14 @@ does not justify credential rotation. This is a semantic read only: it performs
 no GraphQL mutation and does not change Access, credentials, permissions or
 production state.
 
+If GraphQL returns a non-null `errors` array, the diagnostic reads no error data
+into the receipt. It maps only Cloudflare-documented error categories to fixed
+enums: malformed query, dataset limit, rate limit, service unavailability, or
+account authorization. All unrecognized or structurally invalid errors remain
+fail-closed. Error messages, paths, timestamps, extension values and partial data
+remain private; the classification adds no request, endpoint, query field or
+runtime mutation.
+
 After a failed run, preserve its exact source SHA/run ID and sanitized receipt.
 Review the identified contract against official documentation before proposing
 a scoped correction. Do not weaken checks or expand permissions to force PASS.
