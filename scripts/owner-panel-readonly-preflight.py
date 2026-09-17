@@ -97,6 +97,8 @@ ACCESS_EVENT_DIAGNOSTICS = frozenset((
     "PROVEN_GRAPHQL_SERVICE_UNAVAILABLE",
     "PROVEN_GRAPHQL_ACCOUNT_NOT_AUTHORIZED",
     "PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH",
+    "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED",
+    "NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID",
     "NOT_PROVEN_GRAPHQL_RESPONSE_INVALID",
     "NOT_PROVEN_ACCESS_EVENT_NOT_FOUND",
     "PROVEN_ACCESS_SERVICE_TOKEN_AUTHORIZED",
@@ -613,7 +615,9 @@ def graphql_error_result(errors):
             ["viewer", "accounts", "0", "accessLoginRequestsAdaptiveGroups"],
     ) for path in paths):
         return "PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH"
-    return "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"
+    if all(isinstance(path, list) for path in paths):
+        return "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED"
+    return "NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID"
 
 
 def access_event_result(payload):

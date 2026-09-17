@@ -358,8 +358,8 @@ class DiagnosticsTest(unittest.TestCase):
             ]}, "PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH"),
             ({"message": private_value, "path": [
                 "viewer", "accounts", private_value, "accessLoginRequestsAdaptiveGroups",
-            ]}, "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"),
-            ({"message": private_value}, "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"),
+            ]}, "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED"),
+            ({"message": private_value}, "NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID"),
         )
         for error, expected in cases:
             result = p.access_event_result({"data": None, "errors": [error]})
