@@ -99,7 +99,8 @@ ACCESS_EVENT_DIAGNOSTICS = frozenset((
     "PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH",
     "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED",
     "PROVEN_GRAPHQL_ERROR_PATH_KEY_ABSENT",
-    "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_INVALID",
+    "PROVEN_GRAPHQL_ERROR_PATH_NULL",
+    "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_INVALID_NON_NULL",
     "NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID",
     "NOT_PROVEN_GRAPHQL_RESPONSE_INVALID",
     "NOT_PROVEN_ACCESS_EVENT_NOT_FOUND",
@@ -621,8 +622,11 @@ def graphql_error_result(errors):
         return "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED"
     if all("path" not in error for error in errors):
         return "PROVEN_GRAPHQL_ERROR_PATH_KEY_ABSENT"
-    if all("path" in error and not isinstance(error["path"], list) for error in errors):
-        return "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_INVALID"
+    if all("path" in error and error["path"] is None for error in errors):
+        return "PROVEN_GRAPHQL_ERROR_PATH_NULL"
+    if all("path" in error and error["path"] is not None
+           and not isinstance(error["path"], list) for error in errors):
+        return "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_INVALID_NON_NULL"
     return "NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID"
 
 
