@@ -1,4 +1,4 @@
-name: Owner Action Panel GET SELECT-only preflight
+name: Owner Action Panel read-only preflight
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
       - name: Focused offline safety tests
         run: python3 scripts/owner-panel-readonly-preflight.test.py
-      - name: Fixed-target GET and SELECT inventory
+      - name: Fixed-target read-only inventory
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
