@@ -340,6 +340,26 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertEqual(p.access_event_result({"data": {}, "errors": []}),
                          "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR")
 
+    def test_access_event_errors_are_reduced_to_documented_categories_without_output(self):
+        private_value = "synthetic-private-graphql-error"
+        cases = (
+            ({"message": "query time range is too large " + private_value},
+             "PROVEN_GRAPHQL_DATASET_LIMIT"),
+            ({"message": "unknown field " + private_value},
+             "PROVEN_GRAPHQL_QUERY_MALFORMED"),
+            ({"message": "unable to execute query, please try again later"},
+             "PROVEN_GRAPHQL_SERVICE_UNAVAILABLE"),
+            ({"message": private_value, "extensions": {"code": "budget"}},
+             "PROVEN_GRAPHQL_RATE_LIMIT"),
+            ({"message": "not authorized for that account"},
+             "PROVEN_GRAPHQL_ACCOUNT_NOT_AUTHORIZED"),
+            ({"message": private_value}, "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"),
+        )
+        for error, expected in cases:
+            result = p.access_event_result({"data": None, "errors": [error]})
+            self.assertEqual(result, expected)
+            self.assertNotIn(private_value, result)
+
     def test_selected_service_token_policy_eligibility_is_bounded(self):
         token_id = "44444444-4444-4444-8444-444444444444"
         policy = {

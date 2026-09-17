@@ -91,6 +91,11 @@ ACCESS_EVENT_DIAGNOSTICS = frozenset((
     "NOT_PROVEN_ANALYTICS_TOKEN_INVALID",
     "PROVEN_ACCOUNT_ANALYTICS_READ_MISSING",
     "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR",
+    "PROVEN_GRAPHQL_QUERY_MALFORMED",
+    "PROVEN_GRAPHQL_DATASET_LIMIT",
+    "PROVEN_GRAPHQL_RATE_LIMIT",
+    "PROVEN_GRAPHQL_SERVICE_UNAVAILABLE",
+    "PROVEN_GRAPHQL_ACCOUNT_NOT_AUTHORIZED",
     "NOT_PROVEN_GRAPHQL_RESPONSE_INVALID",
     "NOT_PROVEN_ACCESS_EVENT_NOT_FOUND",
     "PROVEN_ACCESS_SERVICE_TOKEN_AUTHORIZED",
@@ -565,10 +570,49 @@ def graphql_access_login_payload(ray_id, request_time):
     }
 
 
-def access_event_result(payload):
-    if (not isinstance(payload, dict) or "errors" not in payload
-            or payload.get("errors") is not None):
+def graphql_error_result(errors):
+    try:
+        require(isinstance(errors, list) and 1 <= len(errors) <= 10, "CF_RESPONSE_INVALID")
+        messages = []
+        budget = False
+        for error in errors:
+            require(isinstance(error, dict) and isinstance(error.get("message"), str)
+                    and len(error["message"]) <= 2_000, "CF_RESPONSE_INVALID")
+            messages.append(error["message"].casefold())
+            extensions = error.get("extensions")
+            if extensions is not None:
+                require(isinstance(extensions, dict), "CF_RESPONSE_INVALID")
+                code = extensions.get("code")
+                require(code is None or isinstance(code, str), "CF_RESPONSE_INVALID")
+                budget = budget or code == "budget"
+    except (PreflightError, KeyError, TypeError, AttributeError, IndexError):
         return "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"
+    if budget:
+        return "PROVEN_GRAPHQL_RATE_LIMIT"
+    if all(message in ("unable to execute query, please try again later",
+                       "too many queries in progress, please try again later") for message in messages):
+        return "PROVEN_GRAPHQL_SERVICE_UNAVAILABLE"
+    if all(message.startswith(("cannot request data older than", "number of fields can't be more than",
+                               "limit must be positive number and not greater than",
+                               "query time range is too large")) for message in messages):
+        return "PROVEN_GRAPHQL_DATASET_LIMIT"
+    if all(message.startswith(("error parsing args", "scalar fields must have no selections",
+                               "object field must have selections", "unknown field",
+                               "query contains error, please review it and retry")) for message in messages):
+        return "PROVEN_GRAPHQL_QUERY_MALFORMED"
+    if all(message == "not authorized for that account"
+           or message.startswith("does not have access to the path")
+           or (message.startswith("zones ") and message.endswith(" are not authorized"))
+           for message in messages):
+        return "PROVEN_GRAPHQL_ACCOUNT_NOT_AUTHORIZED"
+    return "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"
+
+
+def access_event_result(payload):
+    if not isinstance(payload, dict) or "errors" not in payload:
+        return "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"
+    if payload.get("errors") is not None:
+        return graphql_error_result(payload["errors"])
     try:
         accounts = payload["data"]["viewer"]["accounts"]
         require(isinstance(accounts, list) and len(accounts) == 1, "CF_RESPONSE_INVALID")
