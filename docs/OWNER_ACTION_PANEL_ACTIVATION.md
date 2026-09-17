@@ -190,8 +190,12 @@ For the fixed `/api/health` request only, an HTTP 403 also emits a bounded
 `health_403` classification. It contains credential-presence booleans, one of a
 small allowlist of Worker/JSON/non-JSON response classes, and only counts of the
 most-specific matching Access applications, their policies, non-identity policies
-and Service Token selectors. It never prints an Access response body, header,
-application/policy ID, audience, client ID, client secret, selector or token.
+and Service Token selectors. A JSON value that does not match the fixed Worker
+Access-auth error schema is reported only as
+`JSON_NOT_WORKER_ACCESS_AUTH_SCHEMA`; that is a response-shape fact, not an
+Access-edge or origin-cause claim. It never prints an Access response body,
+header, application/policy ID, audience, client ID, client secret, selector or
+token.
 The diagnostic may make fixed Access Apps-and-Policies GETs after that one failed
 health GET; this is response classification, not a retry. When a matching policy
 has a Service Token selector, it may also list at most ten pages of 100 Service
@@ -202,6 +206,14 @@ secrets, bodies or headers. A 401/403 is `NOT_PROVEN_SERVICE_TOKENS_READ_DENIED`
 not proof of authentication or a reason to retry. Cloudflare documents this GET
 as requiring `Access: Service Tokens Read` (or its broader write alternative);
 this workflow neither assumes nor requests either permission.
+
+When that private comparison proves an enabled selected Service Token, the same
+already-fetched matching policy records also yield one bounded policy-eligibility
+enum. It proves only whether a selected policy has the Service Auth/non-identity
+action and no Require/Exclude rules. A constrained, invalid, non-Service-Auth or
+unmatched policy remains `NOT_PROVEN`; policy/token identifiers and rule values
+remain private. This still does not validate a Client Secret or attribute an
+unrecognized response to a particular Cloudflare layer.
 
 After a failed run, preserve its exact source SHA/run ID and sanitized receipt.
 Review the identified contract against official documentation before proposing

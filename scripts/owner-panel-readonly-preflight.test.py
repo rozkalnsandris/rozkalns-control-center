@@ -230,11 +230,52 @@ class DiagnosticsTest(unittest.TestCase):
             "non_identity_policy_count": 1,
             "service_token_selector_policy_count": 1,
             "service_token_match": "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
+            "service_token_policy_eligibility": "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
         })
         self.assertIn(p.access_apps_url(1), calls)
         self.assertIn(p.access_app_policies_url(app_id, 1), calls)
         self.assertIn(p.access_service_tokens_url(1), calls)
         self.assertNotIn("synthetic", output.getvalue())
+
+    def test_selected_service_token_policy_eligibility_is_bounded(self):
+        token_id = "44444444-4444-4444-8444-444444444444"
+        policy = {
+            "decision": "non_identity",
+            "include": [{"service_token": {"token_id": token_id}}],
+        }
+        match = "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED"
+        ids = frozenset((token_id,))
+        self.assertEqual(
+            p.selected_service_token_policy_eligibility([policy], match, ids),
+            "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
+        )
+        self.assertEqual(
+            p.selected_service_token_policy_eligibility(
+                [dict(policy, require=[{"ip": {"ip": "192.0.2.0/24"}}])], match, ids),
+            "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_CONSTRAINED",
+        )
+        self.assertEqual(
+            p.selected_service_token_policy_eligibility([dict(policy, decision="allow")], match, ids),
+            "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_NOT_SERVICE_AUTH",
+        )
+        self.assertEqual(
+            p.selected_service_token_policy_eligibility([policy], "NOT_PROVEN_SERVICE_TOKEN_DISABLED", ids),
+            "NOT_PROVEN_SERVICE_TOKEN_MATCH",
+        )
+
+    def test_json_403_classes_do_not_publish_unrecognized_fields(self):
+        opaque = io.BytesIO(json.dumps({"error": "synthetic-private-error"}).encode())
+        error = p.urllib.error.HTTPError(p.ORIGIN + "/api/health", 403, "synthetic", {}, opaque)
+        self.assertEqual(p.health_403_response_class(error), "JSON_NOT_WORKER_ACCESS_AUTH_SCHEMA")
+        unknown = io.BytesIO(json.dumps({
+            "error": "ACCESS_AUTHENTICATION_FAILED",
+            "diagnostic": "SYNTHETIC_PRIVATE_DIAGNOSTIC",
+        }).encode())
+        error = p.urllib.error.HTTPError(p.ORIGIN + "/api/health", 403, "synthetic", {}, unknown)
+        self.assertEqual(
+            p.health_403_response_class(error),
+            "WORKER_ACCESS_AUTHENTICATION_FAILED_UNRECOGNIZED_DIAGNOSTIC",
+        )
 
     def test_service_token_read_denial_is_bounded_and_does_not_leak_provider_data(self):
         app_id = "33333333-3333-4333-8333-333333333333"

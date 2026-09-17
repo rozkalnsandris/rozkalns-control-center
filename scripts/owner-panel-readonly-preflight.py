@@ -37,8 +37,9 @@ HEALTH_ACCESS_RESPONSE_CLASSES = frozenset((
     "BODY_TOO_LARGE",
     "BODY_UNAVAILABLE",
     "NON_JSON",
-    "JSON_UNRECOGNIZED",
+    "JSON_NOT_WORKER_ACCESS_AUTH_SCHEMA",
     "WORKER_ACCESS_AUTHENTICATION_FAILED",
+    "WORKER_ACCESS_AUTHENTICATION_FAILED_UNRECOGNIZED_DIAGNOSTIC",
     "WORKER_ACCESS_JWT_AUDIENCE_INVALID",
     "WORKER_ACCESS_JWT_CLAIMS_INVALID",
     "WORKER_ACCESS_JWT_EXPIRED",
@@ -66,6 +67,13 @@ ACCESS_POLICY_DIAGNOSTICS = frozenset((
     "NOT_PROVEN_SERVICE_TOKEN_NOT_SELECTED",
     "NOT_PROVEN_SERVICE_TOKEN_DISABLED",
     "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
+))
+SERVICE_TOKEN_POLICY_ELIGIBILITY = frozenset((
+    "NOT_PROVEN_SERVICE_TOKEN_MATCH",
+    "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_INVALID",
+    "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_NOT_SERVICE_AUTH",
+    "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_CONSTRAINED",
+    "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
 ))
 
 
@@ -333,31 +341,77 @@ def service_token_policy_selectors(policies):
     return any_valid, token_ids, invalid
 
 
-def service_token_match(policies, access_client_id, access_read_token, read):
+def service_token_match_detail(policies, access_client_id, access_read_token, read):
     any_valid, token_ids, invalid = service_token_policy_selectors(policies)
     if not any_valid and not token_ids:
-        return "NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID" if invalid else "NOT_PROVEN_NO_SERVICE_TOKEN_SELECTOR"
+        return ("NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID" if invalid else
+                "NOT_PROVEN_NO_SERVICE_TOKEN_SELECTOR"), frozenset()
     if invalid or not access_client_id:
-        return "NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID" if invalid else "NOT_PROVEN_ACCESS_CLIENT_ID_ABSENT"
+        return ("NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID" if invalid else
+                "NOT_PROVEN_ACCESS_CLIENT_ID_ABSENT"), frozenset()
     try:
         tokens = access_pages(read, access_read_token, access_service_tokens_url)
     except urllib.error.HTTPError as error:
-        return "NOT_PROVEN_SERVICE_TOKENS_READ_DENIED" if error.code in (401, 403) else "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED"
+        return ("NOT_PROVEN_SERVICE_TOKENS_READ_DENIED" if error.code in (401, 403) else
+                "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED"), frozenset()
     except (PreflightError, urllib.error.URLError, TimeoutError, json.JSONDecodeError,
             UnicodeDecodeError, KeyError, TypeError, AttributeError, IndexError, OSError):
-        return "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED"
+        return "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED", frozenset()
     if not all(isinstance(token, dict) and uuid(token.get("id"))
                and isinstance(token.get("client_id"), str) and type(token.get("enabled")) is bool
                for token in tokens):
-        return "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED"
+        return "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED", frozenset()
     client_tokens = [token for token in tokens if token["client_id"] == access_client_id]
     if not client_tokens:
-        return "NOT_PROVEN_SERVICE_TOKEN_CLIENT_ID_NOT_LISTED"
+        return "NOT_PROVEN_SERVICE_TOKEN_CLIENT_ID_NOT_LISTED", frozenset()
     selected = [token for token in client_tokens if any_valid or token["id"] in token_ids]
     if not selected:
-        return "NOT_PROVEN_SERVICE_TOKEN_NOT_SELECTED"
-    return ("PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED" if any(token["enabled"] for token in selected)
-            else "NOT_PROVEN_SERVICE_TOKEN_DISABLED")
+        return "NOT_PROVEN_SERVICE_TOKEN_NOT_SELECTED", frozenset()
+    enabled_selected_ids = frozenset(token["id"] for token in selected if token["enabled"])
+    return ("PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED", enabled_selected_ids) if enabled_selected_ids else (
+        "NOT_PROVEN_SERVICE_TOKEN_DISABLED", frozenset())
+
+
+def service_token_match(policies, access_client_id, access_read_token, read):
+    return service_token_match_detail(policies, access_client_id, access_read_token, read)[0]
+
+
+def policy_rule_state(policy, name):
+    value = policy.get(name)
+    if value is None:
+        return "EMPTY"
+    if not isinstance(value, list):
+        return "INVALID"
+    return "EMPTY" if not value else "NONEMPTY"
+
+
+def selected_service_token_policy_eligibility(policies, service_token_match, enabled_selected_ids):
+    if service_token_match != "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED" or not enabled_selected_ids:
+        return "NOT_PROVEN_SERVICE_TOKEN_MATCH"
+    selected_policies = []
+    for policy in policies:
+        any_valid, token_ids, invalid = service_token_policy_selectors([policy])
+        if invalid:
+            return "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_INVALID"
+        if any_valid or token_ids.intersection(enabled_selected_ids):
+            selected_policies.append(policy)
+    if not selected_policies:
+        return "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_INVALID"
+    service_auth_policies = [
+        policy for policy in selected_policies
+        if policy.get("decision", policy.get("action")) in ("non_identity", "service_auth")
+    ]
+    if not service_auth_policies:
+        return "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_NOT_SERVICE_AUTH"
+    rule_states = [
+        (policy_rule_state(policy, "require"), policy_rule_state(policy, "exclude"))
+        for policy in service_auth_policies
+    ]
+    if any(require == exclude == "EMPTY" for require, exclude in rule_states):
+        return "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED"
+    if any("INVALID" in states for states in rule_states):
+        return "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_INVALID"
+    return "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_CONSTRAINED"
 
 
 def unavailable_access_applicability(reason):
@@ -367,6 +421,7 @@ def unavailable_access_applicability(reason):
         "non_identity_policy_count": 0,
         "service_token_selector_policy_count": 0,
         "service_token_match": reason,
+        "service_token_policy_eligibility": "NOT_PROVEN_SERVICE_TOKEN_MATCH",
     }
 
 
@@ -387,6 +442,8 @@ def health_access_applicability(access_read_token, access_client_id, read):
                                          lambda page, app_id=app_id: access_app_policies_url(app_id, page)))
             require(len(policies) <= 200, "CF_RESPONSE_INVALID")
         require(all(isinstance(policy, dict) for policy in policies), "CF_RESPONSE_INVALID")
+        match, enabled_selected_ids = service_token_match_detail(
+            policies, access_client_id, access_read_token, read)
         return {
             "matching_application_count": len(app_ids),
             "matching_policy_count": len(policies),
@@ -396,7 +453,9 @@ def health_access_applicability(access_read_token, access_client_id, read):
             "service_token_selector_policy_count": sum(1 for policy in policies if service_token_selector(policy)),
             # This fixed metadata read runs only after the one failed health GET.
             # IDs and client values stay private; the receipt carries an enum only.
-            "service_token_match": service_token_match(policies, access_client_id, access_read_token, read),
+            "service_token_match": match,
+            "service_token_policy_eligibility": selected_service_token_policy_eligibility(
+                policies, match, enabled_selected_ids),
         }
     except (PreflightError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
             json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError, IndexError, OSError):
@@ -415,10 +474,11 @@ def health_403_response_class(error):
     except (json.JSONDecodeError, UnicodeDecodeError):
         return "NON_JSON"
     if not isinstance(payload, dict) or payload.get("error") != "ACCESS_AUTHENTICATION_FAILED":
-        return "JSON_UNRECOGNIZED"
+        return "JSON_NOT_WORKER_ACCESS_AUTH_SCHEMA"
     diagnostic = payload.get("diagnostic")
     candidate = "WORKER_" + diagnostic if isinstance(diagnostic, str) else "WORKER_ACCESS_AUTHENTICATION_FAILED"
-    return candidate if candidate in HEALTH_ACCESS_RESPONSE_CLASSES else "WORKER_ACCESS_AUTHENTICATION_FAILED"
+    return (candidate if candidate in HEALTH_ACCESS_RESPONSE_CLASSES else
+            "WORKER_ACCESS_AUTHENTICATION_FAILED_UNRECOGNIZED_DIAGNOSTIC")
 
 
 def health_403_diagnostic(error, env, read):
@@ -446,10 +506,13 @@ def public_health_403_diagnostic(value):
             type(presence[name]) is bool for name in presence):
         return None
     required = {"matching_application_count", "matching_policy_count", "non_identity_policy_count",
-                "service_token_selector_policy_count", "service_token_match"}
-    if set(applicability) != required or applicability.get("service_token_match") not in ACCESS_POLICY_DIAGNOSTICS:
+                "service_token_selector_policy_count", "service_token_match", "service_token_policy_eligibility"}
+    if (set(applicability) != required or
+            applicability.get("service_token_match") not in ACCESS_POLICY_DIAGNOSTICS or
+            applicability.get("service_token_policy_eligibility") not in SERVICE_TOKEN_POLICY_ELIGIBILITY):
         return None
-    counts = [applicability[name] for name in required if name != "service_token_match"]
+    counts = [applicability[name] for name in required
+              if name not in ("service_token_match", "service_token_policy_eligibility")]
     if not all(type(count) is int and 0 <= count <= 200 for count in counts):
         return None
     return {"response_class": value["response_class"], "credential_presence": presence,
