@@ -213,7 +213,15 @@ enum. It proves only whether a selected policy has the Service Auth/non-identity
 action and no Require/Exclude rules. A constrained, invalid, non-Service-Auth or
 unmatched policy remains `NOT_PROVEN`; policy/token identifiers and rule values
 remain private. This still does not validate a Client Secret or attribute an
-unrecognized response to a particular Cloudflare layer.
+unrecognized response to a particular Cloudflare layer. After that same failed
+health GET, the diagnostic makes at most one fixed, hostname-filtered Workers
+Custom Domains GET using the already-required Workers Scripts Read credential.
+It emits only one bounded enum: whether the configured Control hostname is
+unmapped, mapped to a different service, or proven to map to `rozkalns-control`.
+It never emits the hostname, domain/certificate/zone identifiers, provider body
+or headers. This route proof establishes only the configured Custom Domain
+association; it does not prove request-layer attribution, deployed source
+identity, or Client Secret validity.
 
 After a failed run, preserve its exact source SHA/run ID and sanitized receipt.
 Review the identified contract against official documentation before proposing
