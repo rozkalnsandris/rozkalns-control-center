@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 REPO = "rozkalnsandris/rozkalns-control-center"
@@ -74,6 +75,13 @@ SERVICE_TOKEN_POLICY_ELIGIBILITY = frozenset((
     "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_NOT_SERVICE_AUTH",
     "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_CONSTRAINED",
     "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
+))
+WORKER_DOMAIN_DIAGNOSTICS = frozenset((
+    "NOT_PROVEN_CUSTOM_DOMAIN_READ_CREDENTIAL_ABSENT",
+    "NOT_PROVEN_CUSTOM_DOMAIN_READ_FAILED",
+    "NOT_PROVEN_CUSTOM_DOMAIN_UNMAPPED",
+    "NOT_PROVEN_CUSTOM_DOMAIN_SERVICE_MISMATCH",
+    "PROVEN_CUSTOM_DOMAIN_SERVICE_MATCH",
 ))
 
 
@@ -217,7 +225,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def request(url, token, sql=None, access=None, html=False):
     allowed = {GH + "/branches/main", GH + "/actions/workflows/ci.yml/runs?event=push&branch=main&per_page=10",
                CF + "/workers/scripts/" + WORKER + "/deployments", CF + "/d1/database/" + DB,
-               CF + "/d1/database/" + DB + "/query", ORIGIN + "/api/health", ORIGIN + "/"}
+               CF + "/d1/database/" + DB + "/query", worker_domains_url(),
+               ORIGIN + "/api/health", ORIGIN + "/"}
     version_path = CF + "/workers/scripts/" + WORKER + "/versions/"
     access_app_match = re.fullmatch(re.escape(ACCESS + "/apps") + r"\?per_page=100&page=([1-9]|10)", url)
     access_policy_match = re.fullmatch(
@@ -462,6 +471,32 @@ def health_access_applicability(access_read_token, access_client_id, read):
         return unavailable_access_applicability("NOT_PROVEN_ACCESS_READ_FAILED")
 
 
+def worker_domains_url():
+    host = urllib.parse.urlparse(ORIGIN).hostname
+    require(isinstance(host, str) and host, "URL_NOT_ALLOWED")
+    return CF + "/workers/domains?hostname=" + urllib.parse.quote(host, safe="")
+
+
+def health_worker_domain_mapping(workers_read_token, read):
+    if not workers_read_token:
+        return "NOT_PROVEN_CUSTOM_DOMAIN_READ_CREDENTIAL_ABSENT"
+    try:
+        payload = read(worker_domains_url(), workers_read_token)
+        domains = payload["result"]
+        host = urllib.parse.urlparse(ORIGIN).hostname
+        require(payload.get("success") is True and isinstance(host, str) and host, "CF_RESPONSE_INVALID")
+        require(isinstance(domains, list) and len(domains) <= 1, "CF_RESPONSE_INVALID")
+        if not domains:
+            return "NOT_PROVEN_CUSTOM_DOMAIN_UNMAPPED"
+        domain = domains[0]
+        require(isinstance(domain, dict) and domain.get("hostname") == host, "CF_RESPONSE_INVALID")
+        return ("PROVEN_CUSTOM_DOMAIN_SERVICE_MATCH" if domain.get("service") == WORKER
+                else "NOT_PROVEN_CUSTOM_DOMAIN_SERVICE_MISMATCH")
+    except (PreflightError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
+            json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError, IndexError, OSError):
+        return "NOT_PROVEN_CUSTOM_DOMAIN_READ_FAILED"
+
+
 def health_403_response_class(error):
     try:
         raw = error.read(HEALTH_DIAGNOSTIC_MAX_BYTES + 1)
@@ -492,6 +527,8 @@ def health_403_diagnostic(error, env, read):
         },
         "access_applicability": health_access_applicability(
             env.get("CLOUDFLARE_ACCESS_READ_TOKEN", ""), env.get("CONTROL_ACCESS_CLIENT_ID", ""), read),
+        "worker_domain_mapping": health_worker_domain_mapping(
+            env.get("CLOUDFLARE_WORKERS_READ_TOKEN", ""), read),
     }
 
 
@@ -500,7 +537,9 @@ def public_health_403_diagnostic(value):
         return None
     presence = value.get("credential_presence")
     applicability = value.get("access_applicability")
-    if not isinstance(presence, dict) or not isinstance(applicability, dict):
+    domain_mapping = value.get("worker_domain_mapping")
+    if (not isinstance(presence, dict) or not isinstance(applicability, dict)
+            or domain_mapping not in WORKER_DOMAIN_DIAGNOSTICS):
         return None
     if set(presence) != {"access_client_id", "access_client_secret", "access_read_token"} or not all(
             type(presence[name]) is bool for name in presence):
@@ -516,7 +555,7 @@ def public_health_403_diagnostic(value):
     if not all(type(count) is int and 0 <= count <= 200 for count in counts):
         return None
     return {"response_class": value["response_class"], "credential_presence": presence,
-            "access_applicability": applicability}
+            "access_applicability": applicability, "worker_domain_mapping": domain_mapping}
 
 
 def run(env, root, read=request, diagnostic=None):

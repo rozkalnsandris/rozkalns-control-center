@@ -51,6 +51,11 @@ class PreflightTest(unittest.TestCase):
             p.request("https://example.invalid", "synthetic")
         self.assertIsNone(p.NoRedirect().redirect_request(None, None, 302, "", {}, "https://example.invalid"))
         self.assertTrue(all(sql.startswith("SELECT ") and ";" not in sql for sql in p.SQL_ALLOWLIST))
+        self.assertIn("/workers/domains?hostname=", p.worker_domains_url())
+        with patch.object(p.urllib.request, "build_opener") as build:
+            build.return_value.open.return_value.__enter__.return_value.read.return_value = b"{}"
+            self.assertEqual(p.request(p.worker_domains_url(), "synthetic"), {})
+            self.assertEqual(build.return_value.open.call_args.args[0].get_method(), "GET")
 
     def test_audience_metadata_never_proves_human_owner_access(self):
         name = "CONTROL_CONTINUATION_ACCESS_AUDIENCE"
@@ -143,7 +148,8 @@ class PreflightTest(unittest.TestCase):
                 self.assertEqual(receipt["stage"], stage)
                 self.assertEqual(receipt["code"], "HTTP_ERROR")
                 self.assertEqual(receipt["http_status"], 403)
-                self.assertEqual(len(attempted), fail_at)
+                expected_attempts = fail_at + (1 if stage == "WORKER_HEALTH" else 0)
+                self.assertEqual(len(attempted), expected_attempts)
                 self.assertNotIn("synthetic", output.getvalue())
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -196,6 +202,10 @@ class DiagnosticsTest(unittest.TestCase):
                     "client_id": "synthetic-client-id",
                     "enabled": True,
                 }]}
+            if url == p.worker_domains_url():
+                return {"success": True, "result": [{
+                    "hostname": "control.rozkalns.net", "service": p.WORKER,
+                }]}
             if url == p.GH + "/branches/main":
                 return {"commit": {"sha": env["GITHUB_SHA"]}}
             if url.startswith(p.GH + "/actions/workflows/"):
@@ -232,10 +242,36 @@ class DiagnosticsTest(unittest.TestCase):
             "service_token_match": "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
             "service_token_policy_eligibility": "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
         })
+        self.assertEqual(receipt["health_403"]["worker_domain_mapping"],
+                         "PROVEN_CUSTOM_DOMAIN_SERVICE_MATCH")
         self.assertIn(p.access_apps_url(1), calls)
         self.assertIn(p.access_app_policies_url(app_id, 1), calls)
         self.assertIn(p.access_service_tokens_url(1), calls)
+        self.assertIn(p.worker_domains_url(), calls)
         self.assertNotIn("synthetic", output.getvalue())
+
+    def test_worker_domain_mapping_is_bounded_and_does_not_publish_provider_data(self):
+        private_value = "synthetic-private-domain-value"
+        self.assertEqual(
+            p.health_worker_domain_mapping("synthetic-workers", lambda *_args: {
+                "success": True, "result": [{"hostname": "control.rozkalns.net", "service": p.WORKER}],
+            }),
+            "PROVEN_CUSTOM_DOMAIN_SERVICE_MATCH",
+        )
+        self.assertEqual(
+            p.health_worker_domain_mapping("synthetic-workers", lambda *_args: {
+                "success": True, "result": [{"hostname": "control.rozkalns.net", "service": private_value}],
+            }),
+            "NOT_PROVEN_CUSTOM_DOMAIN_SERVICE_MISMATCH",
+        )
+        body = unittest.mock.Mock()
+        body.read.return_value = private_value.encode()
+        def denied(*_args):
+            raise p.urllib.error.HTTPError(p.worker_domains_url(), 403, private_value, {}, body)
+        result = p.health_worker_domain_mapping("synthetic-workers", denied)
+        self.assertEqual(result, "NOT_PROVEN_CUSTOM_DOMAIN_READ_FAILED")
+        self.assertNotIn(private_value, result)
+        body.read.assert_not_called()
 
     def test_selected_service_token_policy_eligibility_is_bounded(self):
         token_id = "44444444-4444-4444-8444-444444444444"
