@@ -359,10 +359,14 @@ class DiagnosticsTest(unittest.TestCase):
             ({"message": private_value, "path": [
                 "viewer", "accounts", private_value, "accessLoginRequestsAdaptiveGroups",
             ]}, "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED"),
-            ({"message": private_value}, "NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID"),
+            ({"message": private_value}, "PROVEN_GRAPHQL_ERROR_PATH_KEY_ABSENT"),
+            ({"message": private_value, "path": None}, "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_INVALID"),
+            ([{"message": private_value}, {"message": private_value, "path": None}],
+             "NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID"),
         )
         for error, expected in cases:
-            result = p.access_event_result({"data": None, "errors": [error]})
+            errors = error if isinstance(error, list) else [error]
+            result = p.access_event_result({"data": None, "errors": errors})
             self.assertEqual(result, expected)
             self.assertNotIn(private_value, result)
 

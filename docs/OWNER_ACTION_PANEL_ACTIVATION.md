@@ -249,9 +249,12 @@ enums: malformed query, dataset limit, rate limit, service unavailability, or
 account authorization. When no category matches, the exact static path shape of
 the fixed Access login-event dataset maps only to
 `PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH`. A present but nonmatching path maps
-only to `PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED`; a missing or invalid
-path remains `NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID`. These results
-establish only fixed error-path presence/origin classification, not an Access
+only to `PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED`. When every error has
+no `path` key, it maps only to `PROVEN_GRAPHQL_ERROR_PATH_KEY_ABSENT`; when all
+errors have a present but non-list path, it maps only to
+`PROVEN_GRAPHQL_ERROR_PATH_PRESENT_INVALID`. Mixed malformed shapes remain
+`NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID`. These results establish only
+fixed error-path presence/origin classification, not an Access
 authorization decision or credential state. Error messages, paths, timestamps,
 extension values and partial data remain private; the classification adds no
 request, endpoint, query field or runtime mutation.
