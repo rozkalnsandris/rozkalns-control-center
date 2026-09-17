@@ -353,6 +353,12 @@ class DiagnosticsTest(unittest.TestCase):
              "PROVEN_GRAPHQL_RATE_LIMIT"),
             ({"message": "not authorized for that account"},
              "PROVEN_GRAPHQL_ACCOUNT_NOT_AUTHORIZED"),
+            ({"message": private_value, "path": [
+                "viewer", "accounts", 0, "accessLoginRequestsAdaptiveGroups",
+            ]}, "PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH"),
+            ({"message": private_value, "path": [
+                "viewer", "accounts", private_value, "accessLoginRequestsAdaptiveGroups",
+            ]}, "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"),
             ({"message": private_value}, "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"),
         )
         for error, expected in cases:

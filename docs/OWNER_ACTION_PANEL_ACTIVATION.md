@@ -246,10 +246,13 @@ production state.
 If GraphQL returns a non-null `errors` array, the diagnostic reads no error data
 into the receipt. It maps only Cloudflare-documented error categories to fixed
 enums: malformed query, dataset limit, rate limit, service unavailability, or
-account authorization. All unrecognized or structurally invalid errors remain
-fail-closed. Error messages, paths, timestamps, extension values and partial data
-remain private; the classification adds no request, endpoint, query field or
-runtime mutation.
+account authorization. When no category matches, the exact static path shape of
+the fixed Access login-event dataset maps only to
+`PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH`; every other path stays fail-closed.
+This establishes only the static origin of the GraphQL error, not an Access
+authorization decision or credential state. Error messages, paths, timestamps,
+extension values and partial data remain private; the classification adds no
+request, endpoint, query field or runtime mutation.
 
 After a failed run, preserve its exact source SHA/run ID and sanitized receipt.
 Review the identified contract against official documentation before proposing
