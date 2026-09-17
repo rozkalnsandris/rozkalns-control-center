@@ -248,8 +248,10 @@ into the receipt. It maps only Cloudflare-documented error categories to fixed
 enums: malformed query, dataset limit, rate limit, service unavailability, or
 account authorization. When no category matches, the exact static path shape of
 the fixed Access login-event dataset maps only to
-`PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH`; every other path stays fail-closed.
-This establishes only the static origin of the GraphQL error, not an Access
+`PROVEN_GRAPHQL_ACCESS_LOGIN_EVENT_PATH`. A present but nonmatching path maps
+only to `PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED`; a missing or invalid
+path remains `NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID`. These results
+establish only fixed error-path presence/origin classification, not an Access
 authorization decision or credential state. Error messages, paths, timestamps,
 extension values and partial data remain private; the classification adds no
 request, endpoint, query field or runtime mutation.
