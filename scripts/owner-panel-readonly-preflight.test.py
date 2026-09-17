@@ -360,7 +360,9 @@ class DiagnosticsTest(unittest.TestCase):
                 "viewer", "accounts", private_value, "accessLoginRequestsAdaptiveGroups",
             ]}, "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_UNRECOGNIZED"),
             ({"message": private_value}, "PROVEN_GRAPHQL_ERROR_PATH_KEY_ABSENT"),
-            ({"message": private_value, "path": None}, "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_INVALID"),
+            ({"message": private_value, "path": None}, "PROVEN_GRAPHQL_ERROR_PATH_NULL"),
+            ({"message": private_value, "path": "synthetic-non-list"},
+             "PROVEN_GRAPHQL_ERROR_PATH_PRESENT_INVALID_NON_NULL"),
             ([{"message": private_value}, {"message": private_value, "path": None}],
              "NOT_PROVEN_GRAPHQL_ERROR_PATH_ABSENT_OR_INVALID"),
         )
