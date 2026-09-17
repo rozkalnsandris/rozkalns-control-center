@@ -18,6 +18,7 @@ ORIGIN = "https://control.rozkalns.net"
 CF = "https://api.cloudflare.com/client/v4/accounts/" + ACCOUNT
 GH = "https://api.github.com/repos/" + REPO
 ACCESS = CF + "/access"
+GRAPHQL = "https://api.cloudflare.com/client/v4/graphql"
 TARGET_BINDINGS = {
     "CONTROL_CONTINUATION_RUNTIME_ENABLED",
     "CONTROL_CONTINUATION_ACCESS_ISSUER",
@@ -83,6 +84,37 @@ WORKER_DOMAIN_DIAGNOSTICS = frozenset((
     "NOT_PROVEN_CUSTOM_DOMAIN_SERVICE_MISMATCH",
     "PROVEN_CUSTOM_DOMAIN_SERVICE_MATCH",
 ))
+ACCESS_EVENT_DIAGNOSTICS = frozenset((
+    "NOT_PROVEN_ANALYTICS_READ_CREDENTIAL_ABSENT",
+    "NOT_PROVEN_CF_RAY_HEADER_ABSENT_OR_INVALID",
+    "NOT_PROVEN_GRAPHQL_ACCESS_EVENT_READ_FAILED",
+    "NOT_PROVEN_ANALYTICS_TOKEN_INVALID",
+    "PROVEN_ACCOUNT_ANALYTICS_READ_MISSING",
+    "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR",
+    "NOT_PROVEN_GRAPHQL_RESPONSE_INVALID",
+    "NOT_PROVEN_ACCESS_EVENT_NOT_FOUND",
+    "PROVEN_ACCESS_SERVICE_TOKEN_AUTHORIZED",
+    "PROVEN_ACCESS_AUTHORIZED_NONIDENTITY_WITHOUT_SERVICE_TOKEN",
+    "PROVEN_ACCESS_AUTHORIZED_NON_SERVICE_TOKEN",
+    "PROVEN_ACCESS_NONIDENTITY_DENIED",
+    "PROVEN_ACCESS_DENIED_NON_SERVICE_TOKEN",
+))
+
+ACCESS_LOGIN_EVENT_QUERY = """query accessLoginRequestsAdaptiveGroups(
+  $accountTag: string, $rayId: string, $datetimeStart: string, $datetimeEnd: string
+) {
+  viewer {
+    accounts(filter: {accountTag: $accountTag}) {
+      accessLoginRequestsAdaptiveGroups(
+        limit: 1
+        filter: {datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd, cfRayId: $rayId}
+        orderBy: [datetime_ASC]
+      ) {
+        dimensions { isSuccessfulLogin identityProvider serviceTokenId }
+      }
+    }
+  }
+}"""
 
 
 FAILURE_CODES = frozenset((
@@ -222,11 +254,11 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def request(url, token, sql=None, access=None, html=False):
+def request(url, token, sql=None, access=None, html=False, graphql=None):
     allowed = {GH + "/branches/main", GH + "/actions/workflows/ci.yml/runs?event=push&branch=main&per_page=10",
                CF + "/workers/scripts/" + WORKER + "/deployments", CF + "/d1/database/" + DB,
                CF + "/d1/database/" + DB + "/query", worker_domains_url(),
-               ORIGIN + "/api/health", ORIGIN + "/"}
+               ORIGIN + "/api/health", ORIGIN + "/", GRAPHQL}
     version_path = CF + "/workers/scripts/" + WORKER + "/versions/"
     access_app_match = re.fullmatch(re.escape(ACCESS + "/apps") + r"\?per_page=100&page=([1-9]|10)", url)
     access_policy_match = re.fullmatch(
@@ -239,17 +271,30 @@ def request(url, token, sql=None, access=None, html=False):
     require(url in allowed or (url.startswith(version_path) and uuid(url[len(version_path):]))
             or access_app_match is not None or access_policy_match is not None
             or access_service_tokens_match is not None, "URL_NOT_ALLOWED")
+    require(url != GRAPHQL or graphql is not None, "URL_NOT_ALLOWED")
     require(sql is None or (url == CF + "/d1/database/" + DB + "/query" and sql in SQL_ALLOWLIST), "SQL_NOT_ALLOWED")
+    require(graphql is None or (
+        url == GRAPHQL and sql is None and access is None and not html
+        and isinstance(graphql, dict) and set(graphql) == {"query", "variables"}
+        and graphql.get("query") == ACCESS_LOGIN_EVENT_QUERY
+        and isinstance(graphql.get("variables"), dict)
+        and set(graphql["variables"]) == {"accountTag", "rayId", "datetimeStart", "datetimeEnd"}
+        and graphql["variables"].get("accountTag") == ACCOUNT
+        and all(isinstance(graphql["variables"].get(name), str) for name in
+                ("rayId", "datetimeStart", "datetimeEnd"))
+    ), "URL_NOT_ALLOWED")
     headers = {"Accept": "application/json", "Cache-Control": "no-store"}
     if token:
         headers["Authorization"] = "Bearer " + token
     if access:
         require(url in (ORIGIN + "/api/health", ORIGIN + "/"), "ACCESS_DESTINATION_INVALID")
         headers.update({"CF-Access-Client-Id": access[0], "CF-Access-Client-Secret": access[1]})
-    data = None if sql is None else json.dumps({"sql": sql}).encode()
+    data = (json.dumps(graphql, separators=(",", ":")).encode() if graphql is not None else
+            None if sql is None else json.dumps({"sql": sql}).encode())
     if data:
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method="GET" if sql is None else "POST")
+    req = urllib.request.Request(url, data=data, headers=headers,
+                                 method="POST" if sql is not None or graphql is not None else "GET")
     with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
         raw = response.read(2_000_001)
         require(len(raw) <= 2_000_000, "RESPONSE_TOO_LARGE")
@@ -497,6 +542,80 @@ def health_worker_domain_mapping(workers_read_token, read):
         return "NOT_PROVEN_CUSTOM_DOMAIN_READ_FAILED"
 
 
+def private_cf_ray_id(error):
+    try:
+        value = error.headers.get("CF-Ray")
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9]{16,64}(?:-[A-Za-z0-9]{1,8})?", value) else None
+
+
+def graphql_access_login_payload(ray_id, request_time):
+    require(isinstance(ray_id, str) and re.fullmatch(r"[A-Za-z0-9]{16,64}(?:-[A-Za-z0-9]{1,8})?", ray_id),
+            "URL_NOT_ALLOWED")
+    require(isinstance(request_time, datetime.datetime) and request_time.tzinfo is not None, "URL_NOT_ALLOWED")
+    start = request_time - datetime.timedelta(minutes=5)
+    end = datetime.datetime.now(datetime.timezone.utc)
+    def iso(value):
+        return value.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return {
+        "query": ACCESS_LOGIN_EVENT_QUERY,
+        "variables": {"accountTag": ACCOUNT, "rayId": ray_id,
+                      "datetimeStart": iso(start), "datetimeEnd": iso(end)},
+    }
+
+
+def access_event_result(payload):
+    if (not isinstance(payload, dict) or "errors" not in payload
+            or payload.get("errors") is not None):
+        return "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR"
+    try:
+        accounts = payload["data"]["viewer"]["accounts"]
+        require(isinstance(accounts, list) and len(accounts) == 1, "CF_RESPONSE_INVALID")
+        events = accounts[0]["accessLoginRequestsAdaptiveGroups"]
+        require(isinstance(events, list) and len(events) <= 1, "CF_RESPONSE_INVALID")
+        if not events:
+            return "NOT_PROVEN_ACCESS_EVENT_NOT_FOUND"
+        dimensions = events[0]["dimensions"]
+        require(isinstance(dimensions, dict) and set(dimensions) ==
+                {"isSuccessfulLogin", "identityProvider", "serviceTokenId"}, "CF_RESPONSE_INVALID")
+        success = dimensions["isSuccessfulLogin"]
+        identity_provider = dimensions["identityProvider"]
+        service_token_id = dimensions["serviceTokenId"]
+        require(type(success) is int and success in (0, 1)
+                and isinstance(identity_provider, str) and isinstance(service_token_id, str), "CF_RESPONSE_INVALID")
+        if success == 1 and identity_provider == "nonidentity" and service_token_id:
+            return "PROVEN_ACCESS_SERVICE_TOKEN_AUTHORIZED"
+        if success == 1 and identity_provider == "nonidentity":
+            return "PROVEN_ACCESS_AUTHORIZED_NONIDENTITY_WITHOUT_SERVICE_TOKEN"
+        if success == 1:
+            return "PROVEN_ACCESS_AUTHORIZED_NON_SERVICE_TOKEN"
+        return ("PROVEN_ACCESS_NONIDENTITY_DENIED" if identity_provider == "nonidentity"
+                else "PROVEN_ACCESS_DENIED_NON_SERVICE_TOKEN")
+    except (PreflightError, KeyError, TypeError, AttributeError, IndexError):
+        return "NOT_PROVEN_GRAPHQL_RESPONSE_INVALID"
+
+
+def health_access_event(access_read_token, error, request_time, read):
+    if not access_read_token:
+        return "NOT_PROVEN_ANALYTICS_READ_CREDENTIAL_ABSENT"
+    ray_id = private_cf_ray_id(error)
+    if ray_id is None:
+        return "NOT_PROVEN_CF_RAY_HEADER_ABSENT_OR_INVALID"
+    try:
+        payload = read(GRAPHQL, access_read_token,
+                       graphql=graphql_access_login_payload(ray_id, request_time))
+        return access_event_result(payload)
+    except urllib.error.HTTPError as graphql_error:
+        if graphql_error.code == 403:
+            return "PROVEN_ACCOUNT_ANALYTICS_READ_MISSING"
+        return ("NOT_PROVEN_ANALYTICS_TOKEN_INVALID" if graphql_error.code == 401
+                else "NOT_PROVEN_GRAPHQL_ACCESS_EVENT_READ_FAILED")
+    except (PreflightError, urllib.error.URLError, TimeoutError, json.JSONDecodeError,
+            UnicodeDecodeError, KeyError, TypeError, AttributeError, IndexError, OSError):
+        return "NOT_PROVEN_GRAPHQL_ACCESS_EVENT_READ_FAILED"
+
+
 def health_403_response_class(error):
     try:
         raw = error.read(HEALTH_DIAGNOSTIC_MAX_BYTES + 1)
@@ -516,7 +635,7 @@ def health_403_response_class(error):
             "WORKER_ACCESS_AUTHENTICATION_FAILED_UNRECOGNIZED_DIAGNOSTIC")
 
 
-def health_403_diagnostic(error, env, read):
+def health_403_diagnostic(error, env, read, request_time):
     response_class = health_403_response_class(error)
     return {
         "response_class": response_class if response_class in HEALTH_ACCESS_RESPONSE_CLASSES else "BODY_UNAVAILABLE",
@@ -529,6 +648,8 @@ def health_403_diagnostic(error, env, read):
             env.get("CLOUDFLARE_ACCESS_READ_TOKEN", ""), env.get("CONTROL_ACCESS_CLIENT_ID", ""), read),
         "worker_domain_mapping": health_worker_domain_mapping(
             env.get("CLOUDFLARE_WORKERS_READ_TOKEN", ""), read),
+        "access_event": health_access_event(
+            env.get("CLOUDFLARE_ACCESS_READ_TOKEN", ""), error, request_time, read),
     }
 
 
@@ -538,8 +659,10 @@ def public_health_403_diagnostic(value):
     presence = value.get("credential_presence")
     applicability = value.get("access_applicability")
     domain_mapping = value.get("worker_domain_mapping")
+    access_event = value.get("access_event")
     if (not isinstance(presence, dict) or not isinstance(applicability, dict)
-            or domain_mapping not in WORKER_DOMAIN_DIAGNOSTICS):
+            or domain_mapping not in WORKER_DOMAIN_DIAGNOSTICS
+            or access_event not in ACCESS_EVENT_DIAGNOSTICS):
         return None
     if set(presence) != {"access_client_id", "access_client_secret", "access_read_token"} or not all(
             type(presence[name]) is bool for name in presence):
@@ -555,7 +678,8 @@ def public_health_403_diagnostic(value):
     if not all(type(count) is int and 0 <= count <= 200 for count in counts):
         return None
     return {"response_class": value["response_class"], "credential_presence": presence,
-            "access_applicability": applicability, "worker_domain_mapping": domain_mapping}
+            "access_applicability": applicability, "worker_domain_mapping": domain_mapping,
+            "access_event": access_event}
 
 
 def run(env, root, read=request, diagnostic=None):
@@ -611,13 +735,15 @@ def run(env, root, read=request, diagnostic=None):
     if env.get("CONTROL_ACCESS_CLIENT_ID") and env.get("CONTROL_ACCESS_CLIENT_SECRET"):
         access = (env["CONTROL_ACCESS_CLIENT_ID"], env["CONTROL_ACCESS_CLIENT_SECRET"])
         diagnostic["stage"] = "WORKER_HEALTH"
+        health_request_time = datetime.datetime.now(datetime.timezone.utc)
         try:
             observed = read(ORIGIN + "/api/health", None, access=access)
         except urllib.error.HTTPError as error:
             if error.code == 403:
                 # This is a single, fixed-target diagnostic sequence, not a
                 # health retry. It publishes only allowlisted classifications.
-                diagnostic["health_403"] = health_403_diagnostic(error, env, read)
+                diagnostic["health_403"] = health_403_diagnostic(
+                    error, env, read, health_request_time)
             raise
         require(observed.get("status") == "ok" and observed.get("service") == WORKER
                 and observed.get("workerVersion") == version, "HEALTH_IDENTITY_INVALID")

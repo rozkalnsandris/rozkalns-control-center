@@ -49,6 +49,8 @@ class PreflightTest(unittest.TestCase):
             p.request(p.CF + "/d1/database/" + p.DB + "/query", "synthetic", sql="DELETE FROM d1_migrations")
         with self.assertRaisesRegex(ValueError, "URL_NOT_ALLOWED"):
             p.request("https://example.invalid", "synthetic")
+        with self.assertRaisesRegex(ValueError, "URL_NOT_ALLOWED"):
+            p.request(p.GRAPHQL, "synthetic")
         self.assertIsNone(p.NoRedirect().redirect_request(None, None, 302, "", {}, "https://example.invalid"))
         self.assertTrue(all(sql.startswith("SELECT ") and ";" not in sql for sql in p.SQL_ALLOWLIST))
         self.assertIn("/workers/domains?hostname=", p.worker_domains_url())
@@ -56,6 +58,10 @@ class PreflightTest(unittest.TestCase):
             build.return_value.open.return_value.__enter__.return_value.read.return_value = b"{}"
             self.assertEqual(p.request(p.worker_domains_url(), "synthetic"), {})
             self.assertEqual(build.return_value.open.call_args.args[0].get_method(), "GET")
+            payload = p.graphql_access_login_payload(
+                "0123456789abcdef-XYZ", p.datetime.datetime.now(p.datetime.timezone.utc))
+            self.assertEqual(p.request(p.GRAPHQL, "synthetic", graphql=payload), {})
+            self.assertEqual(build.return_value.open.call_args.args[0].get_method(), "POST")
 
     def test_audience_metadata_never_proves_human_owner_access(self):
         name = "CONTROL_CONTINUATION_ACCESS_AUDIENCE"
@@ -180,12 +186,14 @@ class DiagnosticsTest(unittest.TestCase):
         }).encode()
         app_id = "33333333-3333-4333-8333-333333333333"
         service_token_id = "44444444-4444-4444-8444-444444444444"
+        ray_id = "0123456789abcdef-XYZ"
         calls = []
 
         def read(url, token, sql=None, **kwargs):
             calls.append(url)
             if url == p.ORIGIN + "/api/health":
-                raise p.urllib.error.HTTPError(url, 403, "synthetic-protected", {}, io.BytesIO(health_body))
+                raise p.urllib.error.HTTPError(
+                    url, 403, "synthetic-protected", {"CF-Ray": ray_id}, io.BytesIO(health_body))
             if url == p.access_apps_url(1):
                 return {"success": True, "result": [{
                     "id": app_id, "type": "self_hosted",
@@ -206,6 +214,19 @@ class DiagnosticsTest(unittest.TestCase):
                 return {"success": True, "result": [{
                     "hostname": "control.rozkalns.net", "service": p.WORKER,
                 }]}
+            if url == p.GRAPHQL:
+                payload = kwargs["graphql"]
+                self.assertEqual(payload["query"], p.ACCESS_LOGIN_EVENT_QUERY)
+                self.assertEqual(payload["variables"]["accountTag"], p.ACCOUNT)
+                self.assertEqual(payload["variables"]["rayId"], ray_id)
+                self.assertEqual(set(payload["variables"]),
+                                 {"accountTag", "rayId", "datetimeStart", "datetimeEnd"})
+                return {"data": {"viewer": {"accounts": [{
+                    "accessLoginRequestsAdaptiveGroups": [{"dimensions": {
+                        "isSuccessfulLogin": 1, "identityProvider": "nonidentity",
+                        "serviceTokenId": service_token_id,
+                    }}],
+                }]}}, "errors": None}
             if url == p.GH + "/branches/main":
                 return {"commit": {"sha": env["GITHUB_SHA"]}}
             if url.startswith(p.GH + "/actions/workflows/"):
@@ -244,11 +265,15 @@ class DiagnosticsTest(unittest.TestCase):
         })
         self.assertEqual(receipt["health_403"]["worker_domain_mapping"],
                          "PROVEN_CUSTOM_DOMAIN_SERVICE_MATCH")
+        self.assertEqual(receipt["health_403"]["access_event"],
+                         "PROVEN_ACCESS_SERVICE_TOKEN_AUTHORIZED")
         self.assertIn(p.access_apps_url(1), calls)
         self.assertIn(p.access_app_policies_url(app_id, 1), calls)
         self.assertIn(p.access_service_tokens_url(1), calls)
         self.assertIn(p.worker_domains_url(), calls)
+        self.assertEqual(calls.count(p.GRAPHQL), 1)
         self.assertNotIn("synthetic", output.getvalue())
+        self.assertNotIn(ray_id, output.getvalue())
 
     def test_worker_domain_mapping_is_bounded_and_does_not_publish_provider_data(self):
         private_value = "synthetic-private-domain-value"
@@ -272,6 +297,48 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertEqual(result, "NOT_PROVEN_CUSTOM_DOMAIN_READ_FAILED")
         self.assertNotIn(private_value, result)
         body.read.assert_not_called()
+
+    def test_access_event_permission_denial_is_bounded_and_never_reads_error_data(self):
+        private_value = "synthetic-private-analytics-value"
+        ray_id = "0123456789abcdef-XYZ"
+        error = p.urllib.error.HTTPError(
+            p.ORIGIN + "/api/health", 403, private_value, {"CF-Ray": ray_id}, None)
+        body = unittest.mock.Mock()
+        calls = []
+
+        def denied(url, _token, **kwargs):
+            calls.append((url, kwargs["graphql"]))
+            raise p.urllib.error.HTTPError(url, 403, private_value, {}, body)
+
+        result = p.health_access_event(
+            "synthetic-access-read", error, p.datetime.datetime.now(p.datetime.timezone.utc), denied)
+        self.assertEqual(result, "PROVEN_ACCOUNT_ANALYTICS_READ_MISSING")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], p.GRAPHQL)
+        self.assertEqual(calls[0][1]["variables"]["rayId"], ray_id)
+        self.assertNotIn(private_value, result)
+        body.read.assert_not_called()
+
+        absent = p.urllib.error.HTTPError(p.ORIGIN + "/api/health", 403, private_value, {}, None)
+        self.assertEqual(
+            p.health_access_event("synthetic-access-read", absent,
+                                  p.datetime.datetime.now(p.datetime.timezone.utc),
+                                  lambda *_args, **_kwargs: self.fail("Unexpected GraphQL request")),
+            "NOT_PROVEN_CF_RAY_HEADER_ABSENT_OR_INVALID",
+        )
+
+    def test_access_event_payload_never_returns_provider_dimensions(self):
+        private_token_id = "synthetic-private-service-token-id"
+        result = p.access_event_result({"data": {"viewer": {"accounts": [{
+            "accessLoginRequestsAdaptiveGroups": [{"dimensions": {
+                "isSuccessfulLogin": 0, "identityProvider": "nonidentity",
+                "serviceTokenId": private_token_id,
+            }}],
+        }]}}, "errors": None})
+        self.assertEqual(result, "PROVEN_ACCESS_NONIDENTITY_DENIED")
+        self.assertNotIn(private_token_id, result)
+        self.assertEqual(p.access_event_result({"data": {}, "errors": []}),
+                         "NOT_PROVEN_GRAPHQL_RESPONSE_ERROR")
 
     def test_selected_service_token_policy_eligibility_is_bounded(self):
         token_id = "44444444-4444-4444-8444-444444444444"
@@ -340,9 +407,12 @@ class DiagnosticsTest(unittest.TestCase):
     def test_health_403_body_read_is_bounded_and_unrecognized_data_stays_unpublished(self):
         body = io.BytesIO(b"{" + b"x" * (p.HEALTH_DIAGNOSTIC_MAX_BYTES + 1))
         error = p.urllib.error.HTTPError(p.ORIGIN + "/api/health", 403, "synthetic", {}, body)
-        result = p.health_403_diagnostic(error, {}, lambda *_args, **_kwargs: self.fail("Unexpected Access read"))
+        result = p.health_403_diagnostic(
+            error, {}, lambda *_args, **_kwargs: self.fail("Unexpected Access read"),
+            p.datetime.datetime.now(p.datetime.timezone.utc))
         self.assertEqual(result["response_class"], "BODY_TOO_LARGE")
         self.assertEqual(result["access_applicability"]["service_token_match"], "NOT_PROVEN_ACCESS_READ_CREDENTIAL_ABSENT")
+        self.assertEqual(result["access_event"], "NOT_PROVEN_ANALYTICS_READ_CREDENTIAL_ABSENT")
         self.assertNotIn("x", json.dumps(result))
 
     def test_error_categories_and_protected_data_are_sanitized(self):

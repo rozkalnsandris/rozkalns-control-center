@@ -15,9 +15,12 @@ association needed by the new panel. Do not replay historical activation jobs.
 
 Run owner-panel-readonly-preflight.yml manually from freshly verified main after
 its source merge and exact-main CI. Its fixed-target script uses GET plus three
-allowlisted SELECT statements through D1's query API. There is no arbitrary SQL,
-workflow target, URL, rollout command, mutation probe or retry. Redirects are
-rejected; provider errors and protected configuration never enter the receipt.
+allowlisted SELECT statements through D1's query API. A failed authenticated
+health GET may additionally make one fixed, semantically read-only GraphQL
+Analytics POST that queries the matching Access login event by privately handled
+Ray ID. There is no arbitrary SQL, workflow target, URL, GraphQL query, rollout
+command, mutation probe or retry. Redirects are rejected; provider errors and
+protected configuration never enter the receipt.
 
 The existing production-readonly-reconcile environment supplies:
 - CLOUDFLARE_API_TOKEN for Worker metadata GETs;
@@ -223,6 +226,23 @@ or headers. This route proof establishes only the configured Custom Domain
 association; it does not prove request-layer attribution, deployed source
 identity, or Client Secret validity.
 
+After that same 403, if the privately handled response Ray ID is syntactically
+valid, the diagnostic may make exactly one POST to Cloudflare's GraphQL Analytics
+endpoint using the existing `CLOUDFLARE_ACCESS_READ_TOKEN`. The query is fixed to
+the account-scoped `accessLoginRequestsAdaptiveGroups` dataset, uses the private
+Ray ID plus a five-minute bounded request-time window, requests only the
+success/non-identity/service-token-presence dimensions, and has `limit: 1`.
+The result is reduced to one allowlisted enum: an authorized Service Token event,
+a non-identity denial, a non-Service Token result, event absence, response
+invalidity, or a bounded Analytics capability result. Neither the Ray ID, request
+time, response, policy/token identifier, IP address, body nor header is printed.
+Cloudflare documents this as the non-identity Access troubleshooting path and
+documents HTTP 403 from GraphQL as missing Analytics Read for the relevant
+account/zone; HTTP 401 remains only an invalid-or-expired-token possibility and
+does not justify credential rotation. This is a semantic read only: it performs
+no GraphQL mutation and does not change Access, credentials, permissions or
+production state.
+
 After a failed run, preserve its exact source SHA/run ID and sanitized receipt.
 Review the identified contract against official documentation before proposing
 a scoped correction. Do not weaken checks or expand permissions to force PASS.
@@ -234,3 +254,5 @@ Diagnostic references checked:
 - https://docs.python.org/3/library/urllib.error.html
 - https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api
 - https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/
+- https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-access-login-events/
+- https://developers.cloudflare.com/analytics/graphql-api/errors/
