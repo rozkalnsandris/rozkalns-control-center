@@ -59,6 +59,12 @@ UNCLASSIFIED_MESSAGE_HINTS = (
     ("QUERY_HINT", ("query", "field", "argument", "selection", "parse", "syntax")),
     ("SERVICE_HINT", ("internal", "unavailable", "upstream", "timeout", "temporar", "in progress")),
 )
+UNCLASSIFIED_CODE_HINTS = (
+    ("AUTH_HINT", ("auth", "permission", "forbidden", "denied", "credential", "token")),
+    ("RATE_HINT", ("rate", "throttl", "budget", "limit", "quota")),
+    ("QUERY_HINT", ("query", "field", "argument", "selection", "parse", "syntax", "validation")),
+    ("SERVICE_HINT", ("internal", "unavailable", "upstream", "timeout", "temporar", "service")),
+)
 ACCESS_LOGIN_ERROR_PATHS = (
     ["viewer", "accounts", 0, "accessLoginRequestsAdaptiveGroups"],
     ["viewer", "accounts", "0", "accessLoginRequestsAdaptiveGroups"],
@@ -130,6 +136,18 @@ def unclassified_message_hint(messages):
     matches = [
         name for name, terms in UNCLASSIFIED_MESSAGE_HINTS
         if all(any(term in message for term in terms) for message in messages)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def unclassified_code_hint(errors):
+    codes = [error.get("extensions", {}).get("code") for error in errors]
+    if not all(isinstance(code, str) and 0 < len(code) <= 128 for code in codes):
+        return None
+    normalized = [code.casefold() for code in codes]
+    matches = [
+        name for name, terms in UNCLASSIFIED_CODE_HINTS
+        if all(any(term in code for term in terms) for code in normalized)
     ]
     return matches[0] if len(matches) == 1 else None
 
@@ -235,6 +253,9 @@ def classify(payload_value):
         return "GRAPHQL_QUERY_REJECTED"
     result = unclassified_error_path_result(errors)
     if result == "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED":
+        code_hint = unclassified_code_hint(errors)
+        if code_hint is not None:
+            return result + "_CODE_" + code_hint
         hint = unclassified_message_hint(messages)
         if hint is not None:
             return result + "_MESSAGE_" + hint
