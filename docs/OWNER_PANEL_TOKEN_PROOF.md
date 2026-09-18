@@ -29,8 +29,8 @@ Authentication and authorization failures remain distinct:
 - HTTP 401 or a GraphQL `Unauthorized` error -> `TOKEN_AUTHENTICATION_FAILED`;
 - HTTP 403 or documented account/path/zone authorization errors ->
   `ANALYTICS_NOT_GRANTED_FOR_TARGET`;
-- rate/resource limits, including Cloudflare's documented `rate limiter budget
-  depleted` class -> `GRAPHQL_RATE_LIMITED`;
+- rate/resource limits, including Cloudflare's documented rate-limit classes ->
+  `GRAPHQL_RATE_LIMITED`;
 - provider 5xx / documented internal-unavailable errors ->
   `GRAPHQL_SERVICE_UNAVAILABLE`;
 - documented query/dataset rejection -> `GRAPHQL_QUERY_REJECTED`.
@@ -63,7 +63,7 @@ service or query/dataset classes. Its sanitized result was
 Cloudflare documents `errors[].path` as the GraphQL nodes associated with the error,
 starting from the root. The current Access login-event query remains the fixed
 `viewer -> accounts -> accessLoginRequestsAdaptiveGroups` path. For otherwise
-well-formed but unclassified errors, the proof now reports only one fixed path enum:
+well-formed but unclassified errors, the proof reports only fixed path enums:
 
 - every path exactly matches the static Access-login dataset path, accepting either
   integer `0` or string `"0"` for the sole account index ->
@@ -72,7 +72,6 @@ well-formed but unclassified errors, the proof now reports only one fixed path e
   path -> `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_UNRECOGNIZED`;
 - every error object omits the `path` key ->
   `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_KEY_ABSENT`;
-- every error has `path: null` -> `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL`;
 - every error has a non-null, non-list `path` value ->
   `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_INVALID_NON_NULL`;
 - mixed/otherwise ambiguous path shapes ->
@@ -80,16 +79,47 @@ well-formed but unclassified errors, the proof now reports only one fixed path e
 
 These path enums are structural evidence only. They do not reinterpret an unknown
 provider message as authorization success, permission denial, query rejection or
-any other provider cause. The proof never prints the raw error message, raw path,
-path components, timestamps, extensions, target account, query variables or
-response body. This mirrors the already merged bounded error-path classification
-used by the broader Health403 preflight while keeping the token proof isolated.
+any other provider cause.
 
-Transport/decode problems remain `GRAPHQL_HTTP_UNPROVEN` or
+## Bounded `path: null` extension-code diagnostic
+
+Run `35383051281` returned a well-formed unclassified GraphQL error with
+`path: null`. Current Cloudflare documentation for account-based GraphQL Analytics
+rate limiting shows that a throttled response can also use `path: null` while
+placing the fixed code `budget` in `errors[].extensions.code`. The documented
+message text for that response differs from the older rate-limit message prefixes
+already covered by the proof.
+
+The proof therefore refines only the already-bounded `path: null` case. It does not
+print or otherwise expose raw extension values:
+
+- every `path: null` error has `extensions.code == "budget"` ->
+  `GRAPHQL_RATE_LIMITED`;
+- every `path: null` error has a bounded non-empty string code but it is not the
+  allowlisted `budget` code ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED`;
+- every `path: null` error omits `extensions` ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSIONS_KEY_ABSENT`;
+- every `path: null` error has an object `extensions` but omits `code` ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_KEY_ABSENT`;
+- every `path: null` error has `extensions.code: null` ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_NULL`;
+- every `path: null` error has a non-null, non-string `extensions.code` ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_INVALID_NON_STRING`;
+- mixed, oversized-string or otherwise ambiguous extension-code shapes ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_MIXED_OR_INVALID`.
+
+Only the exact documented `budget` code is promoted to a provider cause. A different
+or malformed code remains fail-closed and does not imply authorization success,
+permission denial, query rejection or rate limiting.
+
+The proof never prints the raw error message, raw path, path components, timestamp,
+extensions object, extension code, target account, query variables or response
+body. Transport/decode problems remain `GRAPHQL_HTTP_UNPROVEN` or
 `GRAPHQL_REQUEST_UNPROVEN`. The public receipt still contains only
 `graphql_authorization_proven`, `production_mutations` and a fixed result enum. It
 never prints the bearer token, target account, query, variables, synthetic Ray ID,
-provider error message, headers or raw response body.
+provider headers or raw response body.
 
 This proof establishes only whether the existing protected bearer can execute the
 fixed GraphQL Analytics read. It does not prove the Access service-token Client
@@ -103,3 +133,5 @@ Official Cloudflare documentation checked for this implementation:
 - https://developers.cloudflare.com/analytics/graphql-api/getting-started/querying-basics/
 - https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-access-login-events/
 - https://developers.cloudflare.com/analytics/graphql-api/errors/
+- https://developers.cloudflare.com/analytics/graphql-api/account-based-rate-limiting/
+- https://developers.cloudflare.com/analytics/graphql-api/limits/
