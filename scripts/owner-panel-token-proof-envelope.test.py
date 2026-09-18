@@ -18,7 +18,7 @@ NOW = datetime.datetime(2026, 9, 18, 21, 0, tzinfo=datetime.timezone.utc)
 
 def syntax_error_payload(data_marker=None, *, include_data=True,
                          top_timestamp=False, extension_timestamp=False,
-                         second_timestamp_mode=None):
+                         second_timestamp_mode=None, extension_extra=False):
     def error(mode=None):
         item = {
             "message": "private provider detail",
@@ -32,6 +32,8 @@ def syntax_error_payload(data_marker=None, *, include_data=True,
         if mode == "both":
             item["timestamp"] = "private-top-timestamp"
             item["extensions"]["timestamp"] = "private-extension-timestamp"
+        if extension_extra:
+            item["extensions"]["private_extra_key"] = "private-extra-value"
         return item
 
     errors = [error()]
@@ -64,6 +66,11 @@ class EnvelopeProofTests(unittest.TestCase):
                 self.assertEqual(receipt["result"], e.SYNTAX_LOCATIONS_ABSENT)
                 self.assertEqual(receipt["response_data_shape"], data_shape)
                 self.assertEqual(receipt["error_timestamp_shape"], timestamp_shape)
+                self.assertEqual(
+                    receipt["error_count_shape"],
+                    "ERROR_COUNT_ONE" if len(payload["errors"]) == 1
+                    else "ERROR_COUNT_MULTIPLE",
+                )
                 self.assertFalse(receipt["graphql_authorization_proven"])
                 self.assertFalse(receipt["production_mutations"])
 
@@ -78,6 +85,59 @@ class EnvelopeProofTests(unittest.TestCase):
                 receipt = e.prove(TOKEN, lambda *_: payload, NOW)
                 self.assertEqual(receipt["response_data_shape"], expected)
 
+    def test_error_count_shape_is_bounded(self):
+        one = e.prove(
+            TOKEN,
+            lambda *_: syntax_error_payload(None, extension_timestamp=True),
+            NOW,
+        )
+        multiple = e.prove(
+            TOKEN,
+            lambda *_: syntax_error_payload(
+                None,
+                extension_timestamp=True,
+                second_timestamp_mode="extension",
+            ),
+            NOW,
+        )
+        self.assertEqual(one["error_count_shape"], "ERROR_COUNT_ONE")
+        self.assertEqual(multiple["error_count_shape"], "ERROR_COUNT_MULTIPLE")
+
+    def test_extension_keys_shape_is_bounded(self):
+        exact = e.prove(
+            TOKEN,
+            lambda *_: syntax_error_payload(None, extension_timestamp=True),
+            NOW,
+        )
+        plus_other = e.prove(
+            TOKEN,
+            lambda *_: syntax_error_payload(
+                None,
+                extension_timestamp=True,
+                extension_extra=True,
+            ),
+            NOW,
+        )
+        mixed_payload = syntax_error_payload(
+            None,
+            extension_timestamp=True,
+            second_timestamp_mode="extension",
+        )
+        mixed_payload["errors"][1]["extensions"]["private_extra_key"] = "private"
+        mixed = e.prove(TOKEN, lambda *_: mixed_payload, NOW)
+        self.assertEqual(
+            exact["extension_keys_shape"],
+            "EXTENSION_KEYS_CODE_TIMESTAMP_ONLY",
+        )
+        self.assertEqual(
+            plus_other["extension_keys_shape"],
+            "EXTENSION_KEYS_CODE_TIMESTAMP_PLUS_OTHER",
+        )
+        self.assertEqual(
+            mixed["extension_keys_shape"],
+            "EXTENSION_KEYS_MIXED_OR_OTHER",
+        )
+
     def test_other_results_keep_existing_receipt_shape(self):
         payload = {
             "data": None,
@@ -91,12 +151,16 @@ class EnvelopeProofTests(unittest.TestCase):
         self.assertEqual(receipt["result"], "ANALYTICS_NOT_GRANTED_FOR_TARGET")
         self.assertNotIn("response_data_shape", receipt)
         self.assertNotIn("error_timestamp_shape", receipt)
+        self.assertNotIn("error_count_shape", receipt)
+        self.assertNotIn("extension_keys_shape", receipt)
 
-    def test_public_receipt_does_not_leak_timestamp_or_data_values(self):
+    def test_public_receipt_does_not_leak_timestamp_data_or_extension_values(self):
         private_data = "private-data-" + TOKEN
         private_timestamp = "private-timestamp-" + TOKEN
-        payload = syntax_error_payload({"value": private_data})
+        private_extra = "private-extra-" + TOKEN
+        payload = syntax_error_payload({"value": private_data}, extension_extra=True)
         payload["errors"][0]["extensions"]["timestamp"] = private_timestamp
+        payload["errors"][0]["extensions"]["private_extra_key"] = private_extra
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             self.assertEqual(
@@ -107,7 +171,19 @@ class EnvelopeProofTests(unittest.TestCase):
         self.assertEqual(receipt["result"], e.SYNTAX_LOCATIONS_ABSENT)
         self.assertEqual(receipt["response_data_shape"], "DATA_PRESENT_NON_NULL")
         self.assertEqual(receipt["error_timestamp_shape"], "TIMESTAMP_EXTENSION_ONLY")
-        for private in (TOKEN, private_data, private_timestamp, "private provider detail"):
+        self.assertEqual(receipt["error_count_shape"], "ERROR_COUNT_ONE")
+        self.assertEqual(
+            receipt["extension_keys_shape"],
+            "EXTENSION_KEYS_CODE_TIMESTAMP_PLUS_OTHER",
+        )
+        for private in (
+            TOKEN,
+            private_data,
+            private_timestamp,
+            private_extra,
+            "private_extra_key",
+            "private provider detail",
+        ):
             self.assertNotIn(private, output.getvalue())
 
     def test_wrapper_still_makes_only_one_read(self):
