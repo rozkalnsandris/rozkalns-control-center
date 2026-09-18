@@ -46,6 +46,29 @@ def error_timestamp_shape(errors):
     return "TIMESTAMP_MIXED"
 
 
+def error_count_shape(errors):
+    return "ERROR_COUNT_ONE" if len(errors) == 1 else "ERROR_COUNT_MULTIPLE"
+
+
+def extension_keys_shape(errors):
+    states = []
+    for error in errors:
+        extension = error.get("extensions")
+        if not isinstance(extension, dict):
+            states.append("OTHER")
+            continue
+        keys = set(extension)
+        if keys == {"code", "timestamp"}:
+            states.append("CODE_TIMESTAMP_ONLY")
+        elif "code" in keys and "timestamp" in keys:
+            states.append("CODE_TIMESTAMP_PLUS_OTHER")
+        else:
+            states.append("OTHER")
+    if states and all(state == states[0] for state in states):
+        return "EXTENSION_KEYS_" + states[0]
+    return "EXTENSION_KEYS_MIXED_OR_OTHER"
+
+
 def prove(token, read=p.post, now=None):
     captured = {}
 
@@ -69,6 +92,8 @@ def prove(token, read=p.post, now=None):
     bounded = dict(receipt)
     bounded["response_data_shape"] = response_data_shape(payload_value)
     bounded["error_timestamp_shape"] = error_timestamp_shape(errors)
+    bounded["error_count_shape"] = error_count_shape(errors)
+    bounded["extension_keys_shape"] = extension_keys_shape(errors)
     return bounded
 
 
