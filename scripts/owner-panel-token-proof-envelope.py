@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -87,16 +88,23 @@ def extension_other_key_count_shape(errors):
     return "EXTENSION_OTHER_KEY_COUNT_MULTIPLE"
 
 
-def extension_other_value_type_shape(errors):
+def extension_other_values(errors):
     values = []
     for error in errors:
         extension = error.get("extensions")
         if not isinstance(extension, dict):
-            return "EXTENSION_OTHER_VALUE_SHAPE_UNPROVEN"
+            return None
         values.extend(
             value for key, value in extension.items()
             if key not in {"code", "timestamp"}
         )
+    return values
+
+
+def extension_other_value_type_shape(errors):
+    values = extension_other_values(errors)
+    if values is None:
+        return "EXTENSION_OTHER_VALUE_SHAPE_UNPROVEN"
     if not values:
         return "EXTENSION_OTHER_VALUE_NONE"
 
@@ -119,6 +127,45 @@ def extension_other_value_type_shape(errors):
     if all(value_kind == kinds[0] for value_kind in kinds):
         return "EXTENSION_OTHER_VALUE_" + kinds[0]
     return "EXTENSION_OTHER_VALUE_MIXED"
+
+
+def extension_other_string_hint(errors):
+    values = extension_other_values(errors)
+    if values is None or len(values) != 1 or not isinstance(values[0], str):
+        return "EXTENSION_OTHER_STRING_HINT_UNPROVEN"
+    if not 0 < len(values[0]) <= 2_000:
+        return "EXTENSION_OTHER_STRING_HINT_UNPROVEN"
+    hint = p.unclassified_message_hint([values[0].casefold()])
+    if hint is None:
+        return "EXTENSION_OTHER_STRING_NO_UNIQUE_HINT"
+    return "EXTENSION_OTHER_STRING_" + hint
+
+
+def extension_other_string_shape(errors):
+    values = extension_other_values(errors)
+    if values is None or len(values) != 1 or not isinstance(values[0], str):
+        return "EXTENSION_OTHER_STRING_SHAPE_UNPROVEN"
+    value = values[0]
+    if not 0 < len(value) <= 2_000:
+        return "EXTENSION_OTHER_STRING_SHAPE_UNPROVEN"
+    if re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
+            value):
+        return "EXTENSION_OTHER_STRING_TIMESTAMP_LIKE"
+    if re.fullmatch(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
+            r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}",
+            value):
+        return "EXTENSION_OTHER_STRING_UUID_LIKE"
+    if re.fullmatch(r"[0-9a-fA-F]{16,64}", value):
+        return "EXTENSION_OTHER_STRING_HEX_ID_LIKE"
+    if value.startswith(("https://", "http://")):
+        return "EXTENSION_OTHER_STRING_URL_LIKE"
+    if len(value) <= 128 and not any(character.isspace() for character in value):
+        return "EXTENSION_OTHER_STRING_TOKEN_LIKE"
+    if len(value) <= 128:
+        return "EXTENSION_OTHER_STRING_SHORT_TEXT"
+    return "EXTENSION_OTHER_STRING_LONG_TEXT"
 
 
 def error_message_hint(errors):
@@ -158,6 +205,8 @@ def prove(token, read=p.post, now=None):
     bounded["extension_keys_shape"] = extension_keys_shape(errors)
     bounded["extension_other_key_count_shape"] = extension_other_key_count_shape(errors)
     bounded["extension_other_value_type_shape"] = extension_other_value_type_shape(errors)
+    bounded["extension_other_string_hint"] = extension_other_string_hint(errors)
+    bounded["extension_other_string_shape"] = extension_other_string_shape(errors)
     bounded["error_message_hint"] = error_message_hint(errors)
     return bounded
 
