@@ -81,29 +81,36 @@ class ProofTests(unittest.TestCase):
             (graphql_errors("not authorized for that account"), "ANALYTICS_NOT_GRANTED_FOR_TARGET"),
             (graphql_errors("does not have access to the path viewer.accounts"), "ANALYTICS_NOT_GRANTED_FOR_TARGET"),
             (graphql_errors("zones [private] are not authorized"), "ANALYTICS_NOT_GRANTED_FOR_TARGET"),
+            (graphql_errors("rate limiter budget depleted, try again after 5 minutes"), "GRAPHQL_RATE_LIMITED"),
             (graphql_errors("query consumed excessive resources, please try running smaller queries which consume fewer resources"),
              "GRAPHQL_RATE_LIMITED"),
             (graphql_errors("Internal server error"), "GRAPHQL_SERVICE_UNAVAILABLE"),
             (graphql_errors("unknown field private"), "GRAPHQL_QUERY_REJECTED"),
-            ({"data": None, "errors": [{"message": "private", "path": None}]}, "GRAPHQL_RESPONSE_UNPROVEN"),
+            ({"data": None, "errors": [{"message": "private", "path": None}]}, "GRAPHQL_ERRORS_UNCLASSIFIED"),
         )
         for value, expected in cases:
             self.assertEqual(self.run_proof(value=value)[0]["result"], expected)
 
-    def test_success_shape_must_bind_exactly_one_account(self):
-        values = (
-            {"errors": None, "data": {"viewer": {"accounts": []}}},
-            {"errors": None, "data": {"viewer": {"accounts": [{}, {}]}}},
-            {"errors": None, "data": {"viewer": {"accounts": [{}]}}},
-            {"errors": None, "data": {"viewer": {"accounts": [{
+    def test_success_response_shape_is_bounded(self):
+        cases = (
+            ({"errors": None, "data": {"viewer": {"accounts": []}}},
+             "GRAPHQL_SUCCESS_TARGET_ACCOUNT_UNPROVEN"),
+            ({"errors": None, "data": {"viewer": {"accounts": [{}, {}]}}},
+             "GRAPHQL_SUCCESS_TARGET_ACCOUNT_UNPROVEN"),
+            ({"errors": None, "data": {"viewer": {"accounts": ["private"]}}},
+             "GRAPHQL_SUCCESS_DATA_SHAPE_UNPROVEN"),
+            ({"errors": None, "data": {"viewer": {"accounts": [{}]}}},
+             "GRAPHQL_SUCCESS_DATASET_SHAPE_UNPROVEN"),
+            ({"errors": None, "data": {"viewer": {"accounts": [{
                 "accessLoginRequestsAdaptiveGroups": [{}, {}]}]}}},
-            {"data": {}, "errors": None},
-            {"data": {}, "errors": []},
-            {},
-            [],
+             "GRAPHQL_SUCCESS_DATASET_SHAPE_UNPROVEN"),
+            ({"data": {}, "errors": None}, "GRAPHQL_SUCCESS_DATA_SHAPE_UNPROVEN"),
+            ({"data": {}, "errors": []}, "GRAPHQL_ERRORS_SHAPE_UNPROVEN"),
+            ({}, "GRAPHQL_ERRORS_FIELD_MISSING"),
+            ([], "GRAPHQL_RESPONSE_NOT_OBJECT"),
         )
-        for value in values:
-            self.assertEqual(self.run_proof(value=value)[0]["result"], "GRAPHQL_RESPONSE_UNPROVEN")
+        for value, expected in cases:
+            self.assertEqual(self.run_proof(value=value)[0]["result"], expected)
 
     def test_graphql_error_shape_is_bounded(self):
         values = (
@@ -114,7 +121,7 @@ class ProofTests(unittest.TestCase):
             {"data": None, "errors": [{"message": "private"}] * 11},
         )
         for value in values:
-            self.assertEqual(self.run_proof(value=value)[0]["result"], "GRAPHQL_RESPONSE_UNPROVEN")
+            self.assertEqual(self.run_proof(value=value)[0]["result"], "GRAPHQL_ERRORS_SHAPE_UNPROVEN")
 
     def test_network_or_decode_error_is_unproven_without_retry(self):
         for error in (ValueError("private"), urllib.error.URLError("private"),
@@ -174,6 +181,18 @@ class ProofTests(unittest.TestCase):
             "result": "ANALYTICS_NOT_GRANTED_FOR_TARGET",
         })
         for private in (TOKEN, p.ACCOUNT, "does not have access", p.QUERY, p.SYNTHETIC_RAY):
+            self.assertNotIn(private, output.getvalue())
+
+    def test_unclassified_error_receipt_does_not_leak_message(self):
+        output = io.StringIO()
+        private_message = "private provider detail " + TOKEN + p.ACCOUNT
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(p.main(
+                {"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN},
+                lambda *_: graphql_errors(private_message)), 1)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["result"], "GRAPHQL_ERRORS_UNCLASSIFIED")
+        for private in (private_message, TOKEN, p.ACCOUNT):
             self.assertNotIn(private, output.getvalue())
 
     def test_success_stdout_is_sanitized(self):

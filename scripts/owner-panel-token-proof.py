@@ -32,6 +32,7 @@ AUTHZ_MESSAGES = (
     "does not have access to the path",
 )
 RATE_MESSAGES = (
+    "rate limiter budget depleted, try again after",
     "in combination, your request queries too many nodes, zones and accounts",
     "query consumed excessive resources",
     "too many queries in progress, please try again later",
@@ -114,25 +115,31 @@ def error_messages(errors):
 
 
 def classify(payload_value):
-    if not isinstance(payload_value, dict) or "errors" not in payload_value:
-        return "GRAPHQL_RESPONSE_UNPROVEN"
+    if not isinstance(payload_value, dict):
+        return "GRAPHQL_RESPONSE_NOT_OBJECT"
+    if "errors" not in payload_value:
+        return "GRAPHQL_ERRORS_FIELD_MISSING"
+
     errors = payload_value["errors"]
     if errors is None:
         try:
             data = payload_value["data"]
-            accounts = data["viewer"]["accounts"]
-            if not isinstance(accounts, list) or len(accounts) != 1:
-                return "GRAPHQL_RESPONSE_UNPROVEN"
-            events = accounts[0]["accessLoginRequestsAdaptiveGroups"]
-            if not isinstance(events, list) or len(events) > 1:
-                return "GRAPHQL_RESPONSE_UNPROVEN"
-            return "ANALYTICS_GRANTED_FOR_TARGET"
-        except (KeyError, TypeError, AttributeError, IndexError):
-            return "GRAPHQL_RESPONSE_UNPROVEN"
+            viewer = data["viewer"]
+            accounts = viewer["accounts"]
+        except (KeyError, TypeError, AttributeError):
+            return "GRAPHQL_SUCCESS_DATA_SHAPE_UNPROVEN"
+        if not isinstance(accounts, list) or len(accounts) != 1:
+            return "GRAPHQL_SUCCESS_TARGET_ACCOUNT_UNPROVEN"
+        if not isinstance(accounts[0], dict):
+            return "GRAPHQL_SUCCESS_DATA_SHAPE_UNPROVEN"
+        events = accounts[0].get("accessLoginRequestsAdaptiveGroups")
+        if not isinstance(events, list) or len(events) > 1:
+            return "GRAPHQL_SUCCESS_DATASET_SHAPE_UNPROVEN"
+        return "ANALYTICS_GRANTED_FOR_TARGET"
 
     messages = error_messages(errors)
     if messages is None:
-        return "GRAPHQL_RESPONSE_UNPROVEN"
+        return "GRAPHQL_ERRORS_SHAPE_UNPROVEN"
     if all(message == "unauthorized" for message in messages):
         return "TOKEN_AUTHENTICATION_FAILED"
     if all(message == "not authorized for that account"
@@ -149,7 +156,7 @@ def classify(payload_value):
     if all(any(message.startswith(prefix) for prefix in QUERY_MESSAGES)
            for message in messages):
         return "GRAPHQL_QUERY_REJECTED"
-    return "GRAPHQL_RESPONSE_UNPROVEN"
+    return "GRAPHQL_ERRORS_UNCLASSIFIED"
 
 
 def prove(token, read=post, now=None):

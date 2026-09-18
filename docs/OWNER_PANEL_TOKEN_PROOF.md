@@ -29,18 +29,42 @@ Authentication and authorization failures remain distinct:
 - HTTP 401 or a GraphQL `Unauthorized` error -> `TOKEN_AUTHENTICATION_FAILED`;
 - HTTP 403 or documented account/path/zone authorization errors ->
   `ANALYTICS_NOT_GRANTED_FOR_TARGET`;
-- rate/resource limits -> `GRAPHQL_RATE_LIMITED`;
+- rate/resource limits, including Cloudflare's documented `rate limiter budget
+  depleted` class -> `GRAPHQL_RATE_LIMITED`;
 - provider 5xx / documented internal-unavailable errors ->
   `GRAPHQL_SERVICE_UNAVAILABLE`;
-- documented query/dataset rejection -> `GRAPHQL_QUERY_REJECTED`;
-- malformed, unexpected or otherwise non-proving responses remain fail-closed as
-  `GRAPHQL_RESPONSE_UNPROVEN`, `GRAPHQL_HTTP_UNPROVEN` or
-  `GRAPHQL_REQUEST_UNPROVEN`.
+- documented query/dataset rejection -> `GRAPHQL_QUERY_REJECTED`.
 
-The public receipt contains only `graphql_authorization_proven`,
-`production_mutations` and a fixed result enum. It never prints the bearer token,
-target account, query, variables, synthetic Ray ID, provider error message, headers
-or raw response body.
+## Bounded response-shape diagnostic
+
+Cloudflare documents that GraphQL Analytics responses contain an `errors` field:
+`null` when there are no errors, otherwise an array of error objects. Run
+`35377552789` returned the previous generic `GRAPHQL_RESPONSE_UNPROVEN`, so the
+source now separates only response-shape classes while continuing to suppress raw
+provider details:
+
+- non-object JSON -> `GRAPHQL_RESPONSE_NOT_OBJECT`;
+- object without the documented `errors` field -> `GRAPHQL_ERRORS_FIELD_MISSING`;
+- `errors: null` with an unexpected `data/viewer/accounts` shape ->
+  `GRAPHQL_SUCCESS_DATA_SHAPE_UNPROVEN`;
+- `errors: null` where the fixed target account cannot be bound to exactly one
+  account result -> `GRAPHQL_SUCCESS_TARGET_ACCOUNT_UNPROVEN`;
+- `errors: null` with an unexpected bounded Access dataset shape ->
+  `GRAPHQL_SUCCESS_DATASET_SHAPE_UNPROVEN`;
+- malformed/empty/oversized `errors` arrays -> `GRAPHQL_ERRORS_SHAPE_UNPROVEN`;
+- well-formed non-empty `errors` whose messages do not match a documented bounded
+  class -> `GRAPHQL_ERRORS_UNCLASSIFIED`.
+
+These enums identify only the response boundary that failed closed. They do not
+print error messages, error paths, timestamps, account counts, dataset contents or
+any other provider payload details, and they do not reinterpret an unclassified
+response as proof of authorization or denial.
+
+Transport/decode problems remain `GRAPHQL_HTTP_UNPROVEN` or
+`GRAPHQL_REQUEST_UNPROVEN`. The public receipt still contains only
+`graphql_authorization_proven`, `production_mutations` and a fixed result enum. It
+never prints the bearer token, target account, query, variables, synthetic Ray ID,
+provider error message, headers or raw response body.
 
 This proof establishes only whether the existing protected bearer can execute the
 fixed GraphQL Analytics read. It does not prove the Access service-token Client
@@ -49,6 +73,8 @@ changes, or make owner-panel activation ready.
 
 Official Cloudflare documentation checked for this implementation:
 
-- https://developers.cloudflare.com/analytics/graphql-api/getting-started/authentication/api-token-auth/
+- https://developers.cloudflare.com/analytics/graphql-api/
 - https://developers.cloudflare.com/analytics/graphql-api/getting-started/authentication/
+- https://developers.cloudflare.com/analytics/graphql-api/getting-started/querying-basics/
+- https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-access-login-events/
 - https://developers.cloudflare.com/analytics/graphql-api/errors/
