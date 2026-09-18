@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location(
@@ -43,6 +44,16 @@ class AccountRateMessageTests(unittest.TestCase):
             receipt["result"],
             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED",
         )
+
+    def test_transport_requests_account_based_rate_mode(self):
+        with patch.object(p.urllib.request, "build_opener") as opener:
+            response = opener.return_value.open.return_value.__enter__.return_value
+            response.status = 200
+            response.read.return_value = json.dumps({"errors": None}).encode()
+            p.post(TOKEN, NOW)
+            request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_header("X-rate-limit-type"), "account-based")
+            opener.return_value.open.assert_called_once()
 
     def test_public_receipt_does_not_leak_provider_detail(self):
         output = io.StringIO()
