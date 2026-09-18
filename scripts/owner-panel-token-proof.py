@@ -178,6 +178,30 @@ def query_code_detail_hint(errors):
     return matches[0] if len(matches) == 1 else None
 
 
+def locations_shape_hint(errors):
+    if all("locations" not in error for error in errors):
+        return "LOCATIONS_ABSENT"
+    if all(error.get("locations") is None for error in errors):
+        return "LOCATIONS_NULL"
+    if all(
+        isinstance(error.get("locations"), list)
+        and 0 < len(error["locations"]) <= 10
+        and all(
+            isinstance(location, dict)
+            and isinstance(location.get("line"), int)
+            and not isinstance(location.get("line"), bool)
+            and location["line"] > 0
+            and isinstance(location.get("column"), int)
+            and not isinstance(location.get("column"), bool)
+            and location["column"] > 0
+            for location in error["locations"]
+        )
+        for error in errors
+    ):
+        return "LOCATIONS_PRESENT_VALID"
+    return "LOCATIONS_MIXED_OR_INVALID"
+
+
 def unclassified_path_null_extension_code_result(errors):
     if not all("path" in error and error["path"] is None for error in errors):
         return None
@@ -284,7 +308,10 @@ def classify(payload_value):
         if code_hint == "QUERY_HINT":
             detail = query_code_detail_hint(errors)
             if detail is not None:
-                return result + "_CODE_QUERY_" + detail + "_HINT"
+                suffix = "_CODE_QUERY_" + detail + "_HINT"
+                if detail == "SYNTAX":
+                    suffix += "_" + locations_shape_hint(errors)
+                return result + suffix
         if code_hint is not None:
             return result + "_CODE_" + code_hint
         hint = unclassified_message_hint(messages)
