@@ -143,6 +143,69 @@ class EnvelopeProofTests(unittest.TestCase):
             "EXTENSION_KEYS_MIXED_OR_OTHER",
         )
 
+    def test_extension_other_key_count_shape_is_bounded(self):
+        zero_payload = syntax_error_payload(None, extension_timestamp=True)
+        one_payload = syntax_error_payload(
+            None,
+            extension_timestamp=True,
+            extension_extra=True,
+        )
+        multiple_payload = syntax_error_payload(None, extension_timestamp=True)
+        multiple_payload["errors"][0]["extensions"]["private_extra_a"] = "private-a"
+        multiple_payload["errors"][0]["extensions"]["private_extra_b"] = "private-b"
+        mixed_payload = syntax_error_payload(
+            None,
+            extension_timestamp=True,
+            second_timestamp_mode="extension",
+        )
+        mixed_payload["errors"][1]["extensions"]["private_extra_key"] = "private"
+
+        cases = (
+            (zero_payload, "EXTENSION_OTHER_KEY_COUNT_ZERO"),
+            (one_payload, "EXTENSION_OTHER_KEY_COUNT_ONE"),
+            (multiple_payload, "EXTENSION_OTHER_KEY_COUNT_MULTIPLE"),
+            (mixed_payload, "EXTENSION_OTHER_KEY_COUNT_MIXED"),
+        )
+        for payload, expected in cases:
+            with self.subTest(expected=expected):
+                receipt = e.prove(TOKEN, lambda *_: payload, NOW)
+                self.assertEqual(receipt["extension_other_key_count_shape"], expected)
+
+    def test_extension_other_value_type_shape_is_bounded(self):
+        values = (
+            ("private", "EXTENSION_OTHER_VALUE_STRING"),
+            (None, "EXTENSION_OTHER_VALUE_NULL"),
+            (True, "EXTENSION_OTHER_VALUE_BOOLEAN"),
+            (17, "EXTENSION_OTHER_VALUE_NUMBER"),
+            ({"private": TOKEN}, "EXTENSION_OTHER_VALUE_OBJECT"),
+            ([TOKEN], "EXTENSION_OTHER_VALUE_ARRAY"),
+        )
+        for value, expected in values:
+            with self.subTest(expected=expected):
+                payload = syntax_error_payload(None, extension_timestamp=True)
+                payload["errors"][0]["extensions"]["private_extra_key"] = value
+                receipt = e.prove(TOKEN, lambda *_: payload, NOW)
+                self.assertEqual(receipt["extension_other_value_type_shape"], expected)
+
+        none_receipt = e.prove(
+            TOKEN,
+            lambda *_: syntax_error_payload(None, extension_timestamp=True),
+            NOW,
+        )
+        self.assertEqual(
+            none_receipt["extension_other_value_type_shape"],
+            "EXTENSION_OTHER_VALUE_NONE",
+        )
+
+        mixed_payload = syntax_error_payload(None, extension_timestamp=True)
+        mixed_payload["errors"][0]["extensions"]["private_extra_a"] = "private"
+        mixed_payload["errors"][0]["extensions"]["private_extra_b"] = 17
+        mixed_receipt = e.prove(TOKEN, lambda *_: mixed_payload, NOW)
+        self.assertEqual(
+            mixed_receipt["extension_other_value_type_shape"],
+            "EXTENSION_OTHER_VALUE_MIXED",
+        )
+
     def test_error_message_hint_uses_existing_bounded_classifier(self):
         cases = (
             ("token permission denied", "ERROR_MESSAGE_AUTH_HINT"),
@@ -180,6 +243,8 @@ class EnvelopeProofTests(unittest.TestCase):
         self.assertNotIn("error_timestamp_shape", receipt)
         self.assertNotIn("error_count_shape", receipt)
         self.assertNotIn("extension_keys_shape", receipt)
+        self.assertNotIn("extension_other_key_count_shape", receipt)
+        self.assertNotIn("extension_other_value_type_shape", receipt)
         self.assertNotIn("error_message_hint", receipt)
 
     def test_public_receipt_does_not_leak_timestamp_data_extension_or_message_values(self):
@@ -208,6 +273,14 @@ class EnvelopeProofTests(unittest.TestCase):
         self.assertEqual(
             receipt["extension_keys_shape"],
             "EXTENSION_KEYS_CODE_TIMESTAMP_PLUS_OTHER",
+        )
+        self.assertEqual(
+            receipt["extension_other_key_count_shape"],
+            "EXTENSION_OTHER_KEY_COUNT_ONE",
+        )
+        self.assertEqual(
+            receipt["extension_other_value_type_shape"],
+            "EXTENSION_OTHER_VALUE_STRING",
         )
         self.assertEqual(receipt["error_message_hint"], "ERROR_MESSAGE_AUTH_HINT")
         for private in (
