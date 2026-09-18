@@ -55,12 +55,14 @@ class AccountRateMessageTests(unittest.TestCase):
         self.assertFalse(receipt["graphql_authorization_proven"])
         self.assertFalse(receipt["production_mutations"])
 
-    def test_other_account_message_remains_fail_closed(self):
+    def test_other_account_rate_message_remains_fail_closed_with_rate_hint(self):
         receipt = p.prove(TOKEN, lambda *_: account_rate_error("other-account"), NOW)
         self.assertEqual(
             receipt["result"],
-            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED",
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_MESSAGE_RATE_HINT",
         )
+        self.assertFalse(receipt["graphql_authorization_proven"])
+        self.assertFalse(receipt["production_mutations"])
 
     def test_unknown_extension_code_remains_fail_closed(self):
         receipt = p.prove(TOKEN, lambda *_: path_null_code_error("private-code"), NOW)
@@ -72,7 +74,7 @@ class AccountRateMessageTests(unittest.TestCase):
     def test_unknown_code_adds_only_one_bounded_message_hint(self):
         cases = (
             ("permission denied for this resource", "AUTH_HINT"),
-            ("request throttled by a temporary rate limit", "RATE_HINT"),
+            ("request throttled by a rate limit", "RATE_HINT"),
             ("query argument validation rejected", "QUERY_HINT"),
             ("upstream temporarily unavailable", "SERVICE_HINT"),
         )
