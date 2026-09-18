@@ -94,7 +94,6 @@ class AccountRateMessageTests(unittest.TestCase):
         cases = (
             ("permission_denied", "AUTH_HINT"),
             ("rate_limit", "RATE_HINT"),
-            ("query_validation", "QUERY_HINT"),
             ("service_unavailable", "SERVICE_HINT"),
         )
         prefix = "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_"
@@ -104,6 +103,33 @@ class AccountRateMessageTests(unittest.TestCase):
                 self.assertEqual(receipt["result"], prefix + hint)
                 self.assertFalse(receipt["graphql_authorization_proven"])
                 self.assertFalse(receipt["production_mutations"])
+
+    def test_query_code_hint_adds_only_one_bounded_detail(self):
+        cases = (
+            ("query_error", "QUERY"),
+            ("field_error", "FIELD"),
+            ("argument_error", "ARGUMENT"),
+            ("selection_error", "SELECTION"),
+            ("parse_error", "PARSE"),
+            ("syntax_error", "SYNTAX"),
+            ("validation_error", "VALIDATION"),
+        )
+        prefix = "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_QUERY_"
+        for code, detail in cases:
+            with self.subTest(detail=detail):
+                receipt = p.prove(TOKEN, lambda *_, value=code: path_null_code_error(value), NOW)
+                self.assertEqual(receipt["result"], prefix + detail + "_HINT")
+                self.assertFalse(receipt["graphql_authorization_proven"])
+                self.assertFalse(receipt["production_mutations"])
+
+    def test_ambiguous_query_code_detail_falls_back_to_query_hint(self):
+        receipt = p.prove(TOKEN, lambda *_: path_null_code_error("query_validation"), NOW)
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_QUERY_HINT",
+        )
+        self.assertFalse(receipt["graphql_authorization_proven"])
+        self.assertFalse(receipt["production_mutations"])
 
     def test_ambiguous_code_hint_remains_fail_closed_without_hint(self):
         receipt = p.prove(TOKEN, lambda *_: path_null_code_error("auth_query_validation"), NOW)
@@ -186,6 +212,26 @@ class AccountRateMessageTests(unittest.TestCase):
         self.assertEqual(
             receipt["result"],
             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_AUTH_HINT",
+        )
+        for private in (TOKEN, private_code, private_message):
+            self.assertNotIn(private, output.getvalue())
+
+    def test_query_code_detail_receipt_does_not_leak_provider_detail(self):
+        output = io.StringIO()
+        private_code = "validation_" + TOKEN
+        private_message = "private provider detail " + TOKEN
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(
+                p.main(
+                    {"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN},
+                    lambda *_: path_null_code_error(private_code, private_message),
+                ),
+                1,
+            )
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_QUERY_VALIDATION_HINT",
         )
         for private in (TOKEN, private_code, private_message):
             self.assertNotIn(private, output.getvalue())
