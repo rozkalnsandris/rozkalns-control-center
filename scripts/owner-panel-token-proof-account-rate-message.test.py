@@ -73,7 +73,7 @@ class AccountRateMessageTests(unittest.TestCase):
         cases = (
             ("permission denied for this resource", "AUTH_HINT"),
             ("request throttled by a temporary rate limit", "RATE_HINT"),
-            ("query argument validation changed upstream", "QUERY_HINT"),
+            ("query argument validation rejected", "QUERY_HINT"),
             ("upstream temporarily unavailable", "SERVICE_HINT"),
         )
         prefix = "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_MESSAGE_"
