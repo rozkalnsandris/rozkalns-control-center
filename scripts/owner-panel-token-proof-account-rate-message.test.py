@@ -31,15 +31,15 @@ def account_rate_error(account, code="private-code"):
     }
 
 
-def path_null_code_error(code, message="private provider detail"):
-    return {
-        "data": None,
-        "errors": [{
-            "message": message,
-            "path": None,
-            "extensions": {"code": code, "timestamp": "private"},
-        }],
+def path_null_code_error(code, message="private provider detail", locations="absent"):
+    error = {
+        "message": message,
+        "path": None,
+        "extensions": {"code": code, "timestamp": "private"},
     }
+    if locations != "absent":
+        error["locations"] = locations
+    return {"data": None, "errors": [error]}
 
 
 class AccountRateMessageTests(unittest.TestCase):
@@ -111,7 +111,6 @@ class AccountRateMessageTests(unittest.TestCase):
             ("argument_error", "ARGUMENT"),
             ("selection_error", "SELECTION"),
             ("parse_error", "PARSE"),
-            ("syntax_error", "SYNTAX"),
             ("validation_error", "VALIDATION"),
         )
         prefix = "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_QUERY_"
@@ -119,6 +118,28 @@ class AccountRateMessageTests(unittest.TestCase):
             with self.subTest(detail=detail):
                 receipt = p.prove(TOKEN, lambda *_, value=code: path_null_code_error(value), NOW)
                 self.assertEqual(receipt["result"], prefix + detail + "_HINT")
+                self.assertFalse(receipt["graphql_authorization_proven"])
+                self.assertFalse(receipt["production_mutations"])
+
+    def test_syntax_code_hint_adds_only_bounded_locations_shape(self):
+        cases = (
+            ("absent", "LOCATIONS_ABSENT"),
+            (None, "LOCATIONS_NULL"),
+            ([{"line": 3, "column": 7}], "LOCATIONS_PRESENT_VALID"),
+            ([{"line": "private", "column": 7}], "LOCATIONS_MIXED_OR_INVALID"),
+        )
+        prefix = (
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_"
+            "CODE_QUERY_SYNTAX_HINT_"
+        )
+        for locations, shape in cases:
+            with self.subTest(shape=shape):
+                receipt = p.prove(
+                    TOKEN,
+                    lambda *_, value=locations: path_null_code_error("syntax_error", locations=value),
+                    NOW,
+                )
+                self.assertEqual(receipt["result"], prefix + shape)
                 self.assertFalse(receipt["graphql_authorization_proven"])
                 self.assertFalse(receipt["production_mutations"])
 
@@ -234,6 +255,26 @@ class AccountRateMessageTests(unittest.TestCase):
             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_QUERY_VALIDATION_HINT",
         )
         for private in (TOKEN, private_code, private_message):
+            self.assertNotIn(private, output.getvalue())
+
+    def test_syntax_locations_receipt_does_not_leak_line_or_column(self):
+        output = io.StringIO()
+        private_message = "private provider detail " + TOKEN
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(
+                p.main(
+                    {"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN},
+                    lambda *_: path_null_code_error(
+                        "syntax_error", private_message, [{"line": 321, "column": 654}]),
+                ),
+                1,
+            )
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_QUERY_SYNTAX_HINT_LOCATIONS_PRESENT_VALID",
+        )
+        for private in (TOKEN, private_message, "321", "654"):
             self.assertNotIn(private, output.getvalue())
 
 
