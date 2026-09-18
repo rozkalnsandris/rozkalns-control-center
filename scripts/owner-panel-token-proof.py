@@ -204,8 +204,9 @@ def unclassified_path_null_extension_code_result(errors):
            and "code" not in extension(error) for error in errors):
         return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_KEY_ABSENT"
     if all(isinstance(extension(error), dict)
-           and "code" in extension(error) for error in errors
-           and extension(error)["code"] is None):
+           and "code" in extension(error)
+           and extension(error)["code"] is None
+           for error in errors):
         return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_NULL"
     if all(isinstance(extension(error), dict)
            and "code" in extension(error)
