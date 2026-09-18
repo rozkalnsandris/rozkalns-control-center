@@ -65,6 +65,15 @@ UNCLASSIFIED_CODE_HINTS = (
     ("QUERY_HINT", ("query", "field", "argument", "selection", "parse", "syntax", "validation")),
     ("SERVICE_HINT", ("internal", "unavailable", "upstream", "timeout", "temporar", "service")),
 )
+QUERY_CODE_DETAIL_HINTS = (
+    ("QUERY", "query"),
+    ("FIELD", "field"),
+    ("ARGUMENT", "argument"),
+    ("SELECTION", "selection"),
+    ("PARSE", "parse"),
+    ("SYNTAX", "syntax"),
+    ("VALIDATION", "validation"),
+)
 ACCESS_LOGIN_ERROR_PATHS = (
     ["viewer", "accounts", 0, "accessLoginRequestsAdaptiveGroups"],
     ["viewer", "accounts", "0", "accessLoginRequestsAdaptiveGroups"],
@@ -140,14 +149,31 @@ def unclassified_message_hint(messages):
     return matches[0] if len(matches) == 1 else None
 
 
-def unclassified_code_hint(errors):
+def normalized_extension_codes(errors):
     codes = [error.get("extensions", {}).get("code") for error in errors]
     if not all(isinstance(code, str) and 0 < len(code) <= 128 for code in codes):
         return None
-    normalized = [code.casefold() for code in codes]
+    return [code.casefold() for code in codes]
+
+
+def unclassified_code_hint(errors):
+    normalized = normalized_extension_codes(errors)
+    if normalized is None:
+        return None
     matches = [
         name for name, terms in UNCLASSIFIED_CODE_HINTS
         if all(any(term in code for term in terms) for code in normalized)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def query_code_detail_hint(errors):
+    normalized = normalized_extension_codes(errors)
+    if normalized is None:
+        return None
+    matches = [
+        name for name, term in QUERY_CODE_DETAIL_HINTS
+        if all(term in code for code in normalized)
     ]
     return matches[0] if len(matches) == 1 else None
 
@@ -254,6 +280,10 @@ def classify(payload_value):
     result = unclassified_error_path_result(errors)
     if result == "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED":
         code_hint = unclassified_code_hint(errors)
+        if code_hint == "QUERY_HINT":
+            detail = query_code_detail_hint(errors)
+            if detail is not None:
+                return result + "_CODE_QUERY_" + detail + "_HINT"
         if code_hint is not None:
             return result + "_CODE_" + code_hint
         hint = unclassified_message_hint(messages)
