@@ -69,6 +69,16 @@ def extension_keys_shape(errors):
     return "EXTENSION_KEYS_MIXED_OR_OTHER"
 
 
+def error_message_hint(errors):
+    messages = p.error_messages(errors)
+    if messages is None:
+        return "ERROR_MESSAGE_SHAPE_UNPROVEN"
+    hint = p.unclassified_message_hint(messages)
+    if hint is None:
+        return "ERROR_MESSAGE_NO_UNIQUE_HINT"
+    return "ERROR_MESSAGE_" + hint
+
+
 def prove(token, read=p.post, now=None):
     captured = {}
 
@@ -94,6 +104,7 @@ def prove(token, read=p.post, now=None):
     bounded["error_timestamp_shape"] = error_timestamp_shape(errors)
     bounded["error_count_shape"] = error_count_shape(errors)
     bounded["extension_keys_shape"] = extension_keys_shape(errors)
+    bounded["error_message_hint"] = error_message_hint(errors)
     return bounded
 
 
