@@ -64,7 +64,8 @@ class Health403DetailTest(unittest.TestCase):
                 result = D.selected_service_token_lifetime(
                     "synthetic-read", "synthetic-client-id", self.token_read(value), NOW)
                 self.assertEqual(result, "NOT_PROVEN_SELECTED_SERVICE_TOKEN_EXPIRY")
-                self.assertNotIn(str(value), result)
+                if value not in (None, ""):
+                    self.assertNotIn(str(value), result)
 
     def test_service_token_match_is_exact_and_private(self):
         result = D.selected_service_token_lifetime(
