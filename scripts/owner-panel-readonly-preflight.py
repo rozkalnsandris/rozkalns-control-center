@@ -558,11 +558,14 @@ def private_cf_ray_id(error):
         value = error.headers.get("CF-Ray")
     except (AttributeError, TypeError, ValueError):
         return None
-    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9]{16,64}(?:-[A-Za-z0-9]{1,8})?", value) else None
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"([0-9A-Fa-f]{16})(?:-[A-Za-z0-9]{1,8})?", value)
+    return match.group(1) if match else None
 
 
 def graphql_access_login_payload(ray_id, request_time):
-    require(isinstance(ray_id, str) and re.fullmatch(r"[A-Za-z0-9]{16,64}(?:-[A-Za-z0-9]{1,8})?", ray_id),
+    require(isinstance(ray_id, str) and re.fullmatch(r"[0-9A-Fa-f]{16}", ray_id),
             "URL_NOT_ALLOWED")
     require(isinstance(request_time, datetime.datetime) and request_time.tzinfo is not None, "URL_NOT_ALLOWED")
     start = request_time - datetime.timedelta(minutes=5)

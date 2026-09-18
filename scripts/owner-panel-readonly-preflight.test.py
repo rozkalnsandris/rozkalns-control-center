@@ -59,7 +59,7 @@ class PreflightTest(unittest.TestCase):
             self.assertEqual(p.request(p.worker_domains_url(), "synthetic"), {})
             self.assertEqual(build.return_value.open.call_args.args[0].get_method(), "GET")
             payload = p.graphql_access_login_payload(
-                "0123456789abcdef-XYZ", p.datetime.datetime.now(p.datetime.timezone.utc))
+                "0123456789abcdef", p.datetime.datetime.now(p.datetime.timezone.utc))
             self.assertEqual(p.request(p.GRAPHQL, "synthetic", graphql=payload), {})
             self.assertEqual(build.return_value.open.call_args.args[0].get_method(), "POST")
 
@@ -169,6 +169,24 @@ class PreflightTest(unittest.TestCase):
 
 
 class DiagnosticsTest(unittest.TestCase):
+    def test_cf_ray_header_is_normalized_and_invalid_values_fail_closed(self):
+        def error(value):
+            headers = {} if value is None else {"CF-Ray": value}
+            return p.urllib.error.HTTPError(p.ORIGIN + "/api/health", 403, "synthetic", headers, None)
+
+        for value in ("0123456789abcdef", "0123456789abcdef-FRA", "ABCDEF0123456789-XYZ"):
+            with self.subTest(value=value):
+                self.assertEqual(p.private_cf_ray_id(error(value)), value[:16])
+
+        for value in (None, "", "0123456789abcde", "0123456789abcdef0",
+                      "0123456789abcdeg", "0123456789abcdef-too-long-colo"):
+            with self.subTest(value=value):
+                self.assertIsNone(p.private_cf_ray_id(error(value)))
+
+        with self.assertRaisesRegex(ValueError, "URL_NOT_ALLOWED"):
+            p.graphql_access_login_payload(
+                "0123456789abcdef-FRA", p.datetime.datetime.now(p.datetime.timezone.utc))
+
     def test_health_403_is_classified_without_exposing_response_or_policy_selectors(self):
         env = {
             "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF_NAME": "main",
@@ -186,14 +204,15 @@ class DiagnosticsTest(unittest.TestCase):
         }).encode()
         app_id = "33333333-3333-4333-8333-333333333333"
         service_token_id = "44444444-4444-4444-8444-444444444444"
-        ray_id = "0123456789abcdef-XYZ"
+        ray_header = "0123456789abcdef-XYZ"
+        ray_id = "0123456789abcdef"
         calls = []
 
         def read(url, token, sql=None, **kwargs):
             calls.append(url)
             if url == p.ORIGIN + "/api/health":
                 raise p.urllib.error.HTTPError(
-                    url, 403, "synthetic-protected", {"CF-Ray": ray_id}, io.BytesIO(health_body))
+                    url, 403, "synthetic-protected", {"CF-Ray": ray_header}, io.BytesIO(health_body))
             if url == p.access_apps_url(1):
                 return {"success": True, "result": [{
                     "id": app_id, "type": "self_hosted",
@@ -273,6 +292,7 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertIn(p.worker_domains_url(), calls)
         self.assertEqual(calls.count(p.GRAPHQL), 1)
         self.assertNotIn("synthetic", output.getvalue())
+        self.assertNotIn(ray_header, output.getvalue())
         self.assertNotIn(ray_id, output.getvalue())
 
     def test_worker_domain_mapping_is_bounded_and_does_not_publish_provider_data(self):
@@ -300,9 +320,10 @@ class DiagnosticsTest(unittest.TestCase):
 
     def test_access_event_permission_denial_is_bounded_and_never_reads_error_data(self):
         private_value = "synthetic-private-analytics-value"
-        ray_id = "0123456789abcdef-XYZ"
+        ray_header = "0123456789abcdef-XYZ"
+        ray_id = "0123456789abcdef"
         error = p.urllib.error.HTTPError(
-            p.ORIGIN + "/api/health", 403, private_value, {"CF-Ray": ray_id}, None)
+            p.ORIGIN + "/api/health", 403, private_value, {"CF-Ray": ray_header}, None)
         body = unittest.mock.Mock()
         calls = []
 
