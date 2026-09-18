@@ -69,6 +69,58 @@ def extension_keys_shape(errors):
     return "EXTENSION_KEYS_MIXED_OR_OTHER"
 
 
+def extension_other_key_count_shape(errors):
+    counts = []
+    for error in errors:
+        extension = error.get("extensions")
+        if not isinstance(extension, dict):
+            return "EXTENSION_OTHER_KEY_COUNT_SHAPE_UNPROVEN"
+        counts.append(len(set(extension) - {"code", "timestamp"}))
+    if not counts:
+        return "EXTENSION_OTHER_KEY_COUNT_SHAPE_UNPROVEN"
+    if not all(count == counts[0] for count in counts):
+        return "EXTENSION_OTHER_KEY_COUNT_MIXED"
+    if counts[0] == 0:
+        return "EXTENSION_OTHER_KEY_COUNT_ZERO"
+    if counts[0] == 1:
+        return "EXTENSION_OTHER_KEY_COUNT_ONE"
+    return "EXTENSION_OTHER_KEY_COUNT_MULTIPLE"
+
+
+def extension_other_value_type_shape(errors):
+    values = []
+    for error in errors:
+        extension = error.get("extensions")
+        if not isinstance(extension, dict):
+            return "EXTENSION_OTHER_VALUE_SHAPE_UNPROVEN"
+        values.extend(
+            value for key, value in extension.items()
+            if key not in {"code", "timestamp"}
+        )
+    if not values:
+        return "EXTENSION_OTHER_VALUE_NONE"
+
+    def kind(value):
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return "BOOLEAN"
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return "NUMBER"
+        if isinstance(value, str):
+            return "STRING"
+        if isinstance(value, dict):
+            return "OBJECT"
+        if isinstance(value, list):
+            return "ARRAY"
+        return "OTHER"
+
+    kinds = [kind(value) for value in values]
+    if all(value_kind == kinds[0] for value_kind in kinds):
+        return "EXTENSION_OTHER_VALUE_" + kinds[0]
+    return "EXTENSION_OTHER_VALUE_MIXED"
+
+
 def error_message_hint(errors):
     messages = p.error_messages(errors)
     if messages is None:
@@ -104,6 +156,8 @@ def prove(token, read=p.post, now=None):
     bounded["error_timestamp_shape"] = error_timestamp_shape(errors)
     bounded["error_count_shape"] = error_count_shape(errors)
     bounded["extension_keys_shape"] = extension_keys_shape(errors)
+    bounded["extension_other_key_count_shape"] = extension_other_key_count_shape(errors)
+    bounded["extension_other_value_type_shape"] = extension_other_value_type_shape(errors)
     bounded["error_message_hint"] = error_message_hint(errors)
     return bounded
 
