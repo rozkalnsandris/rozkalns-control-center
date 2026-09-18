@@ -53,6 +53,12 @@ QUERY_MESSAGES = (
     "limit must be positive number and not greater than",
     "query time range is too large",
 )
+UNCLASSIFIED_MESSAGE_HINTS = (
+    ("AUTH_HINT", ("authoriz", "permission", "forbidden", "denied", "credential", "token")),
+    ("RATE_HINT", ("rate limit", "rate-limit", "throttl", "budget", "too many", "excessive")),
+    ("QUERY_HINT", ("query", "field", "argument", "selection", "parse", "syntax")),
+    ("SERVICE_HINT", ("internal", "unavailable", "upstream", "timeout", "temporar", "in progress")),
+)
 ACCESS_LOGIN_ERROR_PATHS = (
     ["viewer", "accounts", 0, "accessLoginRequestsAdaptiveGroups"],
     ["viewer", "accounts", "0", "accessLoginRequestsAdaptiveGroups"],
@@ -118,6 +124,14 @@ def error_messages(errors):
                        for error in errors)):
         return None
     return [error["message"].casefold() for error in errors]
+
+
+def unclassified_message_hint(messages):
+    matches = [
+        name for name, terms in UNCLASSIFIED_MESSAGE_HINTS
+        if all(any(term in message for term in terms) for message in messages)
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def unclassified_path_null_extension_code_result(errors):
@@ -219,7 +233,12 @@ def classify(payload_value):
     if all(any(message.startswith(prefix) for prefix in QUERY_MESSAGES)
            for message in messages):
         return "GRAPHQL_QUERY_REJECTED"
-    return unclassified_error_path_result(errors)
+    result = unclassified_error_path_result(errors)
+    if result == "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED":
+        hint = unclassified_message_hint(messages)
+        if hint is not None:
+            return result + "_MESSAGE_" + hint
+    return result
 
 
 def prove(token, read=post, now=None):

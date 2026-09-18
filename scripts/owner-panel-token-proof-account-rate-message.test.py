@@ -31,11 +31,11 @@ def account_rate_error(account, code="private-code"):
     }
 
 
-def path_null_code_error(code):
+def path_null_code_error(code, message="private provider detail"):
     return {
         "data": None,
         "errors": [{
-            "message": "private provider detail",
+            "message": message,
             "path": None,
             "extensions": {"code": code, "timestamp": "private"},
         }],
@@ -55,15 +55,48 @@ class AccountRateMessageTests(unittest.TestCase):
         self.assertFalse(receipt["graphql_authorization_proven"])
         self.assertFalse(receipt["production_mutations"])
 
-    def test_other_account_message_remains_fail_closed(self):
+    def test_other_account_rate_message_remains_fail_closed_with_rate_hint(self):
         receipt = p.prove(TOKEN, lambda *_: account_rate_error("other-account"), NOW)
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_MESSAGE_RATE_HINT",
+        )
+        self.assertFalse(receipt["graphql_authorization_proven"])
+        self.assertFalse(receipt["production_mutations"])
+
+    def test_unknown_extension_code_remains_fail_closed(self):
+        receipt = p.prove(TOKEN, lambda *_: path_null_code_error("private-code"), NOW)
         self.assertEqual(
             receipt["result"],
             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED",
         )
 
-    def test_unknown_extension_code_remains_fail_closed(self):
-        receipt = p.prove(TOKEN, lambda *_: path_null_code_error("private-code"), NOW)
+    def test_unknown_code_adds_only_one_bounded_message_hint(self):
+        cases = (
+            ("permission denied for this resource", "AUTH_HINT"),
+            ("request throttled by a rate limit", "RATE_HINT"),
+            ("query argument validation rejected", "QUERY_HINT"),
+            ("upstream temporarily unavailable", "SERVICE_HINT"),
+        )
+        prefix = "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_MESSAGE_"
+        for message, hint in cases:
+            with self.subTest(hint=hint):
+                receipt = p.prove(
+                    TOKEN,
+                    lambda *_, value=message: path_null_code_error("private-code", value),
+                    NOW,
+                )
+                self.assertEqual(receipt["result"], prefix + hint)
+                self.assertFalse(receipt["graphql_authorization_proven"])
+                self.assertFalse(receipt["production_mutations"])
+
+    def test_ambiguous_message_hint_remains_fail_closed_without_hint(self):
+        receipt = p.prove(
+            TOKEN,
+            lambda *_: path_null_code_error(
+                "private-code", "authorization query permission denied"),
+            NOW,
+        )
         self.assertEqual(
             receipt["result"],
             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED",
@@ -93,6 +126,26 @@ class AccountRateMessageTests(unittest.TestCase):
         receipt = json.loads(output.getvalue())
         self.assertEqual(receipt["result"], "GRAPHQL_RATE_LIMITED")
         for private in (TOKEN, private_code, p.ACCOUNT, "has exceeded its rate limit"):
+            self.assertNotIn(private, output.getvalue())
+
+    def test_message_hint_receipt_does_not_leak_provider_detail(self):
+        output = io.StringIO()
+        private_code = "private-code-" + TOKEN
+        private_message = "permission denied " + TOKEN
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(
+                p.main(
+                    {"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN},
+                    lambda *_: path_null_code_error(private_code, private_message),
+                ),
+                1,
+            )
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_MESSAGE_AUTH_HINT",
+        )
+        for private in (TOKEN, private_code, private_message):
             self.assertNotIn(private, output.getvalue())
 
 
