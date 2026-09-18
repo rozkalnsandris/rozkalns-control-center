@@ -70,6 +70,9 @@ jobs:
       - name: Verify repository policy
         run: npm run verify:policy
 
+      - name: Offline token proof safety tests
+        run: python3 scripts/owner-panel-token-proof.test.py
+
       - name: Install locked dependencies
         if: steps.scope.outputs.full == 'true'
         run: npm ci

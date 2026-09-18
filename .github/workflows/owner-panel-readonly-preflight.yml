@@ -2,6 +2,16 @@ name: Owner Action Panel read-only preflight
 
 on:
   workflow_dispatch:
+    inputs:
+      diagnostic:
+        description: Explicitly select the authorized read-only operation
+        type: choice
+        required: true
+        default: none
+        options:
+          - none
+          - token-analytics-proof
+          - inventory
 
 permissions:
   contents: read
@@ -24,8 +34,16 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Focused offline safety tests
-        run: python3 scripts/owner-panel-readonly-preflight.test.py
+        run: |
+          python3 scripts/owner-panel-readonly-preflight.test.py
+          python3 scripts/owner-panel-token-proof.test.py
+      - name: Token Analytics permission proof only
+        if: inputs.diagnostic == 'token-analytics-proof'
+        env:
+          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+        run: python3 scripts/owner-panel-token-proof.py
       - name: Fixed-target read-only inventory
+        if: inputs.diagnostic == 'inventory'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CLOUDFLARE_WORKERS_READ_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
