@@ -18,10 +18,11 @@ NOW = datetime.datetime(2026, 9, 18, 21, 0, tzinfo=datetime.timezone.utc)
 
 def syntax_error_payload(data_marker=None, *, include_data=True,
                          top_timestamp=False, extension_timestamp=False,
-                         second_timestamp_mode=None, extension_extra=False):
+                         second_timestamp_mode=None, extension_extra=False,
+                         message="private provider detail"):
     def error(mode=None):
         item = {
-            "message": "private provider detail",
+            "message": message,
             "path": None,
             "extensions": {"code": "syntax_error"},
         }
@@ -70,6 +71,10 @@ class EnvelopeProofTests(unittest.TestCase):
                     receipt["error_count_shape"],
                     "ERROR_COUNT_ONE" if len(payload["errors"]) == 1
                     else "ERROR_COUNT_MULTIPLE",
+                )
+                self.assertEqual(
+                    receipt["error_message_hint"],
+                    "ERROR_MESSAGE_NO_UNIQUE_HINT",
                 )
                 self.assertFalse(receipt["graphql_authorization_proven"])
                 self.assertFalse(receipt["production_mutations"])
@@ -138,6 +143,28 @@ class EnvelopeProofTests(unittest.TestCase):
             "EXTENSION_KEYS_MIXED_OR_OTHER",
         )
 
+    def test_error_message_hint_uses_existing_bounded_classifier(self):
+        cases = (
+            ("token permission denied", "ERROR_MESSAGE_AUTH_HINT"),
+            ("rate limit budget depleted", "ERROR_MESSAGE_RATE_HINT"),
+            ("query syntax invalid", "ERROR_MESSAGE_QUERY_HINT"),
+            ("internal upstream timeout", "ERROR_MESSAGE_SERVICE_HINT"),
+            ("private provider detail", "ERROR_MESSAGE_NO_UNIQUE_HINT"),
+            ("token query denied", "ERROR_MESSAGE_NO_UNIQUE_HINT"),
+        )
+        for message, expected in cases:
+            with self.subTest(expected=expected):
+                receipt = e.prove(
+                    TOKEN,
+                    lambda *_: syntax_error_payload(
+                        None,
+                        extension_timestamp=True,
+                        message=message,
+                    ),
+                    NOW,
+                )
+                self.assertEqual(receipt["error_message_hint"], expected)
+
     def test_other_results_keep_existing_receipt_shape(self):
         payload = {
             "data": None,
@@ -153,12 +180,18 @@ class EnvelopeProofTests(unittest.TestCase):
         self.assertNotIn("error_timestamp_shape", receipt)
         self.assertNotIn("error_count_shape", receipt)
         self.assertNotIn("extension_keys_shape", receipt)
+        self.assertNotIn("error_message_hint", receipt)
 
-    def test_public_receipt_does_not_leak_timestamp_data_or_extension_values(self):
+    def test_public_receipt_does_not_leak_timestamp_data_extension_or_message_values(self):
         private_data = "private-data-" + TOKEN
         private_timestamp = "private-timestamp-" + TOKEN
         private_extra = "private-extra-" + TOKEN
-        payload = syntax_error_payload({"value": private_data}, extension_extra=True)
+        private_message = "token permission denied private-message-" + TOKEN
+        payload = syntax_error_payload(
+            {"value": private_data},
+            extension_extra=True,
+            message=private_message,
+        )
         payload["errors"][0]["extensions"]["timestamp"] = private_timestamp
         payload["errors"][0]["extensions"]["private_extra_key"] = private_extra
         output = io.StringIO()
@@ -176,13 +209,14 @@ class EnvelopeProofTests(unittest.TestCase):
             receipt["extension_keys_shape"],
             "EXTENSION_KEYS_CODE_TIMESTAMP_PLUS_OTHER",
         )
+        self.assertEqual(receipt["error_message_hint"], "ERROR_MESSAGE_AUTH_HINT")
         for private in (
             TOKEN,
             private_data,
             private_timestamp,
             private_extra,
+            private_message,
             "private_extra_key",
-            "private provider detail",
         ):
             self.assertNotIn(private, output.getvalue())
 
