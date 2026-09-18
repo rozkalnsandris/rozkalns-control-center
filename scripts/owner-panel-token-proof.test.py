@@ -192,6 +192,8 @@ class ProofTests(unittest.TestCase):
     def test_payload_is_fixed_target_and_five_minute_window(self):
         value = p.payload(NOW)
         self.assertEqual(value["query"], p.QUERY)
+        self.assertNotIn("\n", value["query"])
+        self.assertEqual(value["query"], " ".join(value["query"].split()))
         variables = value["variables"]
         self.assertEqual(set(variables), {"accountTag", "rayId", "datetimeStart", "datetimeEnd"})
         self.assertEqual(variables["accountTag"], p.ACCOUNT)

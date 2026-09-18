@@ -11,7 +11,7 @@ ACCOUNT = "70e29dbca0e8363358659102d2b74178"
 GRAPHQL = "https://api.cloudflare.com/client/v4/graphql"
 SYNTHETIC_RAY = "0000000000000000"
 MAX_BODY = 262_144
-QUERY = """query accessLoginRequestsAdaptiveGroups(
+QUERY = " ".join("""query accessLoginRequestsAdaptiveGroups(
   $accountTag: string, $rayId: string, $datetimeStart: string, $datetimeEnd: string
 ) {
   viewer {
@@ -25,7 +25,7 @@ QUERY = """query accessLoginRequestsAdaptiveGroups(
       }
     }
   }
-}"""
+}""".split())
 
 AUTHZ_MESSAGES = (
     "not authorized for that account",
@@ -205,7 +205,8 @@ def unclassified_path_null_extension_code_result(errors):
         return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_KEY_ABSENT"
     if all(isinstance(extension(error), dict)
            and "code" in extension(error)
-           and extension(error)["code"] is None for error in errors):
+           and extension(error)["code"] is None
+           for error in errors):
         return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_NULL"
     if all(isinstance(extension(error), dict)
            and "code" in extension(error)
