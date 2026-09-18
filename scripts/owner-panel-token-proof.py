@@ -98,6 +98,7 @@ def post(token, now):
             "Accept": "application/json",
             "Content-Type": "application/json",
             "Cache-Control": "no-store",
+            "X-Rate-Limit-Type": "account-based",
         },
     )
     with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
