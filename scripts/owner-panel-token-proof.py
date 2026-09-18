@@ -118,7 +118,45 @@ def error_messages(errors):
     return [error["message"].casefold() for error in errors]
 
 
+def unclassified_path_null_extension_code_result(errors):
+    if not all("path" in error and error["path"] is None for error in errors):
+        return None
+
+    def extension(error):
+        return error.get("extensions")
+
+    if all(isinstance(extension(error), dict)
+           and extension(error).get("code") == "budget"
+           for error in errors):
+        return "GRAPHQL_RATE_LIMITED"
+    if all(isinstance(extension(error), dict)
+           and isinstance(extension(error).get("code"), str)
+           and 0 < len(extension(error)["code"]) <= 128
+           for error in errors):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED"
+    if all("extensions" not in error for error in errors):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSIONS_KEY_ABSENT"
+    if all(isinstance(extension(error), dict)
+           and "code" not in extension(error) for error in errors):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_KEY_ABSENT"
+    if all(isinstance(extension(error), dict)
+           and "code" in extension(error)
+           and extension(error)["code"] is None for error in errors):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_NULL"
+    if all(isinstance(extension(error), dict)
+           and "code" in extension(error)
+           and extension(error)["code"] is not None
+           and not isinstance(extension(error)["code"], str)
+           for error in errors):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_INVALID_NON_STRING"
+    return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_MIXED_OR_INVALID"
+
+
 def unclassified_error_path_result(errors):
+    path_null_extension_result = unclassified_path_null_extension_code_result(errors)
+    if path_null_extension_result is not None:
+        return path_null_extension_result
+
     paths = [error.get("path") for error in errors]
     if all(isinstance(path, list) and path in ACCESS_LOGIN_ERROR_PATHS for path in paths):
         return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_ACCESS_DATASET"
@@ -126,8 +164,6 @@ def unclassified_error_path_result(errors):
         return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_UNRECOGNIZED"
     if all("path" not in error for error in errors):
         return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_KEY_ABSENT"
-    if all("path" in error and error["path"] is None for error in errors):
-        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL"
     if all("path" in error and error["path"] is not None
            and not isinstance(error["path"], list) for error in errors):
         return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_INVALID_NON_NULL"

@@ -87,7 +87,7 @@ class ProofTests(unittest.TestCase):
             (graphql_errors("Internal server error"), "GRAPHQL_SERVICE_UNAVAILABLE"),
             (graphql_errors("unknown field private"), "GRAPHQL_QUERY_REJECTED"),
             ({"data": None, "errors": [{"message": "private", "path": None}]},
-             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL"),
+             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSIONS_KEY_ABSENT"),
         )
         for value, expected in cases:
             self.assertEqual(self.run_proof(value=value)[0]["result"], expected)
@@ -108,13 +108,44 @@ class ProofTests(unittest.TestCase):
             }]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_UNRECOGNIZED"),
             (graphql_errors("private"), "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_KEY_ABSENT"),
             ({"data": None, "errors": [{"message": "private", "path": None}]},
-             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL"),
+             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSIONS_KEY_ABSENT"),
             ({"data": None, "errors": [{"message": "private", "path": "private"}]},
              "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_INVALID_NON_NULL"),
             ({"data": None, "errors": [
                 {"message": "private-a", "path": None},
                 {"message": "private-b"},
             ]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_MIXED_OR_INVALID"),
+        )
+        for value, expected in cases:
+            self.assertEqual(self.run_proof(value=value)[0]["result"], expected)
+
+    def test_path_null_extension_codes_are_bounded(self):
+        cases = (
+            ({"data": None, "errors": [{
+                "message": "private",
+                "path": None,
+                "extensions": {"code": "budget", "timestamp": "private"},
+            }]}, "GRAPHQL_RATE_LIMITED"),
+            ({"data": None, "errors": [{
+                "message": "private",
+                "path": None,
+                "extensions": {"code": "private"},
+            }]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED"),
+            ({"data": None, "errors": [{"message": "private", "path": None}]},
+             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSIONS_KEY_ABSENT"),
+            ({"data": None, "errors": [{
+                "message": "private", "path": None, "extensions": {}
+            }]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_KEY_ABSENT"),
+            ({"data": None, "errors": [{
+                "message": "private", "path": None, "extensions": {"code": None}
+            }]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_NULL"),
+            ({"data": None, "errors": [{
+                "message": "private", "path": None, "extensions": {"code": 7}
+            }]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_INVALID_NON_STRING"),
+            ({"data": None, "errors": [
+                {"message": "private-a", "path": None, "extensions": {"code": "budget"}},
+                {"message": "private-b", "path": None},
+            ]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_MIXED_OR_INVALID"),
         )
         for value, expected in cases:
             self.assertEqual(self.run_proof(value=value)[0]["result"], expected)
@@ -226,6 +257,26 @@ class ProofTests(unittest.TestCase):
         self.assertEqual(receipt["result"],
                          "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_UNRECOGNIZED")
         for private in (private_message, private_path_value, TOKEN, p.ACCOUNT):
+            self.assertNotIn(private, output.getvalue())
+
+    def test_unclassified_extension_code_receipt_does_not_leak_details(self):
+        output = io.StringIO()
+        private_message = "private provider detail " + TOKEN + p.ACCOUNT
+        private_code = "private-code-" + TOKEN + p.ACCOUNT
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(p.main(
+                {"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN},
+                lambda *_: {"data": None, "errors": [{
+                    "message": private_message,
+                    "path": None,
+                    "extensions": {"code": private_code, "timestamp": "private"},
+                }]}), 1)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED",
+        )
+        for private in (private_message, private_code, TOKEN, p.ACCOUNT):
             self.assertNotIn(private, output.getvalue())
 
     def test_success_stdout_is_sanitized(self):
