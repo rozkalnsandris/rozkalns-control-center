@@ -90,6 +90,28 @@ class AccountRateMessageTests(unittest.TestCase):
                 self.assertFalse(receipt["graphql_authorization_proven"])
                 self.assertFalse(receipt["production_mutations"])
 
+    def test_unknown_code_adds_only_one_bounded_code_hint(self):
+        cases = (
+            ("permission_denied", "AUTH_HINT"),
+            ("rate_limit", "RATE_HINT"),
+            ("query_validation", "QUERY_HINT"),
+            ("service_unavailable", "SERVICE_HINT"),
+        )
+        prefix = "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_"
+        for code, hint in cases:
+            with self.subTest(hint=hint):
+                receipt = p.prove(TOKEN, lambda *_, value=code: path_null_code_error(value), NOW)
+                self.assertEqual(receipt["result"], prefix + hint)
+                self.assertFalse(receipt["graphql_authorization_proven"])
+                self.assertFalse(receipt["production_mutations"])
+
+    def test_ambiguous_code_hint_remains_fail_closed_without_hint(self):
+        receipt = p.prove(TOKEN, lambda *_: path_null_code_error("auth_query_validation"), NOW)
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED",
+        )
+
     def test_ambiguous_message_hint_remains_fail_closed_without_hint(self):
         receipt = p.prove(
             TOKEN,
@@ -144,6 +166,26 @@ class AccountRateMessageTests(unittest.TestCase):
         self.assertEqual(
             receipt["result"],
             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_MESSAGE_AUTH_HINT",
+        )
+        for private in (TOKEN, private_code, private_message):
+            self.assertNotIn(private, output.getvalue())
+
+    def test_code_hint_receipt_does_not_leak_provider_detail(self):
+        output = io.StringIO()
+        private_code = "permission_denied_" + TOKEN
+        private_message = "private provider detail " + TOKEN
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(
+                p.main(
+                    {"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN},
+                    lambda *_: path_null_code_error(private_code, private_message),
+                ),
+                1,
+            )
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED_CODE_AUTH_HINT",
         )
         for private in (TOKEN, private_code, private_message):
             self.assertNotIn(private, output.getvalue())
