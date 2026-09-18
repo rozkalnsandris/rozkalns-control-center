@@ -40,8 +40,8 @@ Authentication and authorization failures remain distinct:
 Cloudflare documents that GraphQL Analytics responses contain an `errors` field:
 `null` when there are no errors, otherwise an array of error objects. Run
 `35377552789` returned the previous generic `GRAPHQL_RESPONSE_UNPROVEN`, so the
-source now separates only response-shape classes while continuing to suppress raw
-provider details:
+source separates response-shape classes while continuing to suppress raw provider
+details:
 
 - non-object JSON -> `GRAPHQL_RESPONSE_NOT_OBJECT`;
 - object without the documented `errors` field -> `GRAPHQL_ERRORS_FIELD_MISSING`;
@@ -51,14 +51,39 @@ provider details:
   account result -> `GRAPHQL_SUCCESS_TARGET_ACCOUNT_UNPROVEN`;
 - `errors: null` with an unexpected bounded Access dataset shape ->
   `GRAPHQL_SUCCESS_DATASET_SHAPE_UNPROVEN`;
-- malformed/empty/oversized `errors` arrays -> `GRAPHQL_ERRORS_SHAPE_UNPROVEN`;
-- well-formed non-empty `errors` whose messages do not match a documented bounded
-  class -> `GRAPHQL_ERRORS_UNCLASSIFIED`.
+- malformed/empty/oversized `errors` arrays -> `GRAPHQL_ERRORS_SHAPE_UNPROVEN`.
 
-These enums identify only the response boundary that failed closed. They do not
-print error messages, error paths, timestamps, account counts, dataset contents or
-any other provider payload details, and they do not reinterpret an unclassified
-response as proof of authorization or denial.
+## Bounded error-path diagnostic
+
+Run `35379151898` reached a well-formed non-empty GraphQL `errors` array but no
+message matched the documented authentication, authorization, rate/resource,
+service or query/dataset classes. Its sanitized result was
+`GRAPHQL_ERRORS_UNCLASSIFIED`.
+
+Cloudflare documents `errors[].path` as the GraphQL nodes associated with the error,
+starting from the root. The current Access login-event query remains the fixed
+`viewer -> accounts -> accessLoginRequestsAdaptiveGroups` path. For otherwise
+well-formed but unclassified errors, the proof now reports only one fixed path enum:
+
+- every path exactly matches the static Access-login dataset path, accepting either
+  integer `0` or string `"0"` for the sole account index ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_ACCESS_DATASET`;
+- every error has a path list but at least one list does not match that exact static
+  path -> `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_UNRECOGNIZED`;
+- every error object omits the `path` key ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_KEY_ABSENT`;
+- every error has `path: null` -> `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL`;
+- every error has a non-null, non-list `path` value ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_INVALID_NON_NULL`;
+- mixed/otherwise ambiguous path shapes ->
+  `GRAPHQL_ERRORS_UNCLASSIFIED_PATH_MIXED_OR_INVALID`.
+
+These path enums are structural evidence only. They do not reinterpret an unknown
+provider message as authorization success, permission denial, query rejection or
+any other provider cause. The proof never prints the raw error message, raw path,
+path components, timestamps, extensions, target account, query variables or
+response body. This mirrors the already merged bounded error-path classification
+used by the broader Health403 preflight while keeping the token proof isolated.
 
 Transport/decode problems remain `GRAPHQL_HTTP_UNPROVEN` or
 `GRAPHQL_REQUEST_UNPROVEN`. The public receipt still contains only
