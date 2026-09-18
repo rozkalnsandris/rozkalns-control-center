@@ -86,7 +86,35 @@ class ProofTests(unittest.TestCase):
              "GRAPHQL_RATE_LIMITED"),
             (graphql_errors("Internal server error"), "GRAPHQL_SERVICE_UNAVAILABLE"),
             (graphql_errors("unknown field private"), "GRAPHQL_QUERY_REJECTED"),
-            ({"data": None, "errors": [{"message": "private", "path": None}]}, "GRAPHQL_ERRORS_UNCLASSIFIED"),
+            ({"data": None, "errors": [{"message": "private", "path": None}]},
+             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL"),
+        )
+        for value, expected in cases:
+            self.assertEqual(self.run_proof(value=value)[0]["result"], expected)
+
+    def test_unclassified_graphql_error_paths_are_bounded(self):
+        cases = (
+            ({"data": None, "errors": [{
+                "message": "private",
+                "path": ["viewer", "accounts", 0, "accessLoginRequestsAdaptiveGroups"],
+            }]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_ACCESS_DATASET"),
+            ({"data": None, "errors": [{
+                "message": "private",
+                "path": ["viewer", "accounts", "0", "accessLoginRequestsAdaptiveGroups"],
+            }]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_ACCESS_DATASET"),
+            ({"data": None, "errors": [{
+                "message": "private",
+                "path": ["viewer", "accounts", 0, "private"],
+            }]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_UNRECOGNIZED"),
+            (graphql_errors("private"), "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_KEY_ABSENT"),
+            ({"data": None, "errors": [{"message": "private", "path": None}]},
+             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL"),
+            ({"data": None, "errors": [{"message": "private", "path": "private"}]},
+             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_INVALID_NON_NULL"),
+            ({"data": None, "errors": [
+                {"message": "private-a", "path": None},
+                {"message": "private-b"},
+            ]}, "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_MIXED_OR_INVALID"),
         )
         for value, expected in cases:
             self.assertEqual(self.run_proof(value=value)[0]["result"], expected)
@@ -183,16 +211,21 @@ class ProofTests(unittest.TestCase):
         for private in (TOKEN, p.ACCOUNT, "does not have access", p.QUERY, p.SYNTHETIC_RAY):
             self.assertNotIn(private, output.getvalue())
 
-    def test_unclassified_error_receipt_does_not_leak_message(self):
+    def test_unclassified_error_receipt_does_not_leak_message_or_path(self):
         output = io.StringIO()
         private_message = "private provider detail " + TOKEN + p.ACCOUNT
+        private_path_value = "private-path-" + TOKEN + p.ACCOUNT
         with contextlib.redirect_stdout(output):
             self.assertEqual(p.main(
                 {"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN},
-                lambda *_: graphql_errors(private_message)), 1)
+                lambda *_: {"data": None, "errors": [{
+                    "message": private_message,
+                    "path": ["viewer", "accounts", 0, private_path_value],
+                }]}), 1)
         receipt = json.loads(output.getvalue())
-        self.assertEqual(receipt["result"], "GRAPHQL_ERRORS_UNCLASSIFIED")
-        for private in (private_message, TOKEN, p.ACCOUNT):
+        self.assertEqual(receipt["result"],
+                         "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_UNRECOGNIZED")
+        for private in (private_message, private_path_value, TOKEN, p.ACCOUNT):
             self.assertNotIn(private, output.getvalue())
 
     def test_success_stdout_is_sanitized(self):

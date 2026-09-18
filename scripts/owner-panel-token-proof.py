@@ -52,6 +52,10 @@ QUERY_MESSAGES = (
     "limit must be positive number and not greater than",
     "query time range is too large",
 )
+ACCESS_LOGIN_ERROR_PATHS = (
+    ["viewer", "accounts", 0, "accessLoginRequestsAdaptiveGroups"],
+    ["viewer", "accounts", "0", "accessLoginRequestsAdaptiveGroups"],
+)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -114,6 +118,22 @@ def error_messages(errors):
     return [error["message"].casefold() for error in errors]
 
 
+def unclassified_error_path_result(errors):
+    paths = [error.get("path") for error in errors]
+    if all(isinstance(path, list) and path in ACCESS_LOGIN_ERROR_PATHS for path in paths):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_ACCESS_DATASET"
+    if all(isinstance(path, list) for path in paths):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_UNRECOGNIZED"
+    if all("path" not in error for error in errors):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_KEY_ABSENT"
+    if all("path" in error and error["path"] is None for error in errors):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL"
+    if all("path" in error and error["path"] is not None
+           and not isinstance(error["path"], list) for error in errors):
+        return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_PRESENT_INVALID_NON_NULL"
+    return "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_MIXED_OR_INVALID"
+
+
 def classify(payload_value):
     if not isinstance(payload_value, dict):
         return "GRAPHQL_RESPONSE_NOT_OBJECT"
@@ -156,7 +176,7 @@ def classify(payload_value):
     if all(any(message.startswith(prefix) for prefix in QUERY_MESSAGES)
            for message in messages):
         return "GRAPHQL_QUERY_REJECTED"
-    return "GRAPHQL_ERRORS_UNCLASSIFIED"
+    return unclassified_error_path_result(errors)
 
 
 def prove(token, read=post, now=None):
