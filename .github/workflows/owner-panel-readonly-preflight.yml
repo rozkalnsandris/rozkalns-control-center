@@ -12,6 +12,7 @@ on:
           - none
           - token-analytics-proof
           - inventory
+          - health403-detail
 
 permissions:
   contents: read
@@ -37,6 +38,7 @@ jobs:
         run: |
           python3 scripts/owner-panel-readonly-preflight.test.py
           python3 scripts/owner-panel-token-proof.test.py
+          python3 scripts/owner-panel-health403-detail.test.py
       - name: Token Analytics permission proof only
         if: inputs.diagnostic == 'token-analytics-proof'
         env:
@@ -52,3 +54,10 @@ jobs:
           CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
           CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
         run: python3 scripts/owner-panel-readonly-preflight.py
+      - name: Bounded health403 detail proof only
+        if: inputs.diagnostic == 'health403-detail'
+        env:
+          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+          CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+          CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
+        run: python3 scripts/owner-panel-health403-detail.py
