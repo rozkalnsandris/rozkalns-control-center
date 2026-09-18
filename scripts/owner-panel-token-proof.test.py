@@ -1,5 +1,5 @@
 import contextlib
-import copy
+import datetime
 import importlib.util
 import io
 import json
@@ -12,153 +12,178 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("proof", ROOT / "scripts/owner-panel-token-proof.py")
 p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
-PRIVATE_ID = "a" * 32
-TOKEN = "cfut_" + "synthetic-private-fixture"
+TOKEN = "synthetic-private-fixture"
+NOW = datetime.datetime(2026, 9, 18, 17, 0, tzinfo=datetime.timezone.utc)
 
 
-def envelope(value):
-    return {"success": True, "errors": [], "result": value}
+def success(events=None):
+    return {
+        "data": {"viewer": {"accounts": [{
+            "accessLoginRequestsAdaptiveGroups": [] if events is None else events
+        }]}},
+        "errors": None,
+    }
 
 
-def details():
-    return {"id": PRIVATE_ID, "status": "active", "policies": [{
-        "effect": "allow", "permission_groups": [{"name": "Account Analytics Read"}],
-        "resources": {"com.cloudflare.api.account." + p.ACCOUNT: "*"}}]}
+def graphql_errors(*messages):
+    return {"data": None, "errors": [{"message": message} for message in messages]}
 
 
 class ProofTests(unittest.TestCase):
-    def run_proof(self, data=None, token=TOKEN, verify=None):
+    def run_proof(self, value=None, error=None, token=TOKEN):
         calls = []
-        def read(path, bearer):
-            calls.append((path, bearer))
-            self.assertLessEqual(len(calls), 2)
-            if len(calls) == 1:
-                return envelope(verify if verify is not None else {"id": PRIVATE_ID, "status": "active"})
-            if isinstance(data, Exception):
-                raise data
-            return envelope(details() if data is None else data)
-        return p.prove(token, read), calls
+        def read(bearer, now):
+            calls.append((bearer, now))
+            self.assertEqual(len(calls), 1)
+            if error is not None:
+                raise error
+            return success() if value is None else value
+        return p.prove(token, read, NOW), calls
 
-    def test_user_identity_binding_and_two_gets(self):
+    def test_success_proves_target_authorization_with_empty_dataset(self):
         receipt, calls = self.run_proof()
+        self.assertTrue(receipt["graphql_authorization_proven"])
         self.assertEqual(receipt["result"], "ANALYTICS_GRANTED_FOR_TARGET")
-        self.assertEqual(calls, [("/user/tokens/verify", TOKEN), ("/user/tokens/" + PRIVATE_ID, TOKEN)])
+        self.assertEqual(calls, [(TOKEN, NOW)])
+        self.assertFalse(receipt["production_mutations"])
 
-    def test_account_namespace(self):
-        receipt, calls = self.run_proof(token="cfat_synthetic-fixture")
-        self.assertTrue(receipt["identity_proven"])
-        self.assertEqual(calls[0][0], "/accounts/" + p.ACCOUNT + "/tokens/verify")
-        self.assertEqual(calls[1][0], "/accounts/" + p.ACCOUNT + "/tokens/" + PRIVATE_ID)
-
-    def test_unknown_type_never_guesses_or_falls_back(self):
-        for token in ("legacy-fixture", "cfk_fixture", "", None):
+    def test_token_format_is_irrelevant_to_direct_graphql_probe(self):
+        for token in ("cfut_fixture", "cfat_fixture", "legacy_fixture", "opaque-fixture"):
             receipt, calls = self.run_proof(token=token)
-            self.assertFalse(receipt["identity_proven"])
-            self.assertEqual(calls, [])
-
-    def test_invalid_verification_stops_before_details(self):
-        for value in ({}, {"id": "../private", "status": "active"},
-                      {"id": PRIVATE_ID, "status": "expired"},
-                      {"id": PRIVATE_ID, "status": "disabled"}):
-            receipt, calls = self.run_proof(verify=value)
-            self.assertFalse(receipt["identity_proven"])
+            self.assertEqual(receipt["result"], "ANALYTICS_GRANTED_FOR_TARGET")
             self.assertEqual(len(calls), 1)
 
-    def test_verify_error_never_retries(self):
-        calls = []
-        def read(path, bearer):
-            calls.append(path)
-            raise urllib.error.HTTPError(path, 403, "private", {}, None)
-        self.assertEqual(p.prove(TOKEN, read)["result"], "SELF_VERIFY_FAILED")
-        self.assertEqual(len(calls), 1)
+    def test_missing_token_stops_before_network(self):
+        for token in ("", None):
+            receipt, calls = self.run_proof(token=token)
+            self.assertEqual(receipt["result"], "CREDENTIAL_UNAVAILABLE")
+            self.assertFalse(receipt["graphql_authorization_proven"])
+            self.assertEqual(calls, [])
 
-    def test_details_denial_is_not_missing_analytics(self):
-        error = urllib.error.HTTPError("private", 403, "private", {}, None)
-        for token, expected in ((TOKEN, "USER_TOKEN_METADATA_READ_DENIED"),
-                                ("cfat_fixture", "ACCOUNT_TOKEN_METADATA_READ_DENIED")):
-            receipt, calls = self.run_proof(error, token)
+    def test_http_authz_and_provider_failures_are_bounded(self):
+        cases = (
+            (401, "TOKEN_AUTHENTICATION_FAILED"),
+            (403, "ANALYTICS_NOT_GRANTED_FOR_TARGET"),
+            (429, "GRAPHQL_RATE_LIMITED"),
+            (500, "GRAPHQL_SERVICE_UNAVAILABLE"),
+            (503, "GRAPHQL_SERVICE_UNAVAILABLE"),
+            (418, "GRAPHQL_HTTP_UNPROVEN"),
+        )
+        for code, expected in cases:
+            error = urllib.error.HTTPError(p.GRAPHQL, code, "private", {}, None)
+            receipt, calls = self.run_proof(error=error)
             self.assertEqual(receipt["result"], expected)
-            self.assertEqual(len(calls), 2)
+            self.assertEqual(len(calls), 1)
 
-    def test_other_details_errors_remain_unproven(self):
-        for error in (ValueError("private"), urllib.error.HTTPError("private", 401, "private", {}, None)):
-            self.assertEqual(self.run_proof(error)[0]["result"], "TOKEN_METADATA_READ_UNPROVEN")
+    def test_graphql_200_error_classification(self):
+        cases = (
+            (graphql_errors("Unauthorized"), "TOKEN_AUTHENTICATION_FAILED"),
+            (graphql_errors("not authorized for that account"), "ANALYTICS_NOT_GRANTED_FOR_TARGET"),
+            (graphql_errors("does not have access to the path viewer.accounts"), "ANALYTICS_NOT_GRANTED_FOR_TARGET"),
+            (graphql_errors("zones [private] are not authorized"), "ANALYTICS_NOT_GRANTED_FOR_TARGET"),
+            (graphql_errors("query consumed excessive resources, please try running smaller queries which consume fewer resources"),
+             "GRAPHQL_RATE_LIMITED"),
+            (graphql_errors("Internal server error"), "GRAPHQL_SERVICE_UNAVAILABLE"),
+            (graphql_errors("unknown field private"), "GRAPHQL_QUERY_REJECTED"),
+            ({"data": None, "errors": [{"message": "private", "path": None}]}, "GRAPHQL_RESPONSE_UNPROVEN"),
+        )
+        for value, expected in cases:
+            self.assertEqual(self.run_proof(value=value)[0]["result"], expected)
 
-    def test_details_identity_and_status_must_match(self):
-        for key, value in (("id", "b" * 32), ("status", "disabled")):
-            data = details()
-            data[key] = value
-            self.assertEqual(self.run_proof(data)[0]["result"], "DETAILS_IDENTITY_OR_STATUS_MISMATCH")
+    def test_success_shape_must_bind_exactly_one_account(self):
+        values = (
+            {"errors": None, "data": {"viewer": {"accounts": []}}},
+            {"errors": None, "data": {"viewer": {"accounts": [{}, {}]}}},
+            {"errors": None, "data": {"viewer": {"accounts": [{}]}}},
+            {"errors": None, "data": {"viewer": {"accounts": [{
+                "accessLoginRequestsAdaptiveGroups": [{}, {}]}]}}},
+            {"data": {}, "errors": None},
+            {"data": {}, "errors": []},
+            {},
+            [],
+        )
+        for value in values:
+            self.assertEqual(self.run_proof(value=value)[0]["result"], "GRAPHQL_RESPONSE_UNPROVEN")
 
-    def test_wildcard_scope(self):
-        data = details()
-        data["policies"][0]["resources"] = {"com.cloudflare.api.account.*": "*"}
-        self.assertEqual(self.run_proof(data)[0]["result"], "ANALYTICS_GRANTED_FOR_TARGET")
+    def test_graphql_error_shape_is_bounded(self):
+        values = (
+            {"data": None, "errors": []},
+            {"data": None, "errors": ["private"]},
+            {"data": None, "errors": [{"message": ""}]},
+            {"data": None, "errors": [{"message": "x" * 2001}]},
+            {"data": None, "errors": [{"message": "private"}] * 11},
+        )
+        for value in values:
+            self.assertEqual(self.run_proof(value=value)[0]["result"], "GRAPHQL_RESPONSE_UNPROVEN")
 
-    def test_permission_and_scope_must_be_in_same_policy(self):
-        data = details()
-        other = copy.deepcopy(data["policies"][0])
-        data["policies"][0]["resources"] = {"com.cloudflare.api.account." + "b" * 32: "*"}
-        other["permission_groups"] = [{"name": "Access: Apps Read"}]
-        data["policies"].append(other)
-        self.assertEqual(self.run_proof(data)[0]["result"], "ANALYTICS_NOT_GRANTED_FOR_TARGET")
+    def test_network_or_decode_error_is_unproven_without_retry(self):
+        for error in (ValueError("private"), urllib.error.URLError("private"),
+                      TimeoutError("private"), json.JSONDecodeError("x", "x", 0)):
+            receipt, calls = self.run_proof(error=error)
+            self.assertEqual(receipt["result"], "GRAPHQL_REQUEST_UNPROVEN")
+            self.assertEqual(len(calls), 1)
 
-    def test_unsupported_or_incomplete_policy_is_unknown(self):
-        for key, value in (("effect", "deny"), ("resources", {"*": "*"}),
-                           ("resources", {"com.cloudflare.api.account.*": {}}),
-                           ("permission_groups", [{"id": "private"}])):
-            data = details()
-            data["policies"][0][key] = value
-            self.assertEqual(self.run_proof(data)[0]["result"], "POLICY_UNPROVEN")
+    def test_payload_is_fixed_target_and_five_minute_window(self):
+        value = p.payload(NOW)
+        self.assertEqual(value["query"], p.QUERY)
+        variables = value["variables"]
+        self.assertEqual(set(variables), {"accountTag", "rayId", "datetimeStart", "datetimeEnd"})
+        self.assertEqual(variables["accountTag"], p.ACCOUNT)
+        self.assertEqual(variables["rayId"], p.SYNTHETIC_RAY)
+        self.assertEqual(variables["datetimeStart"], "2026-09-18T16:55:00Z")
+        self.assertEqual(variables["datetimeEnd"], "2026-09-18T17:00:00Z")
 
-    def test_malformed_envelope(self):
-        for value in (None, [], {}, {"success": True, "errors": ["private"], "result": {}}):
-            self.assertEqual(p.prove(TOKEN, lambda *_: value)["result"], "SELF_VERIFY_FAILED")
-
-    def test_stdout_only_fixed_receipt(self):
-        output = io.StringIO()
-        def read(*_):
-            raise RuntimeError(TOKEN + PRIVATE_ID + p.ACCOUNT)
-        with contextlib.redirect_stdout(output):
-            self.assertEqual(p.main({"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN}, read), 1)
-        self.assertEqual(json.loads(output.getvalue()), {
-            "identity_proven": False, "production_mutations": False, "result": "SELF_VERIFY_FAILED"})
-
-    def test_get_allowlist_blocks_before_network(self):
-        with patch.object(p.urllib.request, "build_opener") as opener:
-            for path in ("/graphql", "/user/tokens", "/user/tokens/../x", "/accounts/other/tokens/verify"):
-                with self.assertRaises(ValueError):
-                    p.get(path, TOKEN)
-            opener.assert_not_called()
-
-    def test_no_redirect(self):
-        self.assertIsNone(p.NoRedirect().redirect_request(None, None, 302, None, None, "https://example.com"))
-
-    def test_transport_uses_single_get_and_bounds_body(self):
+    def test_transport_is_one_post_to_exact_graphql_endpoint(self):
         with patch.object(p.urllib.request, "build_opener") as opener:
             response = opener.return_value.open.return_value.__enter__.return_value
             response.status = 200
-            response.read.return_value = b'{}'
-            self.assertEqual(p.get("/user/tokens/verify", TOKEN), {})
-            request = opener.return_value.open.call_args.args[0]
-            self.assertEqual(request.get_method(), "GET")
-            self.assertIsNone(request.data)
-            self.assertEqual(request.get_header("Authorization"), "Bearer " + TOKEN)
-            response.read.assert_called_once_with(262145)
+            response.read.return_value = json.dumps(success()).encode()
+            self.assertEqual(p.post(TOKEN, NOW), success())
             opener.return_value.open.assert_called_once()
-            response.read.return_value = b'x' * 262145
-            with self.assertRaises(ValueError):
-                p.get("/user/tokens/verify", TOKEN)
+            request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url, p.GRAPHQL)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(request.get_header("Authorization"), "Bearer " + TOKEN)
+            self.assertEqual(request.get_header("Content-type"), "application/json")
+            posted = json.loads(request.data)
+            self.assertEqual(posted, p.payload(NOW))
+            response.read.assert_called_once_with(p.MAX_BODY + 1)
 
-    def test_success_output_does_not_leak_metadata(self):
-        calls = []
-        def read(path, bearer):
-            calls.append(path)
-            return envelope({"id": PRIVATE_ID, "status": "active"} if len(calls) == 1 else details())
+    def test_transport_rejects_oversize_body(self):
+        with patch.object(p.urllib.request, "build_opener") as opener:
+            response = opener.return_value.open.return_value.__enter__.return_value
+            response.status = 200
+            response.read.return_value = b"x" * (p.MAX_BODY + 1)
+            with self.assertRaises(ValueError):
+                p.post(TOKEN, NOW)
+
+    def test_no_redirect(self):
+        self.assertIsNone(p.NoRedirect().redirect_request(
+            None, None, 302, None, None, "https://example.com"))
+
+    def test_stdout_only_fixed_receipt_and_no_secret_or_provider_details(self):
+        output = io.StringIO()
+        def read(*_):
+            return graphql_errors("does not have access to the path " + TOKEN + p.ACCOUNT)
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(p.main({"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN}, read), 1)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt, {
+            "graphql_authorization_proven": False,
+            "production_mutations": False,
+            "result": "ANALYTICS_NOT_GRANTED_FOR_TARGET",
+        })
+        for private in (TOKEN, p.ACCOUNT, "does not have access", p.QUERY, p.SYNTHETIC_RAY):
+            self.assertNotIn(private, output.getvalue())
+
+    def test_success_stdout_is_sanitized(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            self.assertEqual(p.main({"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN}, read), 0)
-        for private in (PRIVATE_ID, TOKEN, p.ACCOUNT, "Account Analytics Read", "policies", "resources"):
+            self.assertEqual(p.main(
+                {"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN},
+                lambda *_: success()), 0)
+        self.assertEqual(json.loads(output.getvalue())["result"], "ANALYTICS_GRANTED_FOR_TARGET")
+        for private in (TOKEN, p.ACCOUNT, p.QUERY, p.SYNTHETIC_RAY):
             self.assertNotIn(private, output.getvalue())
 
     def test_workflow_isolation_and_ci_wiring(self):
@@ -169,7 +194,15 @@ class ProofTests(unittest.TestCase):
         self.assertNotIn("CONTROL_ACCESS_CLIENT", proof_step)
         self.assertIn("if: inputs.diagnostic == 'inventory'", workflow)
         self.assertIn("default: none", workflow)
-        self.assertIn("owner-panel-token-proof.test.py", (ROOT / ".github/workflows/ci.yml").read_text())
+        self.assertIn("owner-panel-token-proof.test.py",
+                      (ROOT / ".github/workflows/ci.yml").read_text())
+
+    def test_source_has_no_token_metadata_introspection_routes(self):
+        source = (ROOT / "scripts/owner-panel-token-proof.py").read_text()
+        self.assertNotIn("/user/tokens", source)
+        self.assertNotIn("/accounts/\" + ACCOUNT + \"/tokens", source)
+        self.assertNotIn("permission_groups", source)
+        self.assertNotIn("policies", source)
 
 
 if __name__ == "__main__":
