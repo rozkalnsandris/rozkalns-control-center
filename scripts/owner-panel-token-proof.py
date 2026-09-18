@@ -128,6 +128,10 @@ def unclassified_path_null_extension_code_result(errors):
         return error.get("extensions")
 
     if all(isinstance(extension(error), dict)
+           and extension(error).get("code") == "authz"
+           for error in errors):
+        return "ANALYTICS_NOT_GRANTED_FOR_TARGET"
+    if all(isinstance(extension(error), dict)
            and extension(error).get("code") == "budget"
            for error in errors):
         return "GRAPHQL_RATE_LIMITED"
