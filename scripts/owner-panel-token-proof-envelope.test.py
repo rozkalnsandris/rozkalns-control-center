@@ -46,6 +46,12 @@ def syntax_error_payload(data_marker=None, *, include_data=True,
     return payload
 
 
+def with_extra(value):
+    payload = syntax_error_payload(None, extension_timestamp=True)
+    payload["errors"][0]["extensions"]["private_extra_key"] = value
+    return payload
+
+
 class EnvelopeProofTests(unittest.TestCase):
     def test_current_syntax_locations_absent_adds_bounded_shape_fields(self):
         cases = (
@@ -182,9 +188,7 @@ class EnvelopeProofTests(unittest.TestCase):
         )
         for value, expected in values:
             with self.subTest(expected=expected):
-                payload = syntax_error_payload(None, extension_timestamp=True)
-                payload["errors"][0]["extensions"]["private_extra_key"] = value
-                receipt = e.prove(TOKEN, lambda *_: payload, NOW)
+                receipt = e.prove(TOKEN, lambda *_: with_extra(value), NOW)
                 self.assertEqual(receipt["extension_other_value_type_shape"], expected)
 
         none_receipt = e.prove(
@@ -205,6 +209,41 @@ class EnvelopeProofTests(unittest.TestCase):
             mixed_receipt["extension_other_value_type_shape"],
             "EXTENSION_OTHER_VALUE_MIXED",
         )
+
+    def test_extension_other_string_hint_uses_existing_bounded_classifier(self):
+        cases = (
+            ("token permission denied", "EXTENSION_OTHER_STRING_AUTH_HINT"),
+            ("rate limit budget depleted", "EXTENSION_OTHER_STRING_RATE_HINT"),
+            ("query syntax invalid", "EXTENSION_OTHER_STRING_QUERY_HINT"),
+            ("internal upstream timeout", "EXTENSION_OTHER_STRING_SERVICE_HINT"),
+            ("opaque-private-detail", "EXTENSION_OTHER_STRING_NO_UNIQUE_HINT"),
+            ("token query denied", "EXTENSION_OTHER_STRING_NO_UNIQUE_HINT"),
+        )
+        for value, expected in cases:
+            with self.subTest(expected=expected):
+                receipt = e.prove(TOKEN, lambda *_: with_extra(value), NOW)
+                self.assertEqual(receipt["extension_other_string_hint"], expected)
+
+        non_string = e.prove(TOKEN, lambda *_: with_extra(17), NOW)
+        self.assertEqual(
+            non_string["extension_other_string_hint"],
+            "EXTENSION_OTHER_STRING_HINT_UNPROVEN",
+        )
+
+    def test_extension_other_string_shape_is_bounded(self):
+        cases = (
+            ("2026-09-18T21:49:52.407675Z", "EXTENSION_OTHER_STRING_TIMESTAMP_LIKE"),
+            ("123e4567-e89b-12d3-a456-426614174000", "EXTENSION_OTHER_STRING_UUID_LIKE"),
+            ("0123456789abcdef0123456789abcdef", "EXTENSION_OTHER_STRING_HEX_ID_LIKE"),
+            ("https://example.invalid/private", "EXTENSION_OTHER_STRING_URL_LIKE"),
+            ("opaque-private-token", "EXTENSION_OTHER_STRING_TOKEN_LIKE"),
+            ("private provider detail", "EXTENSION_OTHER_STRING_SHORT_TEXT"),
+            (("private provider detail " * 8).strip(), "EXTENSION_OTHER_STRING_LONG_TEXT"),
+        )
+        for value, expected in cases:
+            with self.subTest(expected=expected):
+                receipt = e.prove(TOKEN, lambda *_: with_extra(value), NOW)
+                self.assertEqual(receipt["extension_other_string_shape"], expected)
 
     def test_error_message_hint_uses_existing_bounded_classifier(self):
         cases = (
@@ -245,12 +284,14 @@ class EnvelopeProofTests(unittest.TestCase):
         self.assertNotIn("extension_keys_shape", receipt)
         self.assertNotIn("extension_other_key_count_shape", receipt)
         self.assertNotIn("extension_other_value_type_shape", receipt)
+        self.assertNotIn("extension_other_string_hint", receipt)
+        self.assertNotIn("extension_other_string_shape", receipt)
         self.assertNotIn("error_message_hint", receipt)
 
     def test_public_receipt_does_not_leak_timestamp_data_extension_or_message_values(self):
         private_data = "private-data-" + TOKEN
         private_timestamp = "private-timestamp-" + TOKEN
-        private_extra = "private-extra-" + TOKEN
+        private_extra = "token permission denied private-extra-" + TOKEN
         private_message = "token permission denied private-message-" + TOKEN
         payload = syntax_error_payload(
             {"value": private_data},
@@ -281,6 +322,14 @@ class EnvelopeProofTests(unittest.TestCase):
         self.assertEqual(
             receipt["extension_other_value_type_shape"],
             "EXTENSION_OTHER_VALUE_STRING",
+        )
+        self.assertEqual(
+            receipt["extension_other_string_hint"],
+            "EXTENSION_OTHER_STRING_AUTH_HINT",
+        )
+        self.assertEqual(
+            receipt["extension_other_string_shape"],
+            "EXTENSION_OTHER_STRING_SHORT_TEXT",
         )
         self.assertEqual(receipt["error_message_hint"], "ERROR_MESSAGE_AUTH_HINT")
         for private in (
