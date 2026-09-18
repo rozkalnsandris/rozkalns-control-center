@@ -39,12 +39,13 @@ jobs:
           python3 scripts/owner-panel-readonly-preflight.test.py
           python3 scripts/owner-panel-token-proof.test.py
           python3 scripts/owner-panel-token-proof-account-rate-message.test.py
+          python3 scripts/owner-panel-token-proof-envelope.test.py
           python3 scripts/owner-panel-health403-detail.test.py
       - name: Token Analytics permission proof only
         if: inputs.diagnostic == 'token-analytics-proof'
         env:
           CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
-        run: python3 scripts/owner-panel-token-proof.py
+        run: python3 scripts/owner-panel-token-proof-envelope.py
       - name: Fixed-target read-only inventory
         if: inputs.diagnostic == 'inventory'
         env:
