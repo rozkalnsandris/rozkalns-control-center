@@ -1,15 +1,56 @@
 #!/usr/bin/env python3
-"""Bounded credential self-verification; no health, GraphQL, or mutation path."""
+"""Bounded direct GraphQL Analytics authorization proof; no mutation or retries."""
+import datetime
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.request
 
 ACCOUNT = "70e29dbca0e8363358659102d2b74178"
-API = "https://api.cloudflare.com/client/v4"
-ID = re.compile(r"[0-9a-f]{32}")
+GRAPHQL = "https://api.cloudflare.com/client/v4/graphql"
+SYNTHETIC_RAY = "0000000000000000"
+MAX_BODY = 262_144
+QUERY = """query accessLoginRequestsAdaptiveGroups(
+  $accountTag: string, $rayId: string, $datetimeStart: string, $datetimeEnd: string
+) {
+  viewer {
+    accounts(filter: {accountTag: $accountTag}) {
+      accessLoginRequestsAdaptiveGroups(
+        limit: 1
+        filter: {datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd, cfRayId: $rayId}
+        orderBy: [datetime_ASC]
+      ) {
+        dimensions { isSuccessfulLogin identityProvider serviceTokenId }
+      }
+    }
+  }
+}"""
+
+AUTHZ_MESSAGES = (
+    "not authorized for that account",
+    "does not have access to the path",
+)
+RATE_MESSAGES = (
+    "in combination, your request queries too many nodes, zones and accounts",
+    "query consumed excessive resources",
+    "too many queries in progress, please try again later",
+)
+SERVICE_MESSAGES = (
+    "internal server error",
+    "unable to execute query, please try again later",
+)
+QUERY_MESSAGES = (
+    "error parsing args",
+    "scalar fields must have no selections",
+    "object field must have selections",
+    "unknown field",
+    "query contains error, please review it and retry",
+    "cannot request data older than",
+    "number of fields can't be more than",
+    "limit must be positive number and not greater than",
+    "query time range is too large",
+)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -17,97 +58,136 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def get(path, token):
-    allowed = re.fullmatch(
-        r"(?:/user/tokens/|/accounts/" + ACCOUNT + r"/tokens/)(?:verify|[0-9a-f]{32})", path)
-    if not allowed:
+def iso(value):
+    return value.astimezone(datetime.timezone.utc).replace(
+        microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def payload(now):
+    if not isinstance(now, datetime.datetime) or now.tzinfo is None:
         raise ValueError()
-    req = urllib.request.Request(API + path, method="GET", headers={
-        "Authorization": "Bearer " + token, "Accept": "application/json"})
+    end = now.astimezone(datetime.timezone.utc)
+    start = end - datetime.timedelta(minutes=5)
+    return {
+        "query": QUERY,
+        "variables": {
+            "accountTag": ACCOUNT,
+            "rayId": SYNTHETIC_RAY,
+            "datetimeStart": iso(start),
+            "datetimeEnd": iso(end),
+        },
+    }
+
+
+def post(token, now):
+    if not isinstance(token, str) or not token:
+        raise ValueError()
+    body = json.dumps(payload(now), separators=(",", ":")).encode()
+    req = urllib.request.Request(
+        GRAPHQL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+        },
+    )
     with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
         if response.status != 200:
             raise ValueError()
-        raw = response.read(262145)
-        if len(raw) > 262144:
+        raw = response.read(MAX_BODY + 1)
+        if len(raw) > MAX_BODY:
             raise ValueError()
         return json.loads(raw)
 
 
-def result(payload):
-    if (not isinstance(payload, dict) or payload.get("success") is not True
-            or payload.get("errors") != [] or not isinstance(payload.get("result"), dict)):
-        raise ValueError()
-    return payload["result"]
+def error_messages(errors):
+    if (not isinstance(errors, list) or not errors or len(errors) > 10
+            or not all(isinstance(error, dict)
+                       and isinstance(error.get("message"), str)
+                       and 0 < len(error["message"]) <= 2_000
+                       for error in errors)):
+        return None
+    return [error["message"].casefold() for error in errors]
 
 
-def analytics_scope(details):
-    policies = details.get("policies")
-    if not isinstance(policies, list) or len(policies) > 100:
-        return "POLICY_UNPROVEN"
-    granted = False
-    for policy in policies:
-        if not isinstance(policy, dict) or policy.get("effect") != "allow":
-            return "POLICY_UNPROVEN"
-        groups, resources = policy.get("permission_groups"), policy.get("resources")
-        if not isinstance(groups, list) or not groups or not isinstance(resources, dict) or not resources:
-            return "POLICY_UNPROVEN"
-        # Names are documented permission semantics, never publish IDs or names from responses.
-        if any(not isinstance(g, dict) or not isinstance(g.get("name"), str) for g in groups):
-            return "POLICY_UNPROVEN"
-        if not any(g["name"] == "Account Analytics Read" for g in groups):
-            continue
-        for resource, scope in resources.items():
-            if (not isinstance(resource, str) or scope != "*"
-                    or not re.fullmatch(r"com\.cloudflare\.api\.account\.(?:\*|[0-9a-f]{32})", resource)):
-                return "POLICY_UNPROVEN"
-            if resource in ("com.cloudflare.api.account.*", "com.cloudflare.api.account." + ACCOUNT):
-                granted = True
-    return "ANALYTICS_GRANTED_FOR_TARGET" if granted else "ANALYTICS_NOT_GRANTED_FOR_TARGET"
+def classify(payload_value):
+    if not isinstance(payload_value, dict) or "errors" not in payload_value:
+        return "GRAPHQL_RESPONSE_UNPROVEN"
+    errors = payload_value["errors"]
+    if errors is None:
+        try:
+            data = payload_value["data"]
+            accounts = data["viewer"]["accounts"]
+            if not isinstance(accounts, list) or len(accounts) != 1:
+                return "GRAPHQL_RESPONSE_UNPROVEN"
+            events = accounts[0]["accessLoginRequestsAdaptiveGroups"]
+            if not isinstance(events, list) or len(events) > 1:
+                return "GRAPHQL_RESPONSE_UNPROVEN"
+            return "ANALYTICS_GRANTED_FOR_TARGET"
+        except (KeyError, TypeError, AttributeError, IndexError):
+            return "GRAPHQL_RESPONSE_UNPROVEN"
+
+    messages = error_messages(errors)
+    if messages is None:
+        return "GRAPHQL_RESPONSE_UNPROVEN"
+    if all(message == "unauthorized" for message in messages):
+        return "TOKEN_AUTHENTICATION_FAILED"
+    if all(message == "not authorized for that account"
+           or message.startswith("does not have access to the path")
+           or (message.startswith("zones ") and message.endswith(" are not authorized"))
+           for message in messages):
+        return "ANALYTICS_NOT_GRANTED_FOR_TARGET"
+    if all(any(message.startswith(prefix) for prefix in RATE_MESSAGES)
+           for message in messages):
+        return "GRAPHQL_RATE_LIMITED"
+    if all(any(message.startswith(prefix) for prefix in SERVICE_MESSAGES)
+           for message in messages):
+        return "GRAPHQL_SERVICE_UNAVAILABLE"
+    if all(any(message.startswith(prefix) for prefix in QUERY_MESSAGES)
+           for message in messages):
+        return "GRAPHQL_QUERY_REJECTED"
+    return "GRAPHQL_RESPONSE_UNPROVEN"
 
 
-def prove(token, read=get):
-    receipt = {"identity_proven": False, "result": "TOKEN_TYPE_UNPROVEN",
-               "production_mutations": False}
+def prove(token, read=post, now=None):
+    receipt = {
+        "graphql_authorization_proven": False,
+        "production_mutations": False,
+        "result": "CREDENTIAL_UNAVAILABLE",
+    }
     if not isinstance(token, str) or not token:
-        receipt["result"] = "CREDENTIAL_UNAVAILABLE"
         return receipt
-    # Legacy user/account tokens are indistinguishable. Never guess or try both.
-    if token.startswith("cfut_"):
-        namespace, denied = "/user/tokens/", "USER_TOKEN_METADATA_READ_DENIED"
-    elif token.startswith("cfat_"):
-        namespace, denied = "/accounts/" + ACCOUNT + "/tokens/", "ACCOUNT_TOKEN_METADATA_READ_DENIED"
-    else:
-        return receipt
+    now = now or datetime.datetime.now(datetime.timezone.utc)
     try:
-        verified = result(read(namespace + "verify", token))
-        token_id = verified.get("id")
-        if (verified.get("status") != "active" or not isinstance(token_id, str)
-                or not ID.fullmatch(token_id)):
-            receipt["result"] = "IDENTITY_OR_ACTIVE_STATUS_UNPROVEN"
-            return receipt
-        receipt["identity_proven"] = True
-    except Exception:
-        receipt["result"] = "SELF_VERIFY_FAILED"
-        return receipt
-    try:
-        # Same bearer only: the server enforces its existing metadata-read authority.
-        details = result(read(namespace + token_id, token))
-        if details.get("id") != token_id or details.get("status") != "active":
-            receipt["result"] = "DETAILS_IDENTITY_OR_STATUS_MISMATCH"
-            return receipt
-        receipt["result"] = analytics_scope(details)
+        result = classify(read(token, now))
     except urllib.error.HTTPError as error:
-        receipt["result"] = denied if error.code == 403 else "TOKEN_METADATA_READ_UNPROVEN"
-    except Exception:
-        receipt["result"] = "TOKEN_METADATA_READ_UNPROVEN"
+        result = (
+            "TOKEN_AUTHENTICATION_FAILED" if error.code == 401 else
+            "ANALYTICS_NOT_GRANTED_FOR_TARGET" if error.code == 403 else
+            "GRAPHQL_RATE_LIMITED" if error.code == 429 else
+            "GRAPHQL_SERVICE_UNAVAILABLE" if 500 <= error.code <= 599 else
+            "GRAPHQL_HTTP_UNPROVEN"
+        )
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError,
+            TypeError, ValueError, OSError):
+        result = "GRAPHQL_REQUEST_UNPROVEN"
+    receipt["result"] = result
+    receipt["graphql_authorization_proven"] = result == "ANALYTICS_GRANTED_FOR_TARGET"
     return receipt
 
 
-def main(env, read=get):
+def main(env, read=post):
     try:
         receipt = prove(env.get("CLOUDFLARE_ACCESS_READ_TOKEN"), read)
     except Exception:
-        receipt = {"identity_proven": False, "result": "PROOF_FAILED", "production_mutations": False}
+        receipt = {
+            "graphql_authorization_proven": False,
+            "production_mutations": False,
+            "result": "PROOF_FAILED",
+        }
     print(json.dumps(receipt, sort_keys=True))
     return 0 if receipt["result"] == "ANALYTICS_GRANTED_FOR_TARGET" else 1
 
