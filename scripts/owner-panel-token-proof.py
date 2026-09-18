@@ -37,6 +37,7 @@ RATE_MESSAGES = (
     "query consumed excessive resources",
     "too many queries in progress, please try again later",
 )
+ACCOUNT_RATE_MESSAGE_PREFIX = f"account {ACCOUNT} has exceeded its rate limit."
 SERVICE_MESSAGES = (
     "internal server error",
     "unable to execute query, please try again later",
@@ -203,7 +204,8 @@ def classify(payload_value):
            or (message.startswith("zones ") and message.endswith(" are not authorized"))
            for message in messages):
         return "ANALYTICS_NOT_GRANTED_FOR_TARGET"
-    if all(any(message.startswith(prefix) for prefix in RATE_MESSAGES)
+    if all(message.startswith(ACCOUNT_RATE_MESSAGE_PREFIX)
+           or any(message.startswith(prefix) for prefix in RATE_MESSAGES)
            for message in messages):
         return "GRAPHQL_RATE_LIMITED"
     if all(any(message.startswith(prefix) for prefix in SERVICE_MESSAGES)
