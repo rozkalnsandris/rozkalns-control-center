@@ -31,6 +31,17 @@ def account_rate_error(account, code="private-code"):
     }
 
 
+def path_null_code_error(code):
+    return {
+        "data": None,
+        "errors": [{
+            "message": "private provider detail",
+            "path": None,
+            "extensions": {"code": code, "timestamp": "private"},
+        }],
+    }
+
+
 class AccountRateMessageTests(unittest.TestCase):
     def test_documented_target_account_rate_message_is_rate_limited(self):
         receipt = p.prove(TOKEN, lambda *_: account_rate_error(p.ACCOUNT), NOW)
@@ -38,8 +49,21 @@ class AccountRateMessageTests(unittest.TestCase):
         self.assertFalse(receipt["graphql_authorization_proven"])
         self.assertFalse(receipt["production_mutations"])
 
+    def test_cloudflare_authz_extension_code_is_not_granted(self):
+        receipt = p.prove(TOKEN, lambda *_: path_null_code_error("authz"), NOW)
+        self.assertEqual(receipt["result"], "ANALYTICS_NOT_GRANTED_FOR_TARGET")
+        self.assertFalse(receipt["graphql_authorization_proven"])
+        self.assertFalse(receipt["production_mutations"])
+
     def test_other_account_message_remains_fail_closed(self):
         receipt = p.prove(TOKEN, lambda *_: account_rate_error("other-account"), NOW)
+        self.assertEqual(
+            receipt["result"],
+            "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED",
+        )
+
+    def test_unknown_extension_code_remains_fail_closed(self):
+        receipt = p.prove(TOKEN, lambda *_: path_null_code_error("private-code"), NOW)
         self.assertEqual(
             receipt["result"],
             "GRAPHQL_ERRORS_UNCLASSIFIED_PATH_NULL_EXTENSION_CODE_PRESENT_UNRECOGNIZED",
