@@ -11,6 +11,7 @@ import {
   ContinuationAccessProvisioningError,
   buildContinuationAccessApplicationPayload,
   canonicalIdentityProviderReference,
+  classifyExactIdentityProviderReference,
   continuationAccessApplicationConflicts,
   evaluateContinuationAccessPostflight,
   evaluateContinuationAccessPreflight,
@@ -136,6 +137,51 @@ test("canonical human Access app exposes exactly one explicit IdP reference", ()
     () => canonicalIdentityProviderReference([referenceApp({ destinations: [{ type: "public", uri: "control.rozkalns.net" }] })]),
     "ACCESS_IDP_REFERENCE_APP_DESTINATION_INVALID",
   );
+});
+
+test("exact Access app IdP evidence is classified ABSENT EMPTY ONE or MULTIPLE and only ONE is accepted", () => {
+  const absent = referenceApp();
+  delete absent.allowed_idps;
+  assert.deepEqual(classifyExactIdentityProviderReference(absent), { classification: "ABSENT", count: 0 });
+  assert.deepEqual(classifyExactIdentityProviderReference(referenceApp({ allowed_idps: [] })), {
+    classification: "EMPTY",
+    count: 0,
+  });
+  assert.deepEqual(classifyExactIdentityProviderReference(referenceApp()), {
+    classification: "ONE",
+    count: 1,
+    id: IDP_ID,
+  });
+  assert.deepEqual(
+    classifyExactIdentityProviderReference(
+      referenceApp({ allowed_idps: [IDP_ID, "55555555-5555-4555-8555-555555555555"] }),
+    ),
+    { classification: "MULTIPLE", count: 2 },
+  );
+
+  expectCode(
+    () => canonicalIdentityProviderReference(beforeApps(), absent),
+    "ACCESS_IDP_REFERENCE_ALLOWED_IDPS_ABSENT",
+  );
+  expectCode(
+    () => canonicalIdentityProviderReference(beforeApps(), referenceApp({ allowed_idps: [] })),
+    "ACCESS_IDP_REFERENCE_ALLOWED_IDPS_EMPTY",
+  );
+  expectCode(
+    () =>
+      canonicalIdentityProviderReference(
+        beforeApps(),
+        referenceApp({ allowed_idps: [IDP_ID, "55555555-5555-4555-8555-555555555555"] }),
+      ),
+    "ACCESS_IDP_REFERENCE_ALLOWED_IDPS_MULTIPLE",
+  );
+
+  const helper = readFileSync(new URL("./continuation-access-provisioning.mjs", import.meta.url), "utf8");
+  assert.match(helper, /\/access\/apps\/\$\{CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID\}/);
+  assert.match(helper, /method: "GET"/);
+  assert.match(helper, /CLOUDFLARE_ACCESS_READ_TOKEN/);
+  assert.doesNotMatch(helper, /\/access\/identity_providers/);
+  assert.doesNotMatch(helper, /\/access\/organizations/);
 });
 
 test("preflight passes only with vacant exact targets, canonical IdP reference and reviewed issuer", () => {
