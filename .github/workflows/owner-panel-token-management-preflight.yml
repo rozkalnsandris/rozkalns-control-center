@@ -11,7 +11,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  preflight:
+  identity:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    outputs:
+      token_id: ${{ steps.identity.outputs.token_id }}
+    steps:
+      - name: Checkout exact main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Focused offline safety test
+        run: python3 scripts/owner-panel-token-management-preflight.test.py
+
+      - name: Bound active write-token identity with one GET
+        id: identity
+        env:
+          CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+        run: python3 scripts/owner-panel-token-management-preflight.py --identity
+
+  management:
+    needs: identity
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -25,11 +51,8 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Focused offline safety test
-        run: python3 scripts/owner-panel-token-management-preflight.test.py
-
-      - name: Bounded user token-management GET proof only
+      - name: Prove user token-management access with two GETs
         env:
           CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN }}
-          CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
-        run: python3 scripts/owner-panel-token-management-preflight.py
+          TARGET_WRITE_TOKEN_ID: ${{ needs.identity.outputs.token_id }}
+        run: python3 scripts/owner-panel-token-management-preflight.py --management
