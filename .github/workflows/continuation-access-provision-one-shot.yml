@@ -28,6 +28,7 @@ jobs:
     env:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
       CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      ACCESS_ISSUER: https://super-salad-2357.cloudflareaccess.com
       GITHUB_TOKEN: ${{ github.token }}
       CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
       CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
@@ -70,7 +71,7 @@ jobs:
             exit 1
           }
 
-          for cmd in curl jq node sed tr wc grep; do
+          for cmd in curl jq node sed grep mv; do
             command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
           done
           [ -n "${GITHUB_EVENT_PATH:-}" ] || stop MISSING_GITHUB_EVENT_PATH
@@ -81,6 +82,7 @@ jobs:
           [ -n "${CLOUDFLARE_ACCESS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_READ_TOKEN
           [ -n "${CLOUDFLARE_ACCESS_WRITE_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_WRITE_TOKEN
           [ -n "${CONTROL_CONTINUATION_OWNER_EMAIL:-}" ] || stop MISSING_CONTROL_CONTINUATION_OWNER_EMAIL
+          [ "$ACCESS_ISSUER" = 'https://super-salad-2357.cloudflareaccess.com' ] || stop ACCESS_ISSUER_SOURCE_DRIFT
           printf '::add-mask::%s\n' "$CONTROL_CONTINUATION_OWNER_EMAIL"
 
           owner_authorization="$(jq -er '.inputs.owner_authorization | select(type == "string" and length > 0)' "$GITHUB_EVENT_PATH" 2>/dev/null)" || stop OWNER_AUTHORIZATION_MISSING
@@ -113,15 +115,6 @@ jobs:
               -H 'Accept: application/json' \
               "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_ACCESS_GET_FAILED
             jq -e '.success == true and (.result | type == "array")' "$out" >/dev/null || stop CLOUDFLARE_ACCESS_ARRAY_RESPONSE_INVALID
-          }
-
-          cf_read_object() {
-            local path="$1" out="$2"
-            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
-              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_READ_TOKEN}" \
-              -H 'Accept: application/json' \
-              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_ACCESS_GET_FAILED
-            jq -e '.success == true and (.result | type == "object")' "$out" >/dev/null || stop CLOUDFLARE_ACCESS_OBJECT_RESPONSE_INVALID
           }
 
           fetch_paginated_array() {
@@ -163,13 +156,21 @@ jobs:
             done < <(jq -r '.[].id' "$tmp/${prefix}-apps.json")
           }
 
+          prove_access_issuer() {
+            local out="$1"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H 'Accept: application/json' \
+              "${ACCESS_ISSUER}/cdn-cgi/access/certs" > "$out" || stop ACCESS_ISSUER_JWKS_GET_FAILED
+            jq -e '.keys | type == "array" and length > 0 and all(.[]; ((.kid | type) == "string") and ((.kid | length) > 0))' "$out" >/dev/null || stop ACCESS_ISSUER_JWKS_INVALID
+          }
+
           printf '%s\n' STAGE=BOUND_GITHUB_EVIDENCE
           gh_get '/branches/main' "$tmp/main.json"
           jq -e --arg sha "$approved_sha" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
           gh_get "/actions/runs/${expected_ci_run_id}" "$tmp/ci.json"
           jq -e --arg sha "$approved_sha" --argjson id "$expected_ci_run_id" '.id == $id and .name == "CI" and .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_NOT_PASS
           gh_get "/actions/runs/${expected_preflight_run_id}" "$tmp/preflight-run.json"
-          jq -e --arg sha "$approved_sha" --argjson id "$expected_preflight_run_id" '.id == $id and .name == "Continuation Access read-only preflight" and .path == ".github/workflows/continuation-access-readonly-preflight.yml" and .head_branch == "main" and .head_sha == $sha and .event == "workflow_dispatch" and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' "$tmp/preflight-run.json" >/dev/null || stop PREFLIGHT_RUN_INVALID
+          jq -e --arg sha "$approved_sha" --argjson id "$expected_preflight_run_id" '.id == $id and .name == "Continuation Access read-only preflight" and .path == ".github/workflows/continuation-access-readonly-preflight.yml" and .head_branch == "main" and .head_sha == $sha and (.event == "workflow_dispatch" or .event == "issue_comment") and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' "$tmp/preflight-run.json" >/dev/null || stop PREFLIGHT_RUN_INVALID
           gh_get "/actions/runs/${expected_preflight_run_id}/jobs?per_page=100" "$tmp/preflight-jobs.json"
           preflight_job_id="$(jq -er '[.jobs[] | select(.name == "prove continuation Access target vacancy and freeze non-target state" and .status == "completed" and .conclusion == "success")] | select(length == 1) | .[0].id' "$tmp/preflight-jobs.json" 2>/dev/null)" || stop PREFLIGHT_JOB_INVALID
           curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
@@ -181,24 +182,26 @@ jobs:
           grep -F "SOURCE_SHA=${approved_sha}" "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_SHA_NOT_BOUND
           grep -F "CI_RUN_ID=${expected_ci_run_id}" "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_CI_NOT_BOUND
           grep -F "IDP_ID=${expected_idp_id}" "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_NOT_BOUND
+          grep -F 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_APP_NOT_BOUND
+          grep -F 'IDP_REFERENCE_URI=*.rozkalns.net' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_URI_NOT_BOUND
+          grep -F 'IDP_REFERENCE_SOURCE=ACCESS_APP_ALLOWED_IDPS' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_SOURCE_NOT_BOUND
+          grep -F 'ACCESS_ISSUER_JWKS=PASS' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_ISSUER_JWKS_NOT_BOUND
           grep -F "NON_TARGET_DIGEST=${expected_digest}" "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_DIGEST_NOT_BOUND
           grep -F 'CONFLICT_COUNT=0' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_CONFLICT_STATE_INVALID
           grep -F 'ACCESS_API_METHOD=GET_ONLY' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_METHOD_INVALID
           grep -F 'PRODUCTION_MUTATIONS=0' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_MUTATION_STATE_INVALID
           expected_issuer="$(grep -F 'ACCESS_ISSUER=' "$tmp/preflight.log" | tail -n 1 | sed 's/^.*ACCESS_ISSUER=//')"
-          [[ "$expected_issuer" =~ ^https://[A-Za-z0-9.-]+\.cloudflareaccess\.com$ ]] || stop PREFLIGHT_ISSUER_INVALID
+          [ "$expected_issuer" = "$ACCESS_ISSUER" ] || stop PREFLIGHT_ISSUER_INVALID
 
           printf '%s\n' STAGE=FRESH_GET_ONLY_REVALIDATION
           inventory_snapshot before
-          fetch_paginated_array '/access/identity_providers' "$tmp/idps.json" before-idps
-          cf_read_object '/access/organizations' "$tmp/organization.json"
-          jq '.result' "$tmp/organization.json" > "$tmp/organization-result.json"
+          prove_access_issuer "$tmp/access-jwks-before.json"
           set +e
-          fresh_proof="$(node scripts/continuation-access-provisioning.mjs preflight "$tmp/before-apps.json" "$tmp/before-policies.json" "$tmp/idps.json" "$tmp/organization-result.json" "$expected_idp_id")"
+          fresh_proof="$(node scripts/continuation-access-provisioning.mjs preflight "$tmp/before-apps.json" "$tmp/before-policies.json" "$expected_idp_id" "$ACCESS_ISSUER")"
           fresh_rc=$?
           set -e
           [ "$fresh_rc" -eq 0 ] || stop FRESH_PREFLIGHT_CONTRACT_REJECTED
-          jq -e --arg digest "$expected_digest" --arg issuer "$expected_issuer" '.status == "PASS" and .conflictCount == 0 and .nonTargetDigest == $digest and .issuer == $issuer' <<<"$fresh_proof" >/dev/null || stop FRESH_PREFLIGHT_DRIFT
+          jq -e --arg digest "$expected_digest" --arg issuer "$expected_issuer" --arg idp "$expected_idp_id" '.status == "PASS" and .conflictCount == 0 and .nonTargetDigest == $digest and .issuer == $issuer and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.referenceUri == "*.rozkalns.net"' <<<"$fresh_proof" >/dev/null || stop FRESH_PREFLIGHT_DRIFT
 
           curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
             -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_WRITE_TOKEN}" \
@@ -207,7 +210,7 @@ jobs:
           jq -e '.success == true and (.result | type == "array")' "$tmp/write-token-readcheck.json" >/dev/null || stop ACCESS_WRITE_TOKEN_GET_INVALID
 
           node scripts/continuation-access-provisioning.mjs payload "$expected_idp_id" "$tmp/create-payload.json" >/dev/null || stop ACCESS_CREATE_PAYLOAD_REJECTED
-          jq -e '.name == "Rozkalns Control owner continuation" and .type == "self_hosted" and (.destinations | length == 2) and (.policies | length == 1) and .policies[0].decision == "allow" and (.policies[0].include | length == 1)' "$tmp/create-payload.json" >/dev/null || stop ACCESS_CREATE_PAYLOAD_INVALID
+          jq -e '.name == "Rozkalns Control owner continuation" and .type == "self_hosted" and (.destinations | length == 2) and (.allowed_idps | length == 1) and (.policies | length == 1) and .policies[0].decision == "allow" and (.policies[0].include | length == 1)' "$tmp/create-payload.json" >/dev/null || stop ACCESS_CREATE_PAYLOAD_INVALID
 
           gh_get '/branches/main' "$tmp/main-final.json"
           jq -e --arg sha "$approved_sha" '.commit.sha == $sha' "$tmp/main-final.json" >/dev/null || stop MAIN_SHA_DRIFT_BEFORE_POST
@@ -233,14 +236,12 @@ jobs:
 
           printf '%s\n' STAGE=POST_GET_VERIFICATION
           inventory_snapshot after
-          cf_read_object '/access/organizations' "$tmp/organization-after.json"
-          jq '.result' "$tmp/organization-after.json" > "$tmp/organization-after-result.json"
           set +e
-          postflight="$(node scripts/continuation-access-provisioning.mjs postflight "$tmp/after-apps.json" "$tmp/after-policies.json" "$created_app_id" "$expected_idp_id" "$tmp/organization-after-result.json" "$expected_digest" "$tmp/create-response.json")"
+          postflight="$(node scripts/continuation-access-provisioning.mjs postflight "$tmp/after-apps.json" "$tmp/after-policies.json" "$created_app_id" "$expected_idp_id" "$ACCESS_ISSUER" "$expected_digest" "$tmp/create-response.json")"
           postflight_rc=$?
           set -e
           [ "$postflight_rc" -eq 0 ] || stop ACCESS_POSTFLIGHT_CONTRACT_REJECTED
-          jq -e --arg issuer "$expected_issuer" --arg digest "$expected_digest" '.status == "PASS" and .issuer == $issuer and .nonTargetDigest == $digest and (.audience | test("^[A-Za-z0-9_-]{1,64}$"))' <<<"$postflight" >/dev/null || stop ACCESS_POSTFLIGHT_PROOF_INVALID
+          jq -e --arg issuer "$expected_issuer" --arg digest "$expected_digest" --arg idp "$expected_idp_id" '.status == "PASS" and .issuer == $issuer and .nonTargetDigest == $digest and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and (.audience | test("^[A-Za-z0-9_-]{1,64}$"))' <<<"$postflight" >/dev/null || stop ACCESS_POSTFLIGHT_PROOF_INVALID
 
           created_aud="$(jq -r '.audience' <<<"$postflight")"
           created_policy_id="$(jq -r '.policyId' <<<"$postflight")"
@@ -250,6 +251,8 @@ jobs:
           printf 'CI_RUN_ID=%s\n' "$expected_ci_run_id"
           printf 'PREFLIGHT_RUN_ID=%s\n' "$expected_preflight_run_id"
           printf 'IDP_ID=%s\n' "$expected_idp_id"
+          printf 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247\n'
+          printf 'IDP_REFERENCE_URI=*.rozkalns.net\n'
           printf 'ACCESS_ISSUER=%s\n' "$expected_issuer"
           printf 'NON_TARGET_DIGEST=%s\n' "$expected_digest"
           printf 'APP_ID=%s\n' "$created_app_id"

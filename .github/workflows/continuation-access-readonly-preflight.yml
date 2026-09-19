@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       expected_idp_id:
-        description: Existing reviewed Access identity-provider UUID to bind to the continuation app
+        description: Existing reviewed Access identity-provider UUID referenced by the canonical human Access app
         required: true
         type: string
   issue_comment:
@@ -46,6 +46,7 @@ jobs:
     env:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
       CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      ACCESS_ISSUER: https://super-salad-2357.cloudflareaccess.com
       DISPATCH_EXPECTED_IDP_ID: ${{ inputs.expected_idp_id }}
       GITHUB_TOKEN: ${{ github.token }}
       CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
@@ -74,17 +75,14 @@ jobs:
               printf 'PRODUCTION_MUTATIONS=0\n'
               printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
               printf 'SECRET_MUTATION=NO\n'
+              printf 'PERMISSION_MUTATION=NO\n'
               printf 'WORKER_MUTATION=NO\n'
               printf 'D1_MUTATION=NO\n'
             } >&2
             exit 1
           }
 
-          sanitize() {
-            printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:] _./:@+-' | cut -c1-200
-          }
-
-          for cmd in curl jq node sed tr wc; do
+          for cmd in curl jq node mv; do
             command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
           done
           [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
@@ -92,6 +90,7 @@ jobs:
           [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || stop WORKFLOW_SHA_INVALID
           [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
           [ -n "${CLOUDFLARE_ACCESS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_READ_TOKEN
+          [ "$ACCESS_ISSUER" = 'https://super-salad-2357.cloudflareaccess.com' ] || stop ACCESS_ISSUER_SOURCE_DRIFT
 
           mode=''
           expected_idp_id=''
@@ -150,15 +149,6 @@ jobs:
             jq -e '.success == true and (.result | type == "array")' "$out" >/dev/null || stop CLOUDFLARE_ACCESS_ARRAY_RESPONSE_INVALID
           }
 
-          cf_get_object() {
-            local path="$1" out="$2"
-            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
-              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_READ_TOKEN}" \
-              -H 'Accept: application/json' \
-              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_ACCESS_GET_FAILED
-            jq -e '.success == true and (.result | type == "object")' "$out" >/dev/null || stop CLOUDFLARE_ACCESS_OBJECT_RESPONSE_INVALID
-          }
-
           fetch_paginated_array() {
             local base_path="$1" output="$2" label="$3"
             local page=1 page_file count
@@ -176,6 +166,14 @@ jobs:
             jq -s '.' "$tmp/${label}.ndjson" > "$output"
           }
 
+          prove_access_issuer() {
+            local out="$1"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H 'Accept: application/json' \
+              "${ACCESS_ISSUER}/cdn-cgi/access/certs" > "$out" || stop ACCESS_ISSUER_JWKS_GET_FAILED
+            jq -e '.keys | type == "array" and length > 0 and all(.[]; ((.kid | type) == "string") and ((.kid | length) > 0))' "$out" >/dev/null || stop ACCESS_ISSUER_JWKS_INVALID
+          }
+
           printf '%s\n' STAGE=EXACT_MAIN_CI
           gh_get '/branches/main' "$tmp/main.json"
           jq -e --arg sha "$GITHUB_SHA" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
@@ -185,48 +183,41 @@ jobs:
           gh_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
           jq -e --arg sha "$GITHUB_SHA" --argjson id "$ci_run_id" '.id == $id and .name == "CI" and .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
 
-          printf '%s\n' STAGE=ACCESS_IDENTITY_PROVIDER_INVENTORY
-          fetch_paginated_array '/access/identity_providers' "$tmp/idps.json" idps
-          idp_count="$(jq 'length' "$tmp/idps.json")"
-          [[ "$idp_count" =~ ^[0-9]+$ ]] || stop ACCESS_IDP_COUNT_INVALID
-          [ "$idp_count" -le 1000 ] || stop ACCESS_IDP_COUNT_UNBOUNDED
-          cf_get_object '/access/organizations' "$tmp/organization.json"
-          jq '.result' "$tmp/organization.json" > "$tmp/organization-result.json"
-          auth_domain="$(jq -r '.auth_domain // empty' "$tmp/organization-result.json")"
-          [[ "$auth_domain" =~ ^[A-Za-z0-9.-]+\.cloudflareaccess\.com$ ]] || stop ACCESS_AUTH_DOMAIN_INVALID
-          issuer="https://${auth_domain}"
+          printf '%s\n' STAGE=ACCESS_APPS_IDP_REFERENCE
+          fetch_paginated_array '/access/apps' "$tmp/apps.json" apps
+          app_count="$(jq 'length' "$tmp/apps.json")"
+          [[ "$app_count" =~ ^[0-9]+$ ]] || stop ACCESS_APP_COUNT_INVALID
+          [ "$app_count" -le 100 ] || stop ACCESS_APP_COUNT_UNBOUNDED
+          prove_access_issuer "$tmp/access-jwks.json"
+
+          set +e
+          reference="$(node scripts/continuation-access-provisioning.mjs reference-idp "$tmp/apps.json")"
+          reference_rc=$?
+          set -e
+          [ "$reference_rc" -eq 0 ] || stop ACCESS_IDP_REFERENCE_CONTRACT_REJECTED
+          jq -e '.status == "PASS" and (.id | test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and .referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .referenceUri == "*.rozkalns.net"' <<<"$reference" >/dev/null || stop ACCESS_IDP_REFERENCE_PROOF_INVALID
+          referenced_idp_id="$(jq -r '.id' <<<"$reference")"
 
           if [ "$mode" = 'idp-inventory' ]; then
-            [ "$idp_count" -gt 0 ] || stop ACCESS_IDP_NONE_FOUND
-            [ "$idp_count" -le 20 ] || stop ACCESS_IDP_PUBLIC_INVENTORY_UNBOUNDED
-            jq -e 'all(.[]; ((.id | type) == "string") and ((.name | type) == "string") and ((.type | type) == "string"))' "$tmp/idps.json" >/dev/null || stop ACCESS_IDP_SHAPE_INVALID
             printf 'CONTINUATION_ACCESS_IDP_INVENTORY=PASS\n'
             printf 'SOURCE_SHA=%s\n' "$GITHUB_SHA"
             printf 'CI_RUN_ID=%s\n' "$ci_run_id"
-            printf 'ACCESS_ISSUER=%s\n' "$issuer"
-            printf 'IDP_COUNT=%s\n' "$idp_count"
-            for ((index=0; index<idp_count; index++)); do
-              ordinal=$((index + 1))
-              idp_id="$(jq -r ".[$index].id" "$tmp/idps.json")"
-              idp_name="$(jq -r ".[$index].name" "$tmp/idps.json")"
-              idp_type="$(jq -r ".[$index].type" "$tmp/idps.json")"
-              [[ "$idp_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop ACCESS_IDP_ID_INVALID
-              printf 'IDP_%s_ID=%s\n' "$ordinal" "$idp_id"
-              printf 'IDP_%s_NAME=%s\n' "$ordinal" "$(sanitize "$idp_name")"
-              printf 'IDP_%s_TYPE=%s\n' "$ordinal" "$(sanitize "$idp_type")"
-            done
+            printf 'ACCESS_ISSUER=%s\n' "$ACCESS_ISSUER"
+            printf 'ACCESS_ISSUER_JWKS=PASS\n'
+            printf 'IDP_COUNT=1\n'
+            printf 'IDP_1_ID=%s\n' "$referenced_idp_id"
+            printf 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247\n'
+            printf 'IDP_REFERENCE_URI=*.rozkalns.net\n'
+            printf 'IDP_REFERENCE_SOURCE=ACCESS_APP_ALLOWED_IDPS\n'
             printf 'ACCESS_API_METHOD=GET_ONLY\n'
             printf 'PRODUCTION_MUTATIONS=0\n'
             printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
             exit 0
           fi
 
-          printf '%s\n' STAGE=ACCESS_GET_ONLY_INVENTORY
-          fetch_paginated_array '/access/apps' "$tmp/apps.json" apps
-          app_count="$(jq 'length' "$tmp/apps.json")"
-          [[ "$app_count" =~ ^[0-9]+$ ]] || stop ACCESS_APP_COUNT_INVALID
-          [ "$app_count" -le 100 ] || stop ACCESS_APP_COUNT_UNBOUNDED
+          [ "$expected_idp_id" = "$referenced_idp_id" ] || stop ACCESS_IDP_REFERENCE_CHANGED
 
+          printf '%s\n' STAGE=ACCESS_GET_ONLY_POLICY_INVENTORY
           printf '{}' > "$tmp/policies.json"
           total_policy_count=0
           while IFS= read -r app_id; do
@@ -242,26 +233,25 @@ jobs:
           done < <(jq -r '.[].id' "$tmp/apps.json")
 
           set +e
-          proof="$(node scripts/continuation-access-provisioning.mjs preflight "$tmp/apps.json" "$tmp/policies.json" "$tmp/idps.json" "$tmp/organization-result.json" "$expected_idp_id")"
+          proof="$(node scripts/continuation-access-provisioning.mjs preflight "$tmp/apps.json" "$tmp/policies.json" "$expected_idp_id" "$ACCESS_ISSUER")"
           proof_rc=$?
           set -e
           [ "$proof_rc" -eq 0 ] || stop CONTINUATION_ACCESS_CONTRACT_REJECTED
-          jq -e '.status == "PASS" and .conflictCount == 0 and (.nonTargetDigest | test("^[0-9a-f]{64}$")) and (.issuer | test("^https://[A-Za-z0-9.-]+\\.cloudflareaccess\\.com$"))' <<<"$proof" >/dev/null || stop CONTINUATION_ACCESS_PROOF_INVALID
+          jq -e '.status == "PASS" and .conflictCount == 0 and (.nonTargetDigest | test("^[0-9a-f]{64}$")) and .issuer == "https://super-salad-2357.cloudflareaccess.com" and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.referenceUri == "*.rozkalns.net"' <<<"$proof" >/dev/null || stop CONTINUATION_ACCESS_PROOF_INVALID
 
           proven_idp_id="$(jq -r '.idp.id' <<<"$proof")"
-          proven_idp_name="$(jq -r '.idp.name' <<<"$proof")"
-          proven_idp_type="$(jq -r '.idp.type' <<<"$proof")"
           non_target_digest="$(jq -r '.nonTargetDigest' <<<"$proof")"
-          issuer="$(jq -r '.issuer' <<<"$proof")"
           [ "$proven_idp_id" = "$expected_idp_id" ] || stop ACCESS_IDP_BINDING_CHANGED
 
           printf 'CONTINUATION_ACCESS_PREFLIGHT=PASS\n'
           printf 'SOURCE_SHA=%s\n' "$GITHUB_SHA"
           printf 'CI_RUN_ID=%s\n' "$ci_run_id"
           printf 'IDP_ID=%s\n' "$proven_idp_id"
-          printf 'IDP_NAME=%s\n' "$(sanitize "$proven_idp_name")"
-          printf 'IDP_TYPE=%s\n' "$(sanitize "$proven_idp_type")"
-          printf 'ACCESS_ISSUER=%s\n' "$issuer"
+          printf 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247\n'
+          printf 'IDP_REFERENCE_URI=*.rozkalns.net\n'
+          printf 'IDP_REFERENCE_SOURCE=ACCESS_APP_ALLOWED_IDPS\n'
+          printf 'ACCESS_ISSUER=%s\n' "$ACCESS_ISSUER"
+          printf 'ACCESS_ISSUER_JWKS=PASS\n'
           printf 'NON_TARGET_DIGEST=%s\n' "$non_target_digest"
           printf 'TARGET_APP_NAME=Rozkalns Control owner continuation\n'
           printf 'TARGET_DESTINATION_1=control.rozkalns.net/api/control/continuation\n'
@@ -271,3 +261,4 @@ jobs:
           printf 'POLICY_COUNT=%s\n' "$total_policy_count"
           printf 'ACCESS_API_METHOD=GET_ONLY\n'
           printf 'PRODUCTION_MUTATIONS=0\n'
+          printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
