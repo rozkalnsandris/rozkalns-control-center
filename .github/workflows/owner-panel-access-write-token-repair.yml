@@ -17,16 +17,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  repair:
-    name: repair Access write-token account scope exactly once
+  identity:
+    name: bind authorization and GET-only repair preflight
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     environment:
-      name: production-access-token-policy-repair
+      name: production-readonly-reconcile
       deployment: false
     env:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+    outputs:
+      approved_sha: ${{ steps.binding.outputs.approved_sha }}
+      token_id: ${{ steps.readonly.outputs.token_id }}
 
     steps:
       - name: Checkout exact main source
@@ -37,6 +40,7 @@ jobs:
           persist-credentials: false
 
       - name: Bind exact owner authorization before mutation
+        id: binding
         shell: bash
         run: |
           set -euo pipefail
@@ -72,27 +76,19 @@ jobs:
           expected_proof_sha="${BASH_REMATCH[4]}"
           [ "${GITHUB_SHA:-}" = "$approved_sha" ] || stop_pre WORKFLOW_SHA_NOT_APPROVED
 
-          python3 scripts/owner-panel-access-write-token-repair.test.py >/dev/null || stop_pre OFFLINE_REPAIR_SAFETY_TEST_FAILED
-
           {
             printf 'APPROVED_SHA=%s\n' "$approved_sha"
             printf 'EXPECTED_CI_RUN_ID=%s\n' "$expected_ci_run_id"
             printf 'EXPECTED_PROOF_RUN_ID=%s\n' "$expected_proof_run_id"
             printf 'EXPECTED_PROOF_SHA=%s\n' "$expected_proof_sha"
           } >> "$GITHUB_ENV"
-
+          printf 'approved_sha=%s\n' "$approved_sha" >> "$GITHUB_OUTPUT"
           printf 'ACCESS_WRITE_TOKEN_SCOPE_REPAIR_AUTHORIZATION_BINDING=PASS\n'
 
-      - name: Revalidate evidence and repair token policy once
+      - name: Revalidate bound GitHub evidence with GET only
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          # Dedicated token-administration credential. The read-only reconcile
-          # credential must never be repurposed for token-policy mutation.
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN }}
-          CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
-          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
-          CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
         run: |
           set -euo pipefail
           umask 077
@@ -109,26 +105,10 @@ jobs:
             exit 1
           }
 
-          stop_post() {
-            {
-              printf 'ACCESS_WRITE_TOKEN_SCOPE_REPAIR=STOP\n'
-              printf 'STOP=%s\n' "$1"
-              printf 'AUTHORIZATION_CONSUMED=YES\n'
-              printf 'TOKEN_POLICY_PUT_STARTED=YES\n'
-              printf 'PRODUCTION_MUTATION=YES_OR_UNCERTAIN\n'
-              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
-            } >&2
-            exit 1
-          }
-
-          for cmd in curl jq python3; do
+          for cmd in curl jq; do
             command -v "$cmd" >/dev/null 2>&1 || stop_pre "MISSING_${cmd^^}"
           done
-          for value in GITHUB_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCESS_WRITE_TOKEN CLOUDFLARE_ACCESS_READ_TOKEN CONTROL_ACCESS_CLIENT_ID; do
-            [ -n "${!value:-}" ] || stop_pre "MISSING_${value}"
-          done
-          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop_pre WORKFLOW_EVENT_NOT_DISPATCH
-          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop_pre WORKFLOW_REF_NOT_MAIN
+          [ -n "${GITHUB_TOKEN:-}" ] || stop_pre MISSING_GITHUB_TOKEN
           [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop_pre WORKFLOW_ATTEMPT_NOT_ONE
           [ "${GITHUB_SHA:-}" = "${APPROVED_SHA:-}" ] || stop_pre WORKFLOW_SHA_NOT_APPROVED
 
@@ -187,30 +167,178 @@ jobs:
 
           printf 'BOUND_MAIN_CI_EXACT_TARGET_403_EVIDENCE=PASS\n'
 
+      - name: Focused offline staged-repair safety tests
+        run: |
+          python3 scripts/owner-panel-access-write-token-repair.test.py
+          python3 scripts/owner-panel-access-write-token-repair-staged.test.py
+          python3 scripts/owner-panel-access-write-token-repair-boundary.test.py
+
+      - name: Fresh read-only write-token preflight
+        id: readonly
+        env:
+          CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+          CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+        run: python3 scripts/owner-panel-access-write-token-repair-staged.py --readonly-preflight
+
+  repair:
+    name: apply one user-owned token-policy PUT
+    needs: identity
+    if: github.ref == 'refs/heads/main' && needs.identity.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production-access-token-policy-repair
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+
+    steps:
+      - name: Checkout exact main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Revalidate main and apply exactly one PUT
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN }}
+          TARGET_WRITE_TOKEN_ID: ${{ needs.identity.outputs.token_id }}
+          EXPECTED_APPROVED_SHA: ${{ needs.identity.outputs.approved_sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop_pre() {
+            {
+              printf 'ACCESS_WRITE_TOKEN_SCOPE_REPAIR=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=NO\n'
+              printf 'TOKEN_POLICY_PUT_STARTED=NO\n'
+              printf 'PRODUCTION_MUTATION=NO\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          stop_post() {
+            {
+              printf 'ACCESS_WRITE_TOKEN_SCOPE_REPAIR=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=YES\n'
+              printf 'TOKEN_POLICY_PUT_STARTED=YES\n'
+              printf 'PRODUCTION_MUTATION=YES_OR_UNCERTAIN\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          for cmd in curl jq python3; do
+            command -v "$cmd" >/dev/null 2>&1 || stop_pre "MISSING_${cmd^^}"
+          done
+          for value in GITHUB_TOKEN CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN TARGET_WRITE_TOKEN_ID EXPECTED_APPROVED_SHA; do
+            [ -n "${!value:-}" ] || stop_pre "MISSING_${value}"
+          done
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop_pre WORKFLOW_ATTEMPT_NOT_ONE
+          [ "${GITHUB_SHA:-}" = "$EXPECTED_APPROVED_SHA" ] || stop_pre WORKFLOW_SHA_NOT_APPROVED
+
+          current_main="$(curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${CONTROL_REPO}/branches/main" | jq -er '.commit.sha')" || stop_pre MAIN_SHA_READ_FAILED
+          [ "$current_main" = "$EXPECTED_APPROVED_SHA" ] || stop_pre MAIN_SHA_DRIFT
+
           set +e
-          repair_receipt="$(python3 scripts/owner-panel-access-write-token-repair.py)"
+          repair_receipt="$(python3 scripts/owner-panel-access-write-token-repair-staged.py --management-put)"
           repair_rc=$?
           set -e
           printf '%s\n' "$repair_receipt"
-          mutation_started="$(jq -r '.mutation_started // false' <<<"$repair_receipt" 2>/dev/null || printf 'unknown')"
+          mutation_started="$(jq -r '.mutation_started // "unknown"' <<<"$repair_receipt" 2>/dev/null || printf 'unknown')"
 
           if [ "$repair_rc" -ne 0 ]; then
-            if [ "$mutation_started" = "true" ]; then
-              stop_post TOKEN_POLICY_REPAIR_POST_START_FAILURE
+            if [ "$mutation_started" = "false" ]; then
+              stop_pre TOKEN_POLICY_REPAIR_PREFLIGHT_FAILED
             fi
-            stop_pre TOKEN_POLICY_REPAIR_PREFLIGHT_FAILED
+            stop_post TOKEN_POLICY_REPAIR_POST_START_FAILURE
           fi
 
           jq -e '
-            .detail == "ACCESS_WRITE_TOKEN_SCOPE_REPAIR_COMPLETE" and
-            .write_token_status == "PROVEN_ACTIVE" and
-            .management_access == "PROVEN_TOKEN_DETAILS_AND_PERMISSION_GROUP" and
+            .detail == "ACCESS_WRITE_TOKEN_SCOPE_REPAIR_MUTATION_COMPLETE" and
+            .token_kind == "USER_OWNED" and
+            .management_access == "PROVEN_USER_TOKEN_DETAILS_AND_PERMISSION_GROUP" and
             .permission_patch == "NARROW_ACCOUNT_WRITE_POLICY_APPENDED" and
             .mutation_started == true and
             .production_mutations == 1 and
-            .github_secret_update == "NOT_REQUIRED_TOKEN_VALUE_UNCHANGED" and
-            .exact_target_access_after == "PROVEN_EXACT_GET"
+            .github_secret_update == "NOT_REQUIRED_TOKEN_VALUE_UNCHANGED"
           ' <<<"$repair_receipt" >/dev/null || stop_post TOKEN_POLICY_REPAIR_RECEIPT_INVALID
+
+          printf 'AUTHORIZATION_CONSUMED=YES\n'
+          printf 'TOKEN_POLICY_PUT_STARTED=YES\n'
+          printf 'PRODUCTION_MUTATIONS=1\n'
+          printf 'GITHUB_SECRET_UPDATE=NOT_REQUIRED_TOKEN_VALUE_UNCHANGED\n'
+          printf 'ACCESS_WRITE_TOKEN_SCOPE_REPAIR_MUTATION=COMPLETE\n'
+          printf 'NEXT=READ_ONLY_POSTVERIFY\n'
+
+  verify:
+    name: GET-only exact-target postverify
+    needs: [identity, repair]
+    if: github.ref == 'refs/heads/main' && needs.identity.result == 'success' && needs.repair.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+
+    steps:
+      - name: Checkout exact main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact target access after PUT with GET only
+        shell: bash
+        env:
+          CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+          CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+          TARGET_WRITE_TOKEN_ID: ${{ needs.identity.outputs.token_id }}
+          EXPECTED_APPROVED_SHA: ${{ needs.identity.outputs.approved_sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop_post() {
+            {
+              printf 'ACCESS_WRITE_TOKEN_SCOPE_REPAIR=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'AUTHORIZATION_CONSUMED=YES\n'
+              printf 'TOKEN_POLICY_PUT_STARTED=YES\n'
+              printf 'PRODUCTION_MUTATION=YES\n'
+              printf 'NO_RETRY_ROLLBACK_CLEANUP=YES\n'
+            } >&2
+            exit 1
+          }
+
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop_post WORKFLOW_ATTEMPT_NOT_ONE
+          [ "${GITHUB_SHA:-}" = "${EXPECTED_APPROVED_SHA:-}" ] || stop_post WORKFLOW_SHA_NOT_APPROVED
+
+          set +e
+          verify_receipt="$(python3 scripts/owner-panel-access-write-token-repair-staged.py --readonly-postverify)"
+          verify_rc=$?
+          set -e
+          printf '%s\n' "$verify_receipt"
+          [ "$verify_rc" -eq 0 ] || stop_post TOKEN_POLICY_REPAIR_POSTVERIFY_FAILED
+
+          jq -e '
+            .detail == "ACCESS_WRITE_TOKEN_REPAIR_POSTVERIFY_COMPLETE" and
+            .write_token_status == "PROVEN_ACTIVE" and
+            .exact_target_access_after == "PROVEN_EXACT_GET" and
+            .production_mutations == 0
+          ' <<<"$verify_receipt" >/dev/null || stop_post TOKEN_POLICY_REPAIR_POSTVERIFY_RECEIPT_INVALID
 
           printf 'AUTHORIZATION_CONSUMED=YES\n'
           printf 'TOKEN_POLICY_PUT_STARTED=YES\n'
