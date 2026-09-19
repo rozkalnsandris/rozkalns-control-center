@@ -130,37 +130,54 @@ def empty_receipt(detail):
         "detail": detail,
         "permission_interpretation": "WRITE_NOT_PROVEN_BY_GET",
         "production_mutations": 0,
+        "request_stage": "NOT_STARTED",
+        "response_class": "NOT_RUN",
         "selected_service_token_match": "NOT_PROVEN",
         "service_token_get_access": "NOT_PROVEN",
         "write_token_status": "NOT_PROVEN",
     }
 
 
+def classify_failure(receipt, stage, error):
+    receipt["request_stage"] = stage
+    if isinstance(error, urllib.error.HTTPError):
+        if error.code == 401:
+            receipt["response_class"] = "HTTP_401"
+            receipt["detail"] = "ACCESS_WRITE_TOKEN_AUTHENTICATION_FAILED"
+        elif error.code == 403:
+            receipt["response_class"] = "HTTP_403"
+            receipt["detail"] = "ACCESS_WRITE_TOKEN_SERVICE_TOKEN_ACCESS_NOT_GRANTED"
+        else:
+            receipt["response_class"] = "HTTP_OTHER"
+            receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
+        return receipt
+    if isinstance(error, ProofError):
+        receipt["response_class"] = "CONTRACT_UNPROVEN"
+        receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
+        return receipt
+    if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+        receipt["response_class"] = "RESPONSE_NOT_JSON"
+        receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
+        return receipt
+    if isinstance(error, (urllib.error.URLError, TimeoutError, OSError)):
+        receipt["response_class"] = "REQUEST_FAILED"
+        receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
+        return receipt
+    receipt["response_class"] = "UNCLASSIFIED_FAILURE"
+    receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
+    return receipt
+
+
 def probe(token, client_id, read=read_json):
     if not isinstance(token, str) or not token or not isinstance(client_id, str) or not client_id:
         return empty_receipt("ACCESS_WRITE_TOKEN_CREDENTIAL_UNAVAILABLE")
+
+    receipt = empty_receipt("ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN")
+
     try:
         verify_token(token, read)
-        receipt = empty_receipt("ACCESS_WRITE_TOKEN_GET_PROOF_COMPLETE")
-        receipt["write_token_status"] = "PROVEN_ACTIVE"
-        selected = select_target(list_service_tokens(token, read), client_id)
-        detail = get_service_token(token, selected["id"], read)
-        require(detail.get("id") == selected["id"], "SERVICE_TOKEN_TARGET_MISMATCH")
-        require(detail.get("client_id") == client_id, "SERVICE_TOKEN_CLIENT_ID_MISMATCH")
-        require(detail.get("enabled") is True, "SERVICE_TOKEN_DISABLED")
-        receipt.update({
-            "permission_interpretation": "PROVEN_SERVICE_TOKEN_READ_OR_WRITE_ACCEPTED",
-            "selected_service_token_match": "PROVEN_SELECTOR_MATCH_ENABLED",
-            "service_token_get_access": "PROVEN_LIST_AND_GET",
-        })
-        return receipt
-    except urllib.error.HTTPError as error:
-        if error.code == 401:
-            return empty_receipt("ACCESS_WRITE_TOKEN_AUTHENTICATION_FAILED")
-        if error.code == 403:
-            return empty_receipt("ACCESS_WRITE_TOKEN_SERVICE_TOKEN_ACCESS_NOT_GRANTED")
-        return empty_receipt("ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN")
     except (
+        urllib.error.HTTPError,
         urllib.error.URLError,
         TimeoutError,
         json.JSONDecodeError,
@@ -170,8 +187,60 @@ def probe(token, client_id, read=read_json):
         ValueError,
         TypeError,
         KeyError,
-    ):
-        return empty_receipt("ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN")
+    ) as error:
+        return classify_failure(receipt, "VERIFY", error)
+
+    receipt["write_token_status"] = "PROVEN_ACTIVE"
+    receipt["request_stage"] = "VERIFY"
+    receipt["response_class"] = "HTTP_200_CONTRACT_VALID"
+
+    try:
+        selected = select_target(list_service_tokens(token, read), client_id)
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        OSError,
+        ProofError,
+        ValueError,
+        TypeError,
+        KeyError,
+    ) as error:
+        return classify_failure(receipt, "LIST", error)
+
+    receipt["selected_service_token_match"] = "PROVEN_SELECTOR_MATCH_ENABLED"
+    receipt["request_stage"] = "LIST"
+    receipt["response_class"] = "HTTP_200_CONTRACT_VALID"
+
+    try:
+        detail = get_service_token(token, selected["id"], read)
+        require(detail.get("id") == selected["id"], "SERVICE_TOKEN_TARGET_MISMATCH")
+        require(detail.get("client_id") == client_id, "SERVICE_TOKEN_CLIENT_ID_MISMATCH")
+        require(detail.get("enabled") is True, "SERVICE_TOKEN_DISABLED")
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        OSError,
+        ProofError,
+        ValueError,
+        TypeError,
+        KeyError,
+    ) as error:
+        return classify_failure(receipt, "GET", error)
+
+    receipt.update({
+        "detail": "ACCESS_WRITE_TOKEN_GET_PROOF_COMPLETE",
+        "permission_interpretation": "PROVEN_SERVICE_TOKEN_READ_OR_WRITE_ACCEPTED",
+        "request_stage": "GET",
+        "response_class": "HTTP_200_CONTRACT_VALID",
+        "service_token_get_access": "PROVEN_LIST_AND_GET",
+    })
+    return receipt
 
 
 def main(env, read=read_json):
@@ -183,6 +252,8 @@ def main(env, read=read_json):
         )
     except Exception:
         receipt = empty_receipt("ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN")
+        receipt["request_stage"] = "UNCLASSIFIED"
+        receipt["response_class"] = "UNCLASSIFIED_FAILURE"
     print(json.dumps(receipt, sort_keys=True))
     return 0 if receipt["detail"] == "ACCESS_WRITE_TOKEN_GET_PROOF_COMPLETE" else 1
 

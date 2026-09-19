@@ -50,6 +50,8 @@ class WriteTokenProofTests(unittest.TestCase):
         self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
         self.assertEqual(receipt["service_token_get_access"], "PROVEN_LIST_AND_GET")
         self.assertEqual(receipt["selected_service_token_match"], "PROVEN_SELECTOR_MATCH_ENABLED")
+        self.assertEqual(receipt["request_stage"], "GET")
+        self.assertEqual(receipt["response_class"], "HTTP_200_CONTRACT_VALID")
         self.assertEqual(
             receipt["permission_interpretation"],
             "PROVEN_SERVICE_TOKEN_READ_OR_WRITE_ACCEPTED",
@@ -67,9 +69,11 @@ class WriteTokenProofTests(unittest.TestCase):
 
         receipt = MOD.probe("", CLIENT_ID, read)
         self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_CREDENTIAL_UNAVAILABLE")
+        self.assertEqual(receipt["request_stage"], "NOT_STARTED")
+        self.assertEqual(receipt["response_class"], "NOT_RUN")
         self.assertEqual(calls, 0)
 
-    def test_401_is_bounded_authentication_failure(self):
+    def test_401_is_bounded_authentication_failure_at_verify(self):
         def read(_req):
             raise urllib.error.HTTPError(
                 "https://example.invalid", 401, "unauthorized", {}, io.BytesIO(b"raw provider detail")
@@ -77,9 +81,12 @@ class WriteTokenProofTests(unittest.TestCase):
 
         receipt = MOD.probe("write-token", CLIENT_ID, read)
         self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_AUTHENTICATION_FAILED")
-        self.assertNotIn("provider", json.dumps(receipt))
+        self.assertEqual(receipt["request_stage"], "VERIFY")
+        self.assertEqual(receipt["response_class"], "HTTP_401")
+        self.assertEqual(receipt["write_token_status"], "NOT_PROVEN")
+        self.assertNotIn("raw provider detail", json.dumps(receipt))
 
-    def test_403_is_bounded_service_token_access_failure(self):
+    def test_403_after_verify_preserves_active_proof_and_stage(self):
         def read(req):
             if req.full_url == MOD.VERIFY:
                 return verify_payload()
@@ -89,9 +96,12 @@ class WriteTokenProofTests(unittest.TestCase):
 
         receipt = MOD.probe("write-token", CLIENT_ID, read)
         self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_SERVICE_TOKEN_ACCESS_NOT_GRANTED")
+        self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
+        self.assertEqual(receipt["request_stage"], "LIST")
+        self.assertEqual(receipt["response_class"], "HTTP_403")
         self.assertEqual(receipt["production_mutations"], 0)
 
-    def test_inactive_token_is_unproven_not_leaked(self):
+    def test_inactive_token_is_bounded_verify_contract_failure(self):
         def read(req):
             if req.full_url == MOD.VERIFY:
                 return verify_payload("disabled")
@@ -100,8 +110,22 @@ class WriteTokenProofTests(unittest.TestCase):
         receipt = MOD.probe("write-token", CLIENT_ID, read)
         self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN")
         self.assertEqual(receipt["write_token_status"], "NOT_PROVEN")
+        self.assertEqual(receipt["request_stage"], "VERIFY")
+        self.assertEqual(receipt["response_class"], "CONTRACT_UNPROVEN")
 
-    def test_selected_target_mismatch_is_bounded(self):
+    def test_list_contract_failure_preserves_active_proof(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            return {"success": True, "result": {}}
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
+        self.assertEqual(receipt["selected_service_token_match"], "NOT_PROVEN")
+        self.assertEqual(receipt["request_stage"], "LIST")
+        self.assertEqual(receipt["response_class"], "CONTRACT_UNPROVEN")
+
+    def test_selected_target_mismatch_preserves_prior_get_stage_proof(self):
         def read(req):
             if req.full_url == MOD.VERIFY:
                 return verify_payload()
@@ -113,8 +137,13 @@ class WriteTokenProofTests(unittest.TestCase):
 
         receipt = MOD.probe("write-token", CLIENT_ID, read)
         self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN")
+        self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
+        self.assertEqual(receipt["selected_service_token_match"], "PROVEN_SELECTOR_MATCH_ENABLED")
+        self.assertEqual(receipt["service_token_get_access"], "NOT_PROVEN")
+        self.assertEqual(receipt["request_stage"], "GET")
+        self.assertEqual(receipt["response_class"], "CONTRACT_UNPROVEN")
 
-    def test_receipt_never_contains_credentials_or_identifiers(self):
+    def test_receipt_never_contains_credentials_identifiers_or_provider_detail(self):
         def read(req):
             if req.full_url == MOD.VERIFY:
                 payload = verify_payload()
