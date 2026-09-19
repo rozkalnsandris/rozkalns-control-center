@@ -52,6 +52,10 @@ def with_extra(value):
     return payload
 
 
+def with_cf_ray(value, cf_ray):
+    return e.ResponsePayload(with_extra(value), cf_ray)
+
+
 class EnvelopeProofTests(unittest.TestCase):
     def test_current_syntax_locations_absent_adds_bounded_shape_fields(self):
         cases = (
@@ -82,6 +86,7 @@ class EnvelopeProofTests(unittest.TestCase):
                     receipt["error_message_hint"],
                     "ERROR_MESSAGE_NO_UNIQUE_HINT",
                 )
+                self.assertNotIn("extension_other_string_cf_ray_relation", receipt)
                 self.assertFalse(receipt["graphql_authorization_proven"])
                 self.assertFalse(receipt["production_mutations"])
 
@@ -245,6 +250,35 @@ class EnvelopeProofTests(unittest.TestCase):
                 receipt = e.prove(TOKEN, lambda *_: with_extra(value), NOW)
                 self.assertEqual(receipt["extension_other_string_shape"], expected)
 
+    def test_extension_other_string_cf_ray_relation_is_bounded(self):
+        cf_ray = "230b030023ae2822-SJC"
+        cases = (
+            (with_cf_ray(cf_ray, cf_ray),
+             "EXTENSION_OTHER_STRING_CF_RAY_FULL_MATCH"),
+            (with_cf_ray("230b030023ae2822", cf_ray),
+             "EXTENSION_OTHER_STRING_CF_RAY_ID_MATCH"),
+            (with_cf_ray("opaque-private-token", cf_ray),
+             "EXTENSION_OTHER_STRING_CF_RAY_NO_MATCH"),
+            (with_cf_ray("opaque-private-token", None),
+             "EXTENSION_OTHER_STRING_CF_RAY_HEADER_ABSENT"),
+            (with_cf_ray("opaque-private-token", "private-invalid-ray"),
+             "EXTENSION_OTHER_STRING_CF_RAY_HEADER_SHAPE_UNPROVEN"),
+        )
+        for payload, expected in cases:
+            with self.subTest(expected=expected):
+                receipt = e.prove(TOKEN, lambda *_: payload, NOW)
+                self.assertEqual(
+                    receipt["extension_other_string_cf_ray_relation"],
+                    expected,
+                )
+
+        non_string = e.ResponsePayload(with_extra(17), cf_ray)
+        receipt = e.prove(TOKEN, lambda *_: non_string, NOW)
+        self.assertEqual(
+            receipt["extension_other_string_cf_ray_relation"],
+            "EXTENSION_OTHER_STRING_CF_RAY_RELATION_UNPROVEN",
+        )
+
     def test_error_message_hint_uses_existing_bounded_classifier(self):
         cases = (
             ("token permission denied", "ERROR_MESSAGE_AUTH_HINT"),
@@ -286,6 +320,7 @@ class EnvelopeProofTests(unittest.TestCase):
         self.assertNotIn("extension_other_value_type_shape", receipt)
         self.assertNotIn("extension_other_string_hint", receipt)
         self.assertNotIn("extension_other_string_shape", receipt)
+        self.assertNotIn("extension_other_string_cf_ray_relation", receipt)
         self.assertNotIn("error_message_hint", receipt)
 
     def test_public_receipt_does_not_leak_timestamp_data_extension_or_message_values(self):
@@ -331,6 +366,7 @@ class EnvelopeProofTests(unittest.TestCase):
             receipt["extension_other_string_shape"],
             "EXTENSION_OTHER_STRING_SHORT_TEXT",
         )
+        self.assertNotIn("extension_other_string_cf_ray_relation", receipt)
         self.assertEqual(receipt["error_message_hint"], "ERROR_MESSAGE_AUTH_HINT")
         for private in (
             TOKEN,
@@ -341,6 +377,23 @@ class EnvelopeProofTests(unittest.TestCase):
             "private_extra_key",
         ):
             self.assertNotIn(private, output.getvalue())
+
+    def test_cf_ray_relation_does_not_leak_header_or_extension_value(self):
+        cf_ray = "230b030023ae2822-SJC"
+        payload = with_cf_ray(cf_ray, cf_ray)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(
+                e.main({"CLOUDFLARE_ACCESS_READ_TOKEN": TOKEN}, lambda *_: payload),
+                1,
+            )
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(
+            receipt["extension_other_string_cf_ray_relation"],
+            "EXTENSION_OTHER_STRING_CF_RAY_FULL_MATCH",
+        )
+        self.assertNotIn(cf_ray, output.getvalue())
+        self.assertNotIn("230b030023ae2822", output.getvalue())
 
     def test_wrapper_still_makes_only_one_read(self):
         calls = []
