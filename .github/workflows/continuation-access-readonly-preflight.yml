@@ -1,0 +1,193 @@
+name: Continuation Access read-only preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_idp_id:
+        description: Existing reviewed Access identity-provider UUID to bind to the continuation app
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: continuation-access-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: prove continuation Access target vacancy and freeze non-target state
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      EXPECTED_IDP_ID: ${{ inputs.expected_idp_id }}
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+
+    steps:
+      - name: Checkout exact main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Focused offline contract tests
+        run: node --test scripts/continuation-access-provisioning.test.mjs
+
+      - name: GET-only Access inventory and contract proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop() {
+            {
+              printf 'CONTINUATION_ACCESS_PREFLIGHT=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'ACCESS_API_METHOD=GET_ONLY\n'
+              printf 'PRODUCTION_MUTATIONS=0\n'
+              printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
+              printf 'SECRET_MUTATION=NO\n'
+              printf 'WORKER_MUTATION=NO\n'
+              printf 'D1_MUTATION=NO\n'
+            } >&2
+            exit 1
+          }
+
+          sanitize() {
+            printf '%s' "$1" | LC_ALL=C tr -cd '[:alnum:] _./:@+-' | cut -c1-200
+          }
+
+          for cmd in curl jq node sed tr wc; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop WORKFLOW_EVENT_NOT_DISPATCH
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop WORKFLOW_ATTEMPT_NOT_ONE
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || stop WORKFLOW_SHA_INVALID
+          [[ "${EXPECTED_IDP_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop EXPECTED_IDP_ID_INVALID
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_ACCESS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_READ_TOKEN
+
+          tmp="${RUNNER_TEMP}/continuation-access-preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$tmp"
+          trap 'rm -rf "$tmp"' EXIT
+
+          gh_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
+          }
+
+          cf_get_array_page() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_ACCESS_GET_FAILED
+            jq -e '.success == true and (.result | type == "array")' "$out" >/dev/null || stop CLOUDFLARE_ACCESS_ARRAY_RESPONSE_INVALID
+          }
+
+          cf_get_object() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}${path}" > "$out" || stop CLOUDFLARE_ACCESS_GET_FAILED
+            jq -e '.success == true and (.result | type == "object")' "$out" >/dev/null || stop CLOUDFLARE_ACCESS_OBJECT_RESPONSE_INVALID
+          }
+
+          fetch_paginated_array() {
+            local base_path="$1" output="$2" label="$3"
+            local page=1 page_file count
+            : > "$tmp/${label}.ndjson"
+            while :; do
+              [ "$page" -le 10 ] || stop "${label^^}_PAGINATION_LIMIT"
+              page_file="$tmp/${label}-${page}.json"
+              cf_get_array_page "${base_path}?per_page=100&page=${page}" "$page_file"
+              jq -c '.result[]?' "$page_file" >> "$tmp/${label}.ndjson"
+              count="$(jq '.result | length' "$page_file")"
+              [[ "$count" =~ ^[0-9]+$ ]] || stop "${label^^}_PAGE_COUNT_INVALID"
+              [ "$count" -lt 100 ] && break
+              page=$((page + 1))
+            done
+            jq -s '.' "$tmp/${label}.ndjson" > "$output"
+          }
+
+          printf '%s\n' STAGE=EXACT_MAIN_CI
+          gh_get '/branches/main' "$tmp/main.json"
+          jq -e --arg sha "$GITHUB_SHA" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+          gh_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${GITHUB_SHA}&per_page=10" "$tmp/ci-runs.json"
+          ci_run_id="$(jq -r --arg sha "$GITHUB_SHA" '[.workflow_runs[]? | select(.name == "CI" and .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .run_attempt == 1 and .status == "completed" and .conclusion == "success")] | sort_by(.run_number) | last | .id // empty' "$tmp/ci-runs.json")"
+          [[ "$ci_run_id" =~ ^[1-9][0-9]*$ ]] || stop EXACT_MAIN_CI_NOT_SUCCESS
+          gh_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
+          jq -e --arg sha "$GITHUB_SHA" --argjson id "$ci_run_id" '.id == $id and .name == "CI" and .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+
+          printf '%s\n' STAGE=ACCESS_GET_ONLY_INVENTORY
+          fetch_paginated_array '/access/apps' "$tmp/apps.json" apps
+          app_count="$(jq 'length' "$tmp/apps.json")"
+          [[ "$app_count" =~ ^[0-9]+$ ]] || stop ACCESS_APP_COUNT_INVALID
+          [ "$app_count" -le 100 ] || stop ACCESS_APP_COUNT_UNBOUNDED
+
+          printf '{}' > "$tmp/policies.json"
+          total_policy_count=0
+          while IFS= read -r app_id; do
+            [[ "$app_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop ACCESS_APP_ID_INVALID
+            fetch_paginated_array "/access/apps/${app_id}/policies" "$tmp/app-policies.json" "policies-${app_id}"
+            policy_count="$(jq 'length' "$tmp/app-policies.json")"
+            [[ "$policy_count" =~ ^[0-9]+$ ]] || stop ACCESS_POLICY_COUNT_INVALID
+            [ "$policy_count" -le 100 ] || stop ACCESS_POLICY_COUNT_UNBOUNDED
+            total_policy_count=$((total_policy_count + policy_count))
+            [ "$total_policy_count" -le 1000 ] || stop ACCESS_POLICY_TOTAL_COUNT_UNBOUNDED
+            jq --arg id "$app_id" --slurpfile policies "$tmp/app-policies.json" '. + {($id): $policies[0]}' "$tmp/policies.json" > "$tmp/policies.next.json"
+            mv "$tmp/policies.next.json" "$tmp/policies.json"
+          done < <(jq -r '.[].id' "$tmp/apps.json")
+
+          fetch_paginated_array '/access/identity_providers' "$tmp/idps.json" idps
+          idp_count="$(jq 'length' "$tmp/idps.json")"
+          [[ "$idp_count" =~ ^[0-9]+$ ]] || stop ACCESS_IDP_COUNT_INVALID
+          [ "$idp_count" -le 1000 ] || stop ACCESS_IDP_COUNT_UNBOUNDED
+          cf_get_object '/access/organizations' "$tmp/organization.json"
+          jq '.result' "$tmp/organization.json" > "$tmp/organization-result.json"
+
+          set +e
+          proof="$(node scripts/continuation-access-provisioning.mjs preflight "$tmp/apps.json" "$tmp/policies.json" "$tmp/idps.json" "$tmp/organization-result.json" "$EXPECTED_IDP_ID")"
+          proof_rc=$?
+          set -e
+          [ "$proof_rc" -eq 0 ] || stop CONTINUATION_ACCESS_CONTRACT_REJECTED
+          jq -e '.status == "PASS" and .conflictCount == 0 and (.nonTargetDigest | test("^[0-9a-f]{64}$")) and (.issuer | test("^https://[A-Za-z0-9.-]+\\.cloudflareaccess\\.com$"))' <<<"$proof" >/dev/null || stop CONTINUATION_ACCESS_PROOF_INVALID
+
+          proven_idp_id="$(jq -r '.idp.id' <<<"$proof")"
+          proven_idp_name="$(jq -r '.idp.name' <<<"$proof")"
+          proven_idp_type="$(jq -r '.idp.type' <<<"$proof")"
+          non_target_digest="$(jq -r '.nonTargetDigest' <<<"$proof")"
+          issuer="$(jq -r '.issuer' <<<"$proof")"
+          [ "$proven_idp_id" = "$EXPECTED_IDP_ID" ] || stop ACCESS_IDP_BINDING_CHANGED
+
+          printf 'CONTINUATION_ACCESS_PREFLIGHT=PASS\n'
+          printf 'SOURCE_SHA=%s\n' "$GITHUB_SHA"
+          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+          printf 'IDP_ID=%s\n' "$proven_idp_id"
+          printf 'IDP_NAME=%s\n' "$(sanitize "$proven_idp_name")"
+          printf 'IDP_TYPE=%s\n' "$(sanitize "$proven_idp_type")"
+          printf 'ACCESS_ISSUER=%s\n' "$issuer"
+          printf 'NON_TARGET_DIGEST=%s\n' "$non_target_digest"
+          printf 'TARGET_APP_NAME=Rozkalns Control owner continuation\n'
+          printf 'TARGET_DESTINATION_1=control.rozkalns.net/api/control/continuation\n'
+          printf 'TARGET_DESTINATION_2=control.rozkalns.net/api/control/continuation/preflight\n'
+          printf 'CONFLICT_COUNT=0\n'
+          printf 'APP_COUNT=%s\n' "$app_count"
+          printf 'POLICY_COUNT=%s\n' "$total_policy_count"
+          printf 'ACCESS_API_METHOD=GET_ONLY\n'
+          printf 'PRODUCTION_MUTATIONS=0\n'
