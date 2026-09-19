@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run allowlisted owner-panel runtime diagnostics with a browser-compatible User-Agent."""
+"""Run the canonical owner-panel inventory with a browser-compatible User-Agent."""
 import runpy
 import socket
 import sys
@@ -15,8 +15,6 @@ BROWSER_USER_AGENT = (
 )
 ALLOWED_RELATIVE_TARGETS = frozenset((
     "scripts/owner-panel-readonly-preflight.py",
-    "scripts/owner-panel-health403-detail.py",
-    "scripts/owner-panel-health403-credential-effect.py",
 ))
 _ORIGINAL_OPEN = urllib.request.OpenerDirector.open
 
