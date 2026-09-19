@@ -9,12 +9,14 @@ export const CONTINUATION_ACCESS_DESTINATIONS = Object.freeze([
   "control.rozkalns.net/api/control/continuation",
   "control.rozkalns.net/api/control/continuation/preflight",
 ]);
+export const CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID = "235c0666-9e1b-45a2-a7a2-63433c8a2247";
+export const CONTINUATION_ACCESS_IDP_REFERENCE_URI = "*.rozkalns.net";
+export const CONTINUATION_ACCESS_ISSUER = "https://super-salad-2357.cloudflareaccess.com";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const AUDIENCE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ACCESS_DOMAIN_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.cloudflareaccess\.com$/;
 
 export class ContinuationAccessProvisioningError extends Error {
   constructor(code) {
@@ -84,29 +86,39 @@ function canonicalPoliciesForDigest(policies) {
     .map(canonicalize);
 }
 
-export function accessIssuerFromOrganization(organizationDocument) {
-  const organization = resultObject(organizationDocument, "ACCESS_ORGANIZATION_INVALID");
-  const authDomain = organization?.auth_domain;
-  if (typeof authDomain !== "string" || !ACCESS_DOMAIN_PATTERN.test(authDomain)) {
-    fail("ACCESS_ORGANIZATION_AUTH_DOMAIN_INVALID");
-  }
-  return `https://${authDomain.toLowerCase()}`;
+export function assertContinuationAccessIssuer(issuer) {
+  if (issuer !== CONTINUATION_ACCESS_ISSUER) fail("ACCESS_ISSUER_NOT_REVIEWED");
+  return issuer;
 }
 
-export function assertSelectedIdentityProvider(identityProvidersDocument, expectedId) {
+export function canonicalIdentityProviderReference(appsDocument) {
+  const apps = resultArray(appsDocument, "ACCESS_APP_INVENTORY_INVALID");
+  if (apps.length > 1000) fail("ACCESS_APP_INVENTORY_UNBOUNDED");
+  const matches = apps.filter((app) => app?.id === CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID);
+  if (matches.length !== 1) fail("ACCESS_IDP_REFERENCE_APP_NOT_EXACT");
+
+  const app = matches[0];
+  if (app?.type !== "self_hosted") fail("ACCESS_IDP_REFERENCE_APP_TYPE_INVALID");
+  const uris = [...new Set(accessApplicationPublicUris(app).map(normalizeUri).filter(Boolean))].sort();
+  if (JSON.stringify(uris) !== JSON.stringify([CONTINUATION_ACCESS_IDP_REFERENCE_URI])) {
+    fail("ACCESS_IDP_REFERENCE_APP_DESTINATION_INVALID");
+  }
+  if (!Array.isArray(app?.allowed_idps) || app.allowed_idps.length !== 1) {
+    fail("ACCESS_IDP_REFERENCE_NOT_EXACT");
+  }
+  const id = assertUuid(app.allowed_idps[0], "ACCESS_IDP_REFERENCE_ID_INVALID");
+  return {
+    id,
+    referenceAppId: CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID,
+    referenceUri: CONTINUATION_ACCESS_IDP_REFERENCE_URI,
+  };
+}
+
+export function assertSelectedIdentityProviderReference(appsDocument, expectedId) {
   assertUuid(expectedId, "ACCESS_IDP_ID_INVALID");
-  const providers = resultArray(identityProvidersDocument, "ACCESS_IDP_INVENTORY_INVALID");
-  if (providers.length > 1000) fail("ACCESS_IDP_INVENTORY_UNBOUNDED");
-  const matches = providers.filter((provider) => provider?.id === expectedId);
-  if (matches.length !== 1) fail("ACCESS_IDP_NOT_EXACT");
-  const provider = matches[0];
-  if (typeof provider?.name !== "string" || provider.name.length < 1 || provider.name.length > 200) {
-    fail("ACCESS_IDP_NAME_INVALID");
-  }
-  if (typeof provider?.type !== "string" || provider.type.length < 1 || provider.type.length > 100) {
-    fail("ACCESS_IDP_TYPE_INVALID");
-  }
-  return { id: expectedId, name: provider.name, type: provider.type };
+  const reference = canonicalIdentityProviderReference(appsDocument);
+  if (reference.id !== expectedId) fail("ACCESS_IDP_REFERENCE_CHANGED");
+  return reference;
 }
 
 export function continuationAccessApplicationConflicts(appsDocument) {
@@ -234,17 +246,17 @@ export function assertExactContinuationAccessPolicy(policy, ownerEmail) {
   return policy;
 }
 
-export function evaluateContinuationAccessPreflight({ apps, policiesByApp, identityProviders, expectedIdpId, organization }) {
+export function evaluateContinuationAccessPreflight({ apps, policiesByApp, expectedIdpId, issuer }) {
   const conflicts = continuationAccessApplicationConflicts(apps);
   if (conflicts.length !== 0) fail("ACCESS_CONTINUATION_TARGET_CONFLICT");
-  const idp = assertSelectedIdentityProvider(identityProviders, expectedIdpId);
-  const issuer = accessIssuerFromOrganization(organization);
+  const idp = assertSelectedIdentityProviderReference(apps, expectedIdpId);
+  const reviewedIssuer = assertContinuationAccessIssuer(issuer);
   const nonTargetDigest = nonTargetAccessInventoryDigest(apps, policiesByApp);
   return {
     status: "PASS",
     conflictCount: 0,
     idp,
-    issuer,
+    issuer: reviewedIssuer,
     nonTargetDigest,
   };
 }
@@ -255,12 +267,14 @@ export function evaluateContinuationAccessPostflight({
   createdAppId,
   expectedIdpId,
   ownerEmail,
-  organization,
+  issuer,
   expectedNonTargetDigest,
 }) {
   assertUuid(createdAppId, "ACCESS_CREATED_APP_ID_INVALID");
   if (!SHA256_PATTERN.test(expectedNonTargetDigest)) fail("ACCESS_EXPECTED_DIGEST_INVALID");
+  const reviewedIssuer = assertContinuationAccessIssuer(issuer);
   const appList = resultArray(apps, "ACCESS_APP_INVENTORY_INVALID");
+  const idp = assertSelectedIdentityProviderReference(appList, expectedIdpId);
   const conflicts = continuationAccessApplicationConflicts(appList);
   if (conflicts.length !== 1 || conflicts[0].id !== createdAppId) {
     fail("ACCESS_CREATED_APP_NOT_UNIQUE");
@@ -277,7 +291,8 @@ export function evaluateContinuationAccessPostflight({
     appId: createdAppId,
     audience: exactApp.aud,
     policyId: policy.id,
-    issuer: accessIssuerFromOrganization(organization),
+    idp,
+    issuer: reviewedIssuer,
     nonTargetDigest: actualNonTargetDigest,
   };
 }
@@ -298,15 +313,22 @@ function main() {
   const [command, ...args] = process.argv.slice(2);
   if (!command) fail("COMMAND_MISSING");
 
+  if (command === "reference-idp") {
+    if (args.length !== 1) fail("REFERENCE_IDP_ARGUMENTS_INVALID");
+    const [appsPath] = args;
+    const result = canonicalIdentityProviderReference(readJson(appsPath));
+    process.stdout.write(`${JSON.stringify({ status: "PASS", ...result })}\n`);
+    return;
+  }
+
   if (command === "preflight") {
-    if (args.length !== 5) fail("PREFLIGHT_ARGUMENTS_INVALID");
-    const [appsPath, policiesPath, idpsPath, organizationPath, expectedIdpId] = args;
+    if (args.length !== 4) fail("PREFLIGHT_ARGUMENTS_INVALID");
+    const [appsPath, policiesPath, expectedIdpId, issuer] = args;
     const result = evaluateContinuationAccessPreflight({
       apps: readJson(appsPath),
       policiesByApp: readJson(policiesPath),
-      identityProviders: readJson(idpsPath),
       expectedIdpId,
-      organization: readJson(organizationPath),
+      issuer,
     });
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
@@ -325,7 +347,7 @@ function main() {
 
   if (command === "postflight") {
     if (args.length !== 7) fail("POSTFLIGHT_ARGUMENTS_INVALID");
-    const [appsPath, policiesPath, createdAppId, expectedIdpId, organizationPath, expectedDigest, createdAppResponsePath] = args;
+    const [appsPath, policiesPath, createdAppId, expectedIdpId, issuer, expectedDigest, createdAppResponsePath] = args;
     const responseApp = resultObject(readJson(createdAppResponsePath), "ACCESS_CREATED_APP_RESPONSE_INVALID");
     if (responseApp?.id !== createdAppId) fail("ACCESS_CREATED_APP_RESPONSE_ID_CHANGED");
     const result = evaluateContinuationAccessPostflight({
@@ -334,7 +356,7 @@ function main() {
       createdAppId,
       expectedIdpId,
       ownerEmail: process.env.CONTROL_CONTINUATION_OWNER_EMAIL ?? "",
-      organization: readJson(organizationPath),
+      issuer,
       expectedNonTargetDigest: expectedDigest,
     });
     if (responseApp?.aud !== result.audience) fail("ACCESS_CREATED_APP_RESPONSE_AUDIENCE_CHANGED");
