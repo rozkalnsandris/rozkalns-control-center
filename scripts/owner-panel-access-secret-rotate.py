@@ -49,12 +49,12 @@ def bearer_headers(token):
     }
 
 
-def list_service_tokens(write_token, send=default_send):
+def list_service_tokens(read_token, send=default_send):
     tokens = []
     for page in range(1, MAX_PAGES + 1):
         request = urllib.request.Request(
             f"{BASE}?per_page=100&page={page}",
-            headers=bearer_headers(write_token),
+            headers=bearer_headers(read_token),
             method="GET",
         )
         payload = send(request)
@@ -114,8 +114,10 @@ def write_private_payload(path, client_id, client_secret):
         raise
 
 
-def rotate_selected_secret(write_token, client_id, output_file, send=default_send, now=None):
-    tokens = list_service_tokens(write_token, send)
+def rotate_selected_secret(
+    read_token, write_token, client_id, output_file, send=default_send, now=None
+):
+    tokens = list_service_tokens(read_token, send)
     selected = select_target(tokens, client_id)
     now = now or datetime.datetime.now(datetime.timezone.utc)
     grace_expires_at = rfc3339_utc(now + datetime.timedelta(hours=1))
@@ -179,6 +181,7 @@ def run(env, send=default_send, now=None):
         }
 
     required = (
+        "CLOUDFLARE_ACCESS_READ_TOKEN",
         "CLOUDFLARE_ACCESS_WRITE_TOKEN",
         "CONTROL_ACCESS_CLIENT_ID",
         "ROTATION_OUTPUT_FILE",
@@ -202,6 +205,7 @@ def run(env, send=default_send, now=None):
 
     try:
         return rotate_selected_secret(
+            env["CLOUDFLARE_ACCESS_READ_TOKEN"],
             env["CLOUDFLARE_ACCESS_WRITE_TOKEN"],
             env["CONTROL_ACCESS_CLIENT_ID"],
             output_file,
