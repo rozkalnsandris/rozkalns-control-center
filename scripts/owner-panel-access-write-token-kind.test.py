@@ -110,7 +110,7 @@ class AccessWriteTokenKindTests(unittest.TestCase):
         receipt = MOD.classify(token, read)
         self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_KIND_VERIFY_FAILED")
         self.assertEqual(receipt["token_kind"], "NOT_PROVEN")
-        self.assertEqual(receipt["verify_class"], "UNCLASSIFIED_FAILURE")
+        self.assertEqual(receipt["verify_class"], "HTTP_403")
         self.assertNotIn("raw-provider-secret-detail", json.dumps(receipt))
         self.assertNotIn(token, json.dumps(receipt))
 
