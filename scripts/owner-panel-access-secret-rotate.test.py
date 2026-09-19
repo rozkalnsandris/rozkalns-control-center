@@ -26,6 +26,7 @@ class RotationTest(unittest.TestCase):
             "GITHUB_REF_NAME": "main",
             "GITHUB_SHA": "a" * 40,
             "EXPECTED_MAIN_SHA": "a" * 40,
+            "CLOUDFLARE_ACCESS_READ_TOKEN": "synthetic-read-token",
             "CLOUDFLARE_ACCESS_WRITE_TOKEN": "synthetic-write-token",
             "CONTROL_ACCESS_CLIENT_ID": CLIENT_ID,
             "RUNNER_TEMP": tempdir,
@@ -40,6 +41,7 @@ class RotationTest(unittest.TestCase):
         def send(request):
             calls.append(request)
             if request.method == "GET":
+                self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-read-token")
                 self.assertEqual(
                     request.full_url,
                     R.BASE + "?per_page=100&page=1",
@@ -53,6 +55,7 @@ class RotationTest(unittest.TestCase):
                     }],
                 }
             if request.method == "POST":
+                self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-write-token")
                 self.assertEqual(request.full_url, R.BASE + f"/{TOKEN_ID}/rotate")
                 if post_error is not None:
                     raise post_error
@@ -88,7 +91,13 @@ class RotationTest(unittest.TestCase):
             payload = json.loads(payload_path.read_text())
             self.assertEqual(payload, {"client_id": CLIENT_ID, "client_secret": NEW_SECRET})
             rendered = json.dumps(receipt)
-            for private in (NEW_SECRET, "synthetic-write-token", TOKEN_ID, CLIENT_ID):
+            for private in (
+                NEW_SECRET,
+                "synthetic-read-token",
+                "synthetic-write-token",
+                TOKEN_ID,
+                CLIENT_ID,
+            ):
                 self.assertNotIn(private, rendered)
 
     def test_contract_drift_stops_before_network(self):
