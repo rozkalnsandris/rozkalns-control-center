@@ -110,7 +110,7 @@ class WriteTokenProofTests(unittest.TestCase):
         receipt = MOD.probe("write-token", CLIENT_ID, read)
         self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
         self.assertEqual(receipt["request_stage"], "LIST")
-        self.assertEqual(receipt["response_class"], "CONTRACT_UNPROVEN")
+        self.assertEqual(receipt["response_class"], "TARGET_DISABLED")
         self.assertEqual(receipt["production_mutations"], 0)
 
     def test_no_credential_makes_no_request(self):
@@ -167,7 +167,19 @@ class WriteTokenProofTests(unittest.TestCase):
         self.assertEqual(receipt["request_stage"], "VERIFY")
         self.assertEqual(receipt["response_class"], "CONTRACT_UNPROVEN")
 
-    def test_list_contract_failure_preserves_active_proof(self):
+    def test_list_success_not_true_is_bounded(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            return {"success": False, "errors": [{"message": "sensitive-provider-detail"}]}
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
+        self.assertEqual(receipt["request_stage"], "LIST")
+        self.assertEqual(receipt["response_class"], "LIST_SUCCESS_NOT_TRUE")
+        self.assertNotIn("sensitive-provider-detail", json.dumps(receipt))
+
+    def test_list_result_not_list_is_bounded(self):
         def read(req):
             if req.full_url == MOD.VERIFY:
                 return verify_payload()
@@ -177,7 +189,42 @@ class WriteTokenProofTests(unittest.TestCase):
         self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
         self.assertEqual(receipt["selected_service_token_match"], "NOT_PROVEN")
         self.assertEqual(receipt["request_stage"], "LIST")
-        self.assertEqual(receipt["response_class"], "CONTRACT_UNPROVEN")
+        self.assertEqual(receipt["response_class"], "LIST_RESULT_NOT_LIST")
+
+    def test_target_not_found_is_bounded(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            return {"success": True, "result": [{"client_id": "other.access"}]}
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
+        self.assertEqual(receipt["request_stage"], "LIST")
+        self.assertEqual(receipt["response_class"], "TARGET_NOT_FOUND")
+
+    def test_target_not_unique_is_bounded(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            payload = list_payload()
+            payload["result"].append(dict(payload["result"][0]))
+            return payload
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["request_stage"], "LIST")
+        self.assertEqual(receipt["response_class"], "TARGET_NOT_UNIQUE")
+
+    def test_target_id_invalid_is_bounded(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            payload = list_payload()
+            payload["result"][0]["id"] = "not-a-uuid"
+            return payload
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["request_stage"], "LIST")
+        self.assertEqual(receipt["response_class"], "TARGET_ID_INVALID")
 
     def test_selected_target_mismatch_preserves_prior_get_stage_proof(self):
         def read(req):
