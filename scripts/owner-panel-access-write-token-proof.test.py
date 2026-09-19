@@ -19,18 +19,18 @@ def verify_payload(status="active"):
     return {"success": True, "result": {"id": "a" * 32, "status": status}}
 
 
-def list_payload():
-    return {
-        "success": True,
-        "result": [{"id": TOKEN_ID, "client_id": CLIENT_ID, "enabled": True}],
-    }
+def list_payload(enabled=True):
+    row = {"id": TOKEN_ID, "client_id": CLIENT_ID}
+    if enabled is not None:
+        row["enabled"] = enabled
+    return {"success": True, "result": [row]}
 
 
-def detail_payload():
-    return {
-        "success": True,
-        "result": {"id": TOKEN_ID, "client_id": CLIENT_ID, "enabled": True},
-    }
+def detail_payload(enabled=True):
+    row = {"id": TOKEN_ID, "client_id": CLIENT_ID}
+    if enabled is not None:
+        row["enabled"] = enabled
+    return {"success": True, "result": row}
 
 
 class WriteTokenProofTests(unittest.TestCase):
@@ -58,6 +58,60 @@ class WriteTokenProofTests(unittest.TestCase):
         )
         self.assertEqual(receipt["production_mutations"], 0)
         self.assertEqual([method for method, _ in calls], ["GET", "GET", "GET"])
+
+    def test_sparse_unrelated_list_rows_do_not_invalidate_target(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            if "?per_page=" in req.full_url:
+                payload = list_payload()
+                payload["result"].insert(0, {"name": "unrelated-token"})
+                return payload
+            return detail_payload()
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_GET_PROOF_COMPLETE")
+        self.assertEqual(receipt["service_token_get_access"], "PROVEN_LIST_AND_GET")
+
+    def test_selected_row_without_optional_enabled_defers_to_get(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            if "?per_page=" in req.full_url:
+                return list_payload(enabled=None)
+            return detail_payload(enabled=True)
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_GET_PROOF_COMPLETE")
+        self.assertEqual(receipt["selected_service_token_match"], "PROVEN_SELECTOR_MATCH_ENABLED")
+        self.assertEqual(receipt["service_token_get_access"], "PROVEN_LIST_AND_GET")
+
+    def test_optional_enabled_absent_from_list_and_get_still_proves_api_access(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            if "?per_page=" in req.full_url:
+                return list_payload(enabled=None)
+            return detail_payload(enabled=None)
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_GET_PROOF_COMPLETE")
+        self.assertEqual(receipt["selected_service_token_match"], "PROVEN_SELECTOR_MATCH")
+        self.assertEqual(receipt["service_token_get_access"], "PROVEN_LIST_AND_GET")
+
+    def test_selected_row_explicitly_disabled_is_bounded_failure(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            if "?per_page=" in req.full_url:
+                return list_payload(enabled=False)
+            raise AssertionError("must stop after disabled list target")
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
+        self.assertEqual(receipt["request_stage"], "LIST")
+        self.assertEqual(receipt["response_class"], "CONTRACT_UNPROVEN")
+        self.assertEqual(receipt["production_mutations"], 0)
 
     def test_no_credential_makes_no_request(self):
         calls = 0
