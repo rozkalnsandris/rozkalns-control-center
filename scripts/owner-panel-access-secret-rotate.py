@@ -13,6 +13,7 @@ ACCOUNT = "70e29dbca0e8363358659102d2b74178"
 BASE = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/access/service_tokens"
 MAX_RESPONSE_BYTES = 65_536
 MAX_PAGES = 10
+NEW_CLIENT_SECRET = re.compile(r"cfast_[A-Za-z0-9]{48}")
 
 
 class RotationError(ValueError):
@@ -74,7 +75,7 @@ def list_service_tokens(read_token, send=default_send):
 
 
 def select_target(tokens, client_id):
-    require(isinstance(client_id, str) and 1 <= len(client_id) <= 256, "CLIENT_ID_INVALID")
+    require(isinstance(client_id, str) and 1 <= len(client_id) <= 128, "CLIENT_ID_INVALID")
     require(
         all(
             isinstance(token, dict)
@@ -150,8 +151,7 @@ def rotate_selected_secret(
         client_secret = result.get("client_secret")
         require(
             isinstance(client_secret, str)
-            and 20 <= len(client_secret) <= 256
-            and re.fullmatch(r"[^\s]+", client_secret) is not None,
+            and NEW_CLIENT_SECRET.fullmatch(client_secret) is not None,
             "ROTATE_SECRET_INVALID",
         )
         write_private_payload(output_file, client_id, client_secret)
