@@ -18,7 +18,8 @@ NOW = datetime.datetime(2026, 9, 18, 16, 40, tzinfo=datetime.timezone.utc)
 
 
 class Health403DetailTest(unittest.TestCase):
-    def token_read(self, expires_at, enabled=True, client_id="synthetic-client-id"):
+    def token_read(self, expires_at, enabled=True, client_id="synthetic-client-id",
+                   decision="non_identity", require=None, exclude=None):
         def read(url, _token, **_kwargs):
             if url == P.access_apps_url(1):
                 return {"success": True, "result": [{
@@ -27,10 +28,15 @@ class Health403DetailTest(unittest.TestCase):
                     "destinations": [{"type": "public", "uri": P.ORIGIN + "/api/health"}],
                 }]}
             if url == P.access_app_policies_url(APP_ID, 1):
-                return {"success": True, "result": [{
-                    "decision": "non_identity",
+                policy = {
+                    "decision": decision,
                     "include": [{"service_token": {"token_id": TOKEN_ID}}],
-                }]}
+                }
+                if require is not None:
+                    policy["require"] = require
+                if exclude is not None:
+                    policy["exclude"] = exclude
+                return {"success": True, "result": [policy]}
             if url == P.access_service_tokens_url(1):
                 return {"success": True, "result": [{
                     "id": TOKEN_ID,
@@ -73,6 +79,30 @@ class Health403DetailTest(unittest.TestCase):
             self.token_read("2026-09-19T16:40:00Z", client_id="other-private-client"), NOW)
         self.assertEqual(result, "NOT_PROVEN_SELECTED_SERVICE_TOKEN_MATCH")
         self.assertNotIn("other-private-client", result)
+
+    def test_policy_eligibility_is_bounded(self):
+        future = "2026-09-19T16:40:00Z"
+        metadata = D.selected_service_token_metadata(
+            "synthetic-read", "synthetic-client-id", self.token_read(future), NOW)
+        self.assertEqual(metadata, {
+            "service_token_lifetime": "PROVEN_SELECTED_SERVICE_TOKEN_ENABLED_UNEXPIRED",
+            "service_token_match": "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
+            "service_token_policy_eligibility": "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
+        })
+        metadata = D.selected_service_token_metadata(
+            "synthetic-read", "synthetic-client-id",
+            self.token_read(future, decision="allow"), NOW)
+        self.assertEqual(
+            metadata["service_token_policy_eligibility"],
+            "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_NOT_SERVICE_AUTH",
+        )
+        metadata = D.selected_service_token_metadata(
+            "synthetic-read", "synthetic-client-id",
+            self.token_read(future, require=[{"ip": "synthetic"}]), NOW)
+        self.assertEqual(
+            metadata["service_token_policy_eligibility"],
+            "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_CONSTRAINED",
+        )
 
     def test_graphql_documented_top_level_errors_override_null_path(self):
         cases = (
@@ -139,12 +169,17 @@ class Health403DetailTest(unittest.TestCase):
             "detail": "BOUNDED_HEALTH403_DETAIL_COMPLETE",
             "health_403_response_class": "WORKER_ACCESS_JWT_SIGNATURE_INVALID",
             "service_token_lifetime": "PROVEN_SELECTED_SERVICE_TOKEN_ENABLED_UNEXPIRED",
+            "service_token_match": "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
+            "service_token_policy_eligibility": "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
             "client_secret_validity": "NOT_PROVEN_BY_METADATA",
             "graphql_access_event": "PROVEN_GRAPHQL_UNAUTHORIZED",
             "production_mutations": 0,
             "activation_ready": False,
         })
         self.assertEqual(calls.count(P.ORIGIN + "/api/health"), 1)
+        self.assertEqual(calls.count(P.access_apps_url(1)), 1)
+        self.assertEqual(calls.count(P.access_app_policies_url(APP_ID, 1)), 1)
+        self.assertEqual(calls.count(P.access_service_tokens_url(1)), 1)
         self.assertEqual(calls.count(P.GRAPHQL), 1)
         rendered = json.dumps(receipt)
         for private in ("synthetic-access-read-secret", "synthetic-client-secret", TOKEN_ID,
