@@ -15,7 +15,7 @@ SPEC.loader.exec_module(R)
 
 TOKEN_ID = "44444444-4444-4444-8444-444444444444"
 CLIENT_ID = "synthetic-client-id"
-NEW_SECRET = "cfast_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefgh123456789012"
+NEW_SECRET = "cfast_" + ("A" * 48)
 NOW = datetime.datetime(2026, 9, 19, 8, 0, 0, tzinfo=datetime.timezone.utc)
 
 
@@ -143,6 +143,24 @@ class RotationTest(unittest.TestCase):
             self.assertEqual(receipt["production_mutations"], "UNKNOWN_AFTER_ROTATE_REQUEST")
             self.assertEqual([request.method for request in calls], ["GET", "POST"])
             self.assertNotIn("private", json.dumps(receipt))
+
+    def test_unexpected_rotated_secret_format_is_uncertain_after_one_post(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            calls, send = self.sender(rotate_result={
+                "success": True,
+                "result": {
+                    "id": TOKEN_ID,
+                    "client_id": CLIENT_ID,
+                    "client_secret": "unexpected-private-format",
+                },
+            })
+            receipt = R.run(self.env(tempdir), send=send, now=NOW)
+            self.assertEqual(receipt["reason"], "ROTATION_STATE_UNCERTAIN")
+            self.assertEqual(receipt["production_mutations"], "UNKNOWN_AFTER_ROTATE_REQUEST")
+            self.assertEqual([request.method for request in calls], ["GET", "POST"])
+            self.assertEqual(sum(request.method == "POST" for request in calls), 1)
+            self.assertNotIn("unexpected-private-format", json.dumps(receipt))
+            self.assertFalse((Path(tempdir) / "rotation.json").exists())
 
 
 if __name__ == "__main__":
