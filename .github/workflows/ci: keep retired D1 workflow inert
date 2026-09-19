@@ -9,7 +9,8 @@ permissions:
 jobs:
   retired:
     name: retired one-shot production D1 canary
-    if: ${{ false }}
+    # This completed one-shot has no workflow_call trigger, so it remains inert.
+    if: ${{ github.event_name == 'workflow_call' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
