@@ -27,7 +27,7 @@ test("completed production D1 workflow is retired before any privileged boundary
   const source = await readFile(workflow, "utf8");
   assert.match(source, /name: Retired Production D1 Canary/);
   assert.match(source, /workflow_dispatch:/);
-  assert.match(source, /if: \$\{\{ false \}\}/);
+  assert.match(source, /if: \$\{\{ github\.event_name == 'workflow_call' \}\}/);
   assert.doesNotMatch(source, /issue_comment:/);
   assert.doesNotMatch(source, /environment: production/);
   assert.doesNotMatch(source, /CLOUDFLARE_D1_TOKEN|secrets\./);

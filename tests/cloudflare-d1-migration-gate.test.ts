@@ -73,7 +73,7 @@ test("completed production D1 workflow is an inert least-privilege historical ma
   assert.match(workflow, /name: Retired Production D1 Canary/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /permissions:\s*\n\s+contents: read/);
-  assert.match(workflow, /if: \$\{\{ false \}\}/);
+  assert.match(workflow, /if: \$\{\{ github\.event_name == 'workflow_call' \}\}/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
   assert.doesNotMatch(workflow, /issue_comment:/);
   assert.doesNotMatch(workflow, /environment: production/);
@@ -225,5 +225,5 @@ test("package and authoritative CI consume the canonical Node contract while ret
   assert.match(ci, /node scripts\/verify-node-version\.mjs/);
   assert.doesNotMatch(ci, /node-version:\s*\d/);
   assert.doesNotMatch(production, /setup-node|node-version:/);
-  assert.match(production, /if: \$\{\{ false \}\}/);
+  assert.match(production, /if: \$\{\{ github\.event_name == 'workflow_call' \}\}/);
 });

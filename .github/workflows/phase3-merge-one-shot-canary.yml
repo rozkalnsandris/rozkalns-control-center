@@ -152,6 +152,7 @@ jobs:
           [ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ] || stop_pre MISSING_CONTROL_ACCESS_CLIENT_ID
           [ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ] || stop_pre MISSING_CONTROL_ACCESS_CLIENT_SECRET
 
+          # shellcheck disable=SC2016 -- JavaScript template literal must not expand in bash.
           request_id="$(node -e 'const { randomUUID } = require("node:crypto"); process.stdout.write(`rcmerge_${randomUUID().replaceAll("-", "_")}`)')"
           [[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$ ]] || stop_pre GENERATED_REQUEST_ID_INVALID
 

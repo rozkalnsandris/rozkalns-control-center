@@ -15,4 +15,5 @@ jobs:
     timeout-minutes: 1
     steps:
       - name: Retired
-        run: echo 'The #74 first-production-D1 canary is completed and cannot be replayed. Future privileged operations must use the reviewed Control authorization contract.'
+        run: |
+          echo 'The #74 first-production-D1 canary is completed and cannot be replayed. Future privileged operations must use the reviewed Control authorization contract.'
