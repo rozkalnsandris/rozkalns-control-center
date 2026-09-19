@@ -75,9 +75,10 @@ def empty_receipt(detail):
 
 
 def bounded_failure(error):
-    if isinstance(error, ApiError):
-        if error.status in (401, 403, 404):
-            return f"HTTP_{error.status}"
+    if isinstance(error, (ApiError, urllib.error.HTTPError)):
+        status = error.status if isinstance(error, ApiError) else error.code
+        if status in (401, 403, 404):
+            return f"HTTP_{status}"
         return "HTTP_OTHER"
     if isinstance(error, (urllib.error.URLError, TimeoutError, OSError)):
         return "REQUEST_FAILED"
