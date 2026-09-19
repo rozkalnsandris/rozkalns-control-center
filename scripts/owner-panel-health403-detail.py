@@ -77,7 +77,20 @@ def selected_service_token_metadata(access_read_token, access_client_id, read=P.
                 else "NOT_PROVEN_NO_SERVICE_TOKEN_SELECTOR")
         if invalid:
             return unavailable_service_token_metadata("NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID")
-        tokens = P.access_pages(read, access_read_token, P.access_service_tokens_url)
+        try:
+            tokens = P.access_pages(read, access_read_token, P.access_service_tokens_url)
+        except urllib.error.HTTPError as error:
+            metadata = unavailable_service_token_metadata(
+                "NOT_PROVEN_SERVICE_TOKENS_READ_DENIED" if error.code in (401, 403)
+                else "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED")
+            metadata["service_token_lifetime"] = "NOT_PROVEN_ACCESS_READ_FAILED"
+            return metadata
+        except (P.PreflightError, urllib.error.URLError, TimeoutError,
+                json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError,
+                IndexError, OSError):
+            metadata = unavailable_service_token_metadata("NOT_PROVEN_SERVICE_TOKENS_READ_FAILED")
+            metadata["service_token_lifetime"] = "NOT_PROVEN_ACCESS_READ_FAILED"
+            return metadata
         P.require(all(isinstance(token, dict) and P.uuid(token.get("id"))
                       and isinstance(token.get("client_id"), str)
                       and type(token.get("enabled")) is bool for token in tokens),
@@ -113,16 +126,10 @@ def selected_service_token_metadata(access_read_token, access_client_id, read=P.
             "service_token_match": service_token_match,
             "service_token_policy_eligibility": policy_eligibility,
         }
-    except urllib.error.HTTPError as error:
-        metadata = unavailable_service_token_metadata(
-            "NOT_PROVEN_SERVICE_TOKENS_READ_DENIED" if error.code in (401, 403)
-            else "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED")
-        metadata["service_token_lifetime"] = "NOT_PROVEN_ACCESS_READ_FAILED"
-        return metadata
-    except (P.PreflightError, urllib.error.URLError, TimeoutError,
+    except (P.PreflightError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
             json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError,
             IndexError, OSError, ValueError):
-        metadata = unavailable_service_token_metadata("NOT_PROVEN_SERVICE_TOKENS_READ_FAILED")
+        metadata = unavailable_service_token_metadata("NOT_PROVEN_ACCESS_READ_FAILED")
         metadata["service_token_lifetime"] = "NOT_PROVEN_ACCESS_READ_FAILED"
         return metadata
 
