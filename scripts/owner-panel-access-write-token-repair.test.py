@@ -5,6 +5,7 @@ import pathlib
 import unittest
 
 PATH = pathlib.Path(__file__).with_name("owner-panel-access-write-token-repair.py")
+WORKFLOW_PATH = PATH.parent.parent / ".github" / "workflows" / "owner-panel-access-write-token-repair.yml"
 SPEC = importlib.util.spec_from_file_location("access_write_token_repair", PATH)
 MOD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MOD)
@@ -283,6 +284,17 @@ class AccessWriteTokenRepairTests(unittest.TestCase):
             MOD.ACCOUNT,
         ):
             self.assertNotIn(forbidden, encoded)
+
+    def test_workflow_binds_explicit_proof_sha_in_owner_authorization(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "AUTHORIZE_ACCESS_WRITE_TOKEN_SCOPE_REPAIR:([0-9a-f]{40}):([1-9][0-9]*):([1-9][0-9]*):([0-9a-f]{40}):PUT1:NO_ROTATE:NO_SECRET_VALUE_CHANGE",
+            workflow,
+        )
+        self.assertIn('expected_proof_sha="${BASH_REMATCH[4]}"', workflow)
+        self.assertIn("printf 'EXPECTED_PROOF_SHA=%s\\n' \"$expected_proof_sha\"", workflow)
+        self.assertNotIn("git rev-parse HEAD^", workflow)
+        self.assertNotIn("proof_source_sha=", workflow)
 
 
 if __name__ == "__main__":
