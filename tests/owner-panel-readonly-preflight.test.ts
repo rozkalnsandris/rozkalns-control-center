@@ -12,8 +12,11 @@ test("owner action inventory workflow is manual, read-only and has no rollout co
   const workflow = readFileSync(".github/workflows/owner-panel-readonly-preflight.yml", "utf8");
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /environment: production-readonly-reconcile/);
-  assert.match(workflow, /contents: read/);
-  assert.match(workflow, /actions: read/);
-  assert.doesNotMatch(workflow, /permissions:[\s\S]*?\bwrite\b/);
+
+  const permissionsBlock = workflow.match(/^permissions:\n(?: {2}[^\n]+\n)+/m)?.[0] ?? "";
+  assert.match(permissionsBlock, /contents: read/);
+  assert.match(permissionsBlock, /actions: read/);
+  assert.doesNotMatch(permissionsBlock, /\bwrite\b/);
+
   assert.doesNotMatch(workflow, /wrangler|workflow_call:|pull_request:|secrets-file|secret put|migrations apply/);
 });
