@@ -7,6 +7,8 @@ on:
         description: Existing reviewed Access identity-provider UUID to bind to the continuation app
         required: true
         type: string
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
@@ -19,7 +21,23 @@ concurrency:
 jobs:
   preflight:
     name: prove continuation Access target vacancy and freeze non-target state
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.action == 'created' &&
+          github.event.issue.number == 278 &&
+          github.event.issue.pull_request == null &&
+          github.event.comment.user.id == 277435981 &&
+          github.event.comment.user.type == 'User' &&
+          (
+            github.event.comment.body == '/continuation-access-idp-inventory' ||
+            startsWith(github.event.comment.body, '/continuation-access-preflight:')
+          )
+        )
+      )
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
@@ -28,7 +46,7 @@ jobs:
     env:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
       CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
-      EXPECTED_IDP_ID: ${{ inputs.expected_idp_id }}
+      DISPATCH_EXPECTED_IDP_ID: ${{ inputs.expected_idp_id }}
       GITHUB_TOKEN: ${{ github.token }}
       CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
 
@@ -69,13 +87,46 @@ jobs:
           for cmd in curl jq node sed tr wc; do
             command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
           done
-          [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ] || stop WORKFLOW_EVENT_NOT_DISPATCH
           [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
           [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop WORKFLOW_ATTEMPT_NOT_ONE
           [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || stop WORKFLOW_SHA_INVALID
-          [[ "${EXPECTED_IDP_ID:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop EXPECTED_IDP_ID_INVALID
           [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
           [ -n "${CLOUDFLARE_ACCESS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_READ_TOKEN
+
+          mode=''
+          expected_idp_id=''
+          case "${GITHUB_EVENT_NAME:-}" in
+            workflow_dispatch)
+              mode='preflight'
+              expected_idp_id="${DISPATCH_EXPECTED_IDP_ID:-}"
+              ;;
+            issue_comment)
+              [ -n "${GITHUB_EVENT_PATH:-}" ] || stop MISSING_GITHUB_EVENT_PATH
+              jq -e '
+                .action == "created" and
+                .issue.number == 278 and
+                (.issue | has("pull_request") | not) and
+                .comment.user.id == 277435981 and
+                .comment.user.type == "User" and
+                ((.comment.body == "/continuation-access-idp-inventory") or (.comment.body | startswith("/continuation-access-preflight:")))
+              ' "$GITHUB_EVENT_PATH" >/dev/null || stop OWNER_COMMENT_TRIGGER_INVALID
+              comment_body="$(jq -er '.comment.body | select(type == "string" and length > 0)' "$GITHUB_EVENT_PATH")" || stop OWNER_COMMENT_BODY_INVALID
+              if [ "$comment_body" = '/continuation-access-idp-inventory' ]; then
+                mode='idp-inventory'
+              elif [[ "$comment_body" =~ ^/continuation-access-preflight:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$ ]]; then
+                mode='preflight'
+                expected_idp_id="${BASH_REMATCH[1]}"
+              else
+                stop OWNER_COMMENT_COMMAND_INVALID
+              fi
+              ;;
+            *) stop WORKFLOW_EVENT_UNSUPPORTED ;;
+          esac
+
+          [ "$mode" = 'idp-inventory' ] || [ "$mode" = 'preflight' ] || stop PREFLIGHT_MODE_INVALID
+          if [ "$mode" = 'preflight' ]; then
+            [[ "$expected_idp_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop EXPECTED_IDP_ID_INVALID
+          fi
 
           tmp="${RUNNER_TEMP}/continuation-access-preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           mkdir -p "$tmp"
@@ -134,6 +185,42 @@ jobs:
           gh_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
           jq -e --arg sha "$GITHUB_SHA" --argjson id "$ci_run_id" '.id == $id and .name == "CI" and .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
 
+          printf '%s\n' STAGE=ACCESS_IDENTITY_PROVIDER_INVENTORY
+          fetch_paginated_array '/access/identity_providers' "$tmp/idps.json" idps
+          idp_count="$(jq 'length' "$tmp/idps.json")"
+          [[ "$idp_count" =~ ^[0-9]+$ ]] || stop ACCESS_IDP_COUNT_INVALID
+          [ "$idp_count" -le 1000 ] || stop ACCESS_IDP_COUNT_UNBOUNDED
+          cf_get_object '/access/organizations' "$tmp/organization.json"
+          jq '.result' "$tmp/organization.json" > "$tmp/organization-result.json"
+          auth_domain="$(jq -r '.auth_domain // empty' "$tmp/organization-result.json")"
+          [[ "$auth_domain" =~ ^[A-Za-z0-9.-]+\.cloudflareaccess\.com$ ]] || stop ACCESS_AUTH_DOMAIN_INVALID
+          issuer="https://${auth_domain}"
+
+          if [ "$mode" = 'idp-inventory' ]; then
+            [ "$idp_count" -gt 0 ] || stop ACCESS_IDP_NONE_FOUND
+            [ "$idp_count" -le 20 ] || stop ACCESS_IDP_PUBLIC_INVENTORY_UNBOUNDED
+            jq -e 'all(.[]; ((.id | type) == "string") and ((.name | type) == "string") and ((.type | type) == "string"))' "$tmp/idps.json" >/dev/null || stop ACCESS_IDP_SHAPE_INVALID
+            printf 'CONTINUATION_ACCESS_IDP_INVENTORY=PASS\n'
+            printf 'SOURCE_SHA=%s\n' "$GITHUB_SHA"
+            printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+            printf 'ACCESS_ISSUER=%s\n' "$issuer"
+            printf 'IDP_COUNT=%s\n' "$idp_count"
+            for ((index=0; index<idp_count; index++)); do
+              ordinal=$((index + 1))
+              idp_id="$(jq -r ".[$index].id" "$tmp/idps.json")"
+              idp_name="$(jq -r ".[$index].name" "$tmp/idps.json")"
+              idp_type="$(jq -r ".[$index].type" "$tmp/idps.json")"
+              [[ "$idp_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || stop ACCESS_IDP_ID_INVALID
+              printf 'IDP_%s_ID=%s\n' "$ordinal" "$idp_id"
+              printf 'IDP_%s_NAME=%s\n' "$ordinal" "$(sanitize "$idp_name")"
+              printf 'IDP_%s_TYPE=%s\n' "$ordinal" "$(sanitize "$idp_type")"
+            done
+            printf 'ACCESS_API_METHOD=GET_ONLY\n'
+            printf 'PRODUCTION_MUTATIONS=0\n'
+            printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
+            exit 0
+          fi
+
           printf '%s\n' STAGE=ACCESS_GET_ONLY_INVENTORY
           fetch_paginated_array '/access/apps' "$tmp/apps.json" apps
           app_count="$(jq 'length' "$tmp/apps.json")"
@@ -154,15 +241,8 @@ jobs:
             mv "$tmp/policies.next.json" "$tmp/policies.json"
           done < <(jq -r '.[].id' "$tmp/apps.json")
 
-          fetch_paginated_array '/access/identity_providers' "$tmp/idps.json" idps
-          idp_count="$(jq 'length' "$tmp/idps.json")"
-          [[ "$idp_count" =~ ^[0-9]+$ ]] || stop ACCESS_IDP_COUNT_INVALID
-          [ "$idp_count" -le 1000 ] || stop ACCESS_IDP_COUNT_UNBOUNDED
-          cf_get_object '/access/organizations' "$tmp/organization.json"
-          jq '.result' "$tmp/organization.json" > "$tmp/organization-result.json"
-
           set +e
-          proof="$(node scripts/continuation-access-provisioning.mjs preflight "$tmp/apps.json" "$tmp/policies.json" "$tmp/idps.json" "$tmp/organization-result.json" "$EXPECTED_IDP_ID")"
+          proof="$(node scripts/continuation-access-provisioning.mjs preflight "$tmp/apps.json" "$tmp/policies.json" "$tmp/idps.json" "$tmp/organization-result.json" "$expected_idp_id")"
           proof_rc=$?
           set -e
           [ "$proof_rc" -eq 0 ] || stop CONTINUATION_ACCESS_CONTRACT_REJECTED
@@ -173,7 +253,7 @@ jobs:
           proven_idp_type="$(jq -r '.idp.type' <<<"$proof")"
           non_target_digest="$(jq -r '.nonTargetDigest' <<<"$proof")"
           issuer="$(jq -r '.issuer' <<<"$proof")"
-          [ "$proven_idp_id" = "$EXPECTED_IDP_ID" ] || stop ACCESS_IDP_BINDING_CHANGED
+          [ "$proven_idp_id" = "$expected_idp_id" ] || stop ACCESS_IDP_BINDING_CHANGED
 
           printf 'CONTINUATION_ACCESS_PREFLIGHT=PASS\n'
           printf 'SOURCE_SHA=%s\n' "$GITHUB_SHA"
