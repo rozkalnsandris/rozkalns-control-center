@@ -107,13 +107,19 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(calls, 0)
 
     def test_read_denied_is_fixed_enum(self):
+        provider_detail = "provider-detail-should-not-leak"
+
         def read(_req):
-            raise urllib.error.HTTPError("https://example.invalid", 403, "denied", {}, io.BytesIO(b"secret provider detail"))
+            raise urllib.error.HTTPError(
+                "https://example.invalid", 403, "denied", {}, io.BytesIO(provider_detail.encode())
+            )
 
         receipt = MOD.probe("read-token", CLIENT_ID, read)
+        encoded = json.dumps(receipt, sort_keys=True)
         self.assertEqual(receipt["detail"], "ROTATION_RECOVERY_READ_DENIED")
-        self.assertNotIn("provider", json.dumps(receipt))
-        self.assertNotIn("secret", json.dumps(receipt).lower())
+        self.assertNotIn(provider_detail, encoded)
+        self.assertNotIn("example.invalid", encoded)
+        self.assertNotIn("denied", encoded)
 
     def test_detail_never_leaks_secret_or_identifiers(self):
         def read(req):
