@@ -52,6 +52,7 @@ class WriteTokenProofTests(unittest.TestCase):
         self.assertEqual(receipt["selected_service_token_match"], "PROVEN_SELECTOR_MATCH_ENABLED")
         self.assertEqual(receipt["request_stage"], "GET")
         self.assertEqual(receipt["response_class"], "HTTP_200_CONTRACT_VALID")
+        self.assertEqual(receipt["visibility_relation"], "NOT_CHECKED")
         self.assertEqual(
             receipt["permission_interpretation"],
             "PROVEN_SERVICE_TOKEN_READ_OR_WRITE_ACCEPTED",
@@ -125,6 +126,7 @@ class WriteTokenProofTests(unittest.TestCase):
         self.assertEqual(receipt["detail"], "ACCESS_WRITE_TOKEN_CREDENTIAL_UNAVAILABLE")
         self.assertEqual(receipt["request_stage"], "NOT_STARTED")
         self.assertEqual(receipt["response_class"], "NOT_RUN")
+        self.assertEqual(receipt["visibility_relation"], "NOT_CHECKED")
         self.assertEqual(calls, 0)
 
     def test_401_is_bounded_authentication_failure_at_verify(self):
@@ -191,7 +193,7 @@ class WriteTokenProofTests(unittest.TestCase):
         self.assertEqual(receipt["request_stage"], "LIST")
         self.assertEqual(receipt["response_class"], "LIST_RESULT_NOT_LIST")
 
-    def test_target_not_found_is_bounded(self):
+    def test_target_not_found_is_bounded_without_read_comparison(self):
         def read(req):
             if req.full_url == MOD.VERIFY:
                 return verify_payload()
@@ -201,6 +203,58 @@ class WriteTokenProofTests(unittest.TestCase):
         self.assertEqual(receipt["write_token_status"], "PROVEN_ACTIVE")
         self.assertEqual(receipt["request_stage"], "LIST")
         self.assertEqual(receipt["response_class"], "TARGET_NOT_FOUND")
+        self.assertEqual(receipt["visibility_relation"], "READ_CREDENTIAL_UNAVAILABLE")
+
+    def test_write_target_hidden_while_read_target_visible(self):
+        calls = []
+
+        def read(req):
+            auth = req.get_header("Authorization")
+            calls.append((req.method, req.full_url, auth))
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            if auth == "Bearer write-token":
+                return {"success": True, "result": [{"client_id": "other.access"}]}
+            if auth == "Bearer read-token":
+                return list_payload()
+            raise AssertionError("unexpected request")
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read, "read-token")
+        self.assertEqual(receipt["response_class"], "TARGET_NOT_FOUND")
+        self.assertEqual(
+            receipt["visibility_relation"],
+            "WRITE_TARGET_HIDDEN_WHILE_READ_TARGET_VISIBLE",
+        )
+        self.assertEqual(receipt["production_mutations"], 0)
+        self.assertEqual([method for method, _, _ in calls], ["GET", "GET", "GET"])
+
+    def test_target_not_visible_to_either_token(self):
+        def read(req):
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            return {"success": True, "result": [{"client_id": "other.access"}]}
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read, "read-token")
+        self.assertEqual(receipt["response_class"], "TARGET_NOT_FOUND")
+        self.assertEqual(
+            receipt["visibility_relation"], "TARGET_NOT_VISIBLE_TO_EITHER_TOKEN"
+        )
+
+    def test_read_visibility_failure_stays_bounded(self):
+        def read(req):
+            auth = req.get_header("Authorization")
+            if req.full_url == MOD.VERIFY:
+                return verify_payload()
+            if auth == "Bearer write-token":
+                return {"success": True, "result": [{"client_id": "other.access"}]}
+            raise urllib.error.HTTPError(
+                "https://example.invalid", 403, "denied", {}, io.BytesIO(b"raw read provider detail")
+            )
+
+        receipt = MOD.probe("write-token", CLIENT_ID, read, "read-token")
+        self.assertEqual(receipt["response_class"], "TARGET_NOT_FOUND")
+        self.assertEqual(receipt["visibility_relation"], "READ_VISIBILITY_UNPROVEN")
+        self.assertNotIn("raw read provider detail", json.dumps(receipt))
 
     def test_target_not_unique_is_bounded(self):
         def read(req):
@@ -256,9 +310,10 @@ class WriteTokenProofTests(unittest.TestCase):
             payload["result"]["client_secret"] = "cfast_" + "A" * 48
             return payload
 
-        receipt = MOD.probe("write-token", CLIENT_ID, read)
+        receipt = MOD.probe("write-token", CLIENT_ID, read, "read-token-secret")
         encoded = json.dumps(receipt, sort_keys=True)
         self.assertNotIn("write-token-secret", encoded)
+        self.assertNotIn("read-token-secret", encoded)
         self.assertNotIn(CLIENT_ID, encoded)
         self.assertNotIn(TOKEN_ID, encoded)
         self.assertNotIn("cfast_", encoded)
