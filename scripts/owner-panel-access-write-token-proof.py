@@ -137,6 +137,7 @@ def get_service_token(token, token_id, read=read_json):
 def empty_receipt(detail):
     return {
         "detail": detail,
+        "exact_target_access": "NOT_CHECKED",
         "permission_interpretation": "WRITE_NOT_PROVEN_BY_GET",
         "production_mutations": 0,
         "request_stage": "NOT_STARTED",
@@ -157,6 +158,9 @@ def classify_failure(receipt, stage, error):
         elif error.code == 403:
             receipt["response_class"] = "HTTP_403"
             receipt["detail"] = "ACCESS_WRITE_TOKEN_SERVICE_TOKEN_ACCESS_NOT_GRANTED"
+        elif error.code == 404:
+            receipt["response_class"] = "HTTP_404"
+            receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
         else:
             receipt["response_class"] = "HTTP_OTHER"
             receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
@@ -181,12 +185,51 @@ def classify_failure(receipt, stage, error):
     return receipt
 
 
-def compare_read_visibility(read_token, client_id, read=read_json):
+def classify_exact_target_error(error):
+    if isinstance(error, urllib.error.HTTPError):
+        if error.code == 401:
+            return "HTTP_401"
+        if error.code == 403:
+            return "HTTP_403"
+        if error.code == 404:
+            return "HTTP_404"
+        return "HTTP_OTHER"
+    if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+        return "RESPONSE_NOT_JSON"
+    if isinstance(error, (urllib.error.URLError, TimeoutError, OSError)):
+        return "REQUEST_FAILED"
+    if isinstance(error, (ProofError, ValueError, TypeError, KeyError)):
+        return "CONTRACT_UNPROVEN"
+    return "UNCLASSIFIED_FAILURE"
+
+
+def compare_read_visibility(read_token, write_token, client_id, read=read_json):
     if not isinstance(read_token, str) or not read_token:
-        return "READ_CREDENTIAL_UNAVAILABLE"
+        return "READ_CREDENTIAL_UNAVAILABLE", "NOT_CHECKED"
     try:
-        tokens = list_service_tokens(read_token, read)
-        matches = [row for row in tokens if row.get("client_id") == client_id]
+        selected = select_target(list_service_tokens(read_token, read), client_id)
+    except ProofError as error:
+        if str(error) == "TARGET_NOT_FOUND":
+            return "TARGET_NOT_VISIBLE_TO_EITHER_TOKEN", "NOT_CHECKED"
+        return "READ_VISIBILITY_UNPROVEN", "NOT_CHECKED"
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+    ):
+        return "READ_VISIBILITY_UNPROVEN", "NOT_CHECKED"
+
+    relation = "WRITE_TARGET_HIDDEN_WHILE_READ_TARGET_VISIBLE"
+    try:
+        detail = get_service_token(write_token, selected["id"], read)
+        require(detail.get("id") == selected["id"], "SERVICE_TOKEN_TARGET_MISMATCH")
+        require(detail.get("client_id") == client_id, "SERVICE_TOKEN_CLIENT_ID_MISMATCH")
     except (
         urllib.error.HTTPError,
         urllib.error.URLError,
@@ -198,13 +241,9 @@ def compare_read_visibility(read_token, client_id, read=read_json):
         ValueError,
         TypeError,
         KeyError,
-    ):
-        return "READ_VISIBILITY_UNPROVEN"
-    if len(matches) == 1:
-        return "WRITE_TARGET_HIDDEN_WHILE_READ_TARGET_VISIBLE"
-    if len(matches) == 0:
-        return "TARGET_NOT_VISIBLE_TO_EITHER_TOKEN"
-    return "READ_VISIBILITY_UNPROVEN"
+    ) as error:
+        return relation, classify_exact_target_error(error)
+    return relation, "PROVEN_EXACT_GET"
 
 
 def probe(token, client_id, read=read_json, read_token=None):
@@ -249,9 +288,16 @@ def probe(token, client_id, read=read_json, read_token=None):
     ) as error:
         classify_failure(receipt, "LIST", error)
         if isinstance(error, ProofError) and str(error) == "TARGET_NOT_FOUND":
-            receipt["visibility_relation"] = compare_read_visibility(
-                read_token, client_id, read
+            relation, exact_access = compare_read_visibility(
+                read_token, token, client_id, read
             )
+            receipt["visibility_relation"] = relation
+            receipt["exact_target_access"] = exact_access
+            if exact_access == "PROVEN_EXACT_GET":
+                receipt["permission_interpretation"] = (
+                    "PROVEN_SERVICE_TOKEN_READ_OR_WRITE_ACCEPTED_EXACT_TARGET"
+                )
+                receipt["service_token_get_access"] = "PROVEN_EXACT_GET"
         return receipt
 
     receipt["selected_service_token_match"] = (
@@ -290,6 +336,7 @@ def probe(token, client_id, read=read_json, read_token=None):
 
     receipt.update({
         "detail": "ACCESS_WRITE_TOKEN_GET_PROOF_COMPLETE",
+        "exact_target_access": "PROVEN_EXACT_GET",
         "permission_interpretation": "PROVEN_SERVICE_TOKEN_READ_OR_WRITE_ACCEPTED",
         "request_stage": "GET",
         "response_class": "HTTP_200_CONTRACT_VALID",
