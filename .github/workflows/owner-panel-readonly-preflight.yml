@@ -11,6 +11,7 @@ on:
         options:
           - none
           - token-analytics-proof
+          - account-analytics-canary
           - inventory
           - health403-detail
 
@@ -41,11 +42,17 @@ jobs:
           python3 scripts/owner-panel-token-proof-account-rate-message.test.py
           python3 scripts/owner-panel-token-proof-envelope.test.py
           python3 scripts/owner-panel-health403-detail.test.py
+          python3 scripts/owner-panel-account-analytics-canary.test.py
       - name: Token Analytics permission proof only
         if: inputs.diagnostic == 'token-analytics-proof'
         env:
           CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
         run: python3 scripts/owner-panel-token-proof-envelope.py
+      - name: Account Analytics permission canary only
+        if: inputs.diagnostic == 'account-analytics-canary'
+        env:
+          CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+        run: python3 scripts/owner-panel-account-analytics-canary.py
       - name: Fixed-target read-only inventory
         if: inputs.diagnostic == 'inventory'
         env:
