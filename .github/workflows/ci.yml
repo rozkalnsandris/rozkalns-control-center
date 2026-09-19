@@ -83,6 +83,7 @@ jobs:
           python3 scripts/owner-panel-access-write-token-kind.test.py
           python3 scripts/owner-panel-access-write-token-repair.test.py
           python3 scripts/owner-panel-access-write-token-repair-boundary.test.py
+          python3 scripts/owner-panel-token-management-preflight.test.py
 
       - name: Install locked dependencies
         if: steps.scope.outputs.full == 'true'
