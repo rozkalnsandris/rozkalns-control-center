@@ -13,6 +13,21 @@ BASE = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/access/service_
 MAX_BODY = 65_536
 MAX_PAGES = 10
 
+LIST_RESPONSE_CLASSES = {
+    "LIST_PAYLOAD_NOT_OBJECT",
+    "LIST_SUCCESS_NOT_TRUE",
+    "LIST_RESULT_NOT_LIST",
+    "LIST_PAGE_TOO_LARGE",
+    "LIST_TOTAL_TOO_LARGE",
+    "LIST_PAGINATION_EXHAUSTED",
+    "LIST_ROW_NOT_OBJECT",
+    "TARGET_NOT_FOUND",
+    "TARGET_NOT_UNIQUE",
+    "TARGET_ID_INVALID",
+    "TARGET_ENABLED_INVALID",
+    "TARGET_DISABLED",
+}
+
 
 class ProofError(ValueError):
     pass
@@ -75,31 +90,30 @@ def list_service_tokens(token, read=read_json):
             method="GET",
         )
         payload = read(request)
-        require(
-            isinstance(payload, dict)
-            and payload.get("success") is True
-            and isinstance(payload.get("result"), list),
-            "SERVICE_TOKEN_LIST_INVALID",
-        )
+        require(isinstance(payload, dict), "LIST_PAYLOAD_NOT_OBJECT")
+        require(payload.get("success") is True, "LIST_SUCCESS_NOT_TRUE")
+        require(isinstance(payload.get("result"), list), "LIST_RESULT_NOT_LIST")
         rows = payload["result"]
-        require(len(rows) <= 100, "SERVICE_TOKEN_LIST_INVALID")
+        require(len(rows) <= 100, "LIST_PAGE_TOO_LARGE")
+        require(all(isinstance(row, dict) for row in rows), "LIST_ROW_NOT_OBJECT")
         tokens.extend(rows)
-        require(len(tokens) <= 1_000, "SERVICE_TOKEN_LIST_TOO_LARGE")
+        require(len(tokens) <= 1_000, "LIST_TOTAL_TOO_LARGE")
         if len(rows) < 100:
             return tokens
-    raise ProofError("SERVICE_TOKEN_LIST_PAGINATION_EXHAUSTED")
+    raise ProofError("LIST_PAGINATION_EXHAUSTED")
 
 
 def select_target(tokens, client_id):
     require(isinstance(client_id, str) and 1 <= len(client_id) <= 128, "CLIENT_ID_INVALID")
-    require(all(isinstance(token, dict) for token in tokens), "SERVICE_TOKEN_LIST_INVALID")
+    require(all(isinstance(token, dict) for token in tokens), "LIST_ROW_NOT_OBJECT")
     matches = [token for token in tokens if token.get("client_id") == client_id]
-    require(len(matches) == 1, "SELECTED_SERVICE_TOKEN_NOT_UNIQUE")
+    require(len(matches) > 0, "TARGET_NOT_FOUND")
+    require(len(matches) == 1, "TARGET_NOT_UNIQUE")
     selected = matches[0]
-    require(uuid(selected.get("id")), "SERVICE_TOKEN_ID_INVALID")
+    require(uuid(selected.get("id")), "TARGET_ID_INVALID")
     enabled = selected.get("enabled")
-    require(enabled is None or type(enabled) is bool, "SERVICE_TOKEN_ENABLED_INVALID")
-    require(enabled is not False, "SELECTED_SERVICE_TOKEN_DISABLED")
+    require(enabled is None or type(enabled) is bool, "TARGET_ENABLED_INVALID")
+    require(enabled is not False, "TARGET_DISABLED")
     return selected
 
 
@@ -147,7 +161,10 @@ def classify_failure(receipt, stage, error):
             receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
         return receipt
     if isinstance(error, ProofError):
-        receipt["response_class"] = "CONTRACT_UNPROVEN"
+        code = str(error)
+        receipt["response_class"] = (
+            code if stage == "LIST" and code in LIST_RESPONSE_CLASSES else "CONTRACT_UNPROVEN"
+        )
         receipt["detail"] = "ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN"
         return receipt
     if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
