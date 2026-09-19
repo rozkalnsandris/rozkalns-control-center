@@ -1,0 +1,35 @@
+name: Owner Action Panel token-management read-only preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-panel-token-management-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production-access-token-policy-repair
+      deployment: false
+    steps:
+      - name: Checkout exact main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Focused offline safety test
+        run: python3 scripts/owner-panel-token-management-preflight.test.py
+
+      - name: Bounded user token-management GET proof only
+        env:
+          CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN }}
+          CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+        run: python3 scripts/owner-panel-token-management-preflight.py
