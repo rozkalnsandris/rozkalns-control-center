@@ -114,7 +114,7 @@ test("package exposes the dedicated gate and the old production D1 workflow rema
 
   const workflow = await readFile(retiredWorkflow, "utf8");
   assert.match(workflow, /name: Retired Production D1 Canary/);
-  assert.match(workflow, /if: \$\{\{ false \}\}/);
+  assert.match(workflow, /if: \$\{\{ github\.event_name == 'workflow_call' \}\}/);
   assert.doesNotMatch(workflow, /CLOUDFLARE_D1_TOKEN|secrets\./);
   assert.doesNotMatch(workflow, /CONTROL_OWNER_AUTHORIZATION|0002_needs_changes_audit/);
 });
