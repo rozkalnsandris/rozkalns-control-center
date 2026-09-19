@@ -152,6 +152,7 @@ jobs:
           [ -n "${CONTROL_ACCESS_CLIENT_ID:-}" ] || stop_pre MISSING_CONTROL_ACCESS_CLIENT_ID
           [ -n "${CONTROL_ACCESS_CLIENT_SECRET:-}" ] || stop_pre MISSING_CONTROL_ACCESS_CLIENT_SECRET
 
+          # shellcheck disable=SC2016
           request_id="$(node -e 'const { randomUUID } = require("node:crypto"); process.stdout.write(`rcmerge_${randomUUID().replaceAll("-", "_")}`)')"
           [[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$ ]] || stop_pre GENERATED_REQUEST_ID_INVALID
 
@@ -491,7 +492,7 @@ jobs:
             (.result.deployments[0].versions|type == "array") and
             (.result.deployments[0].versions|length == 1) and
             .result.deployments[0].versions[0].version_id == $version and
-            .result.deployments[0].versions[0].percentage == 100
+            .result.deployments[0].percentage == 100
           ' "$tmp/post-deployments.json" >/dev/null || stop_post POSTVERIFY_PRODUCTION_WORKER_DRIFT
 
           printf 'MERGE_CANARY=PASS\n'
