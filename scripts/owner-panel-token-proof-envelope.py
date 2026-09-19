@@ -20,6 +20,43 @@ SYNTAX_LOCATIONS_ABSENT = (
 )
 
 
+class ResponsePayload(dict):
+    """Private response metadata carrier; metadata is never serialized."""
+
+    def __init__(self, value, cf_ray):
+        super().__init__(value)
+        self.cf_ray = cf_ray
+
+
+def post_with_response_meta(token, now):
+    """Make the same single GraphQL read while retaining Cf-Ray privately."""
+    if not isinstance(token, str) or not token:
+        raise ValueError()
+    body = json.dumps(p.payload(now), separators=(",", ":")).encode()
+    req = p.urllib.request.Request(
+        p.GRAPHQL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+            "X-Rate-Limit-Type": "account-based",
+        },
+    )
+    with p.urllib.request.build_opener(p.NoRedirect).open(req, timeout=30) as response:
+        if response.status != 200:
+            raise ValueError()
+        raw = response.read(p.MAX_BODY + 1)
+        if len(raw) > p.MAX_BODY:
+            raise ValueError()
+        value = json.loads(raw)
+        if isinstance(value, dict):
+            return ResponsePayload(value, response.headers.get("Cf-Ray"))
+        return value
+
+
 def response_data_shape(payload_value):
     if "data" not in payload_value:
         return "DATA_KEY_ABSENT"
@@ -168,6 +205,26 @@ def extension_other_string_shape(errors):
     return "EXTENSION_OTHER_STRING_LONG_TEXT"
 
 
+def extension_other_string_cf_ray_relation(errors, payload_value):
+    if not isinstance(payload_value, ResponsePayload):
+        return None
+    values = extension_other_values(errors)
+    if values is None or len(values) != 1 or not isinstance(values[0], str):
+        return "EXTENSION_OTHER_STRING_CF_RAY_RELATION_UNPROVEN"
+    value = values[0]
+    cf_ray = payload_value.cf_ray
+    if not isinstance(cf_ray, str) or not cf_ray:
+        return "EXTENSION_OTHER_STRING_CF_RAY_HEADER_ABSENT"
+    if not re.fullmatch(r"[0-9a-fA-F]{16}-[A-Za-z]{3}", cf_ray):
+        return "EXTENSION_OTHER_STRING_CF_RAY_HEADER_SHAPE_UNPROVEN"
+    if value.casefold() == cf_ray.casefold():
+        return "EXTENSION_OTHER_STRING_CF_RAY_FULL_MATCH"
+    ray_id = cf_ray.split("-", 1)[0]
+    if value.casefold() == ray_id.casefold():
+        return "EXTENSION_OTHER_STRING_CF_RAY_ID_MATCH"
+    return "EXTENSION_OTHER_STRING_CF_RAY_NO_MATCH"
+
+
 def error_message_hint(errors):
     messages = p.error_messages(errors)
     if messages is None:
@@ -178,7 +235,7 @@ def error_message_hint(errors):
     return "ERROR_MESSAGE_" + hint
 
 
-def prove(token, read=p.post, now=None):
+def prove(token, read=post_with_response_meta, now=None):
     captured = {}
 
     def capture(bearer, observed_at):
@@ -207,11 +264,14 @@ def prove(token, read=p.post, now=None):
     bounded["extension_other_value_type_shape"] = extension_other_value_type_shape(errors)
     bounded["extension_other_string_hint"] = extension_other_string_hint(errors)
     bounded["extension_other_string_shape"] = extension_other_string_shape(errors)
+    cf_ray_relation = extension_other_string_cf_ray_relation(errors, payload_value)
+    if cf_ray_relation is not None:
+        bounded["extension_other_string_cf_ray_relation"] = cf_ray_relation
     bounded["error_message_hint"] = error_message_hint(errors)
     return bounded
 
 
-def main(env, read=p.post):
+def main(env, read=post_with_response_meta):
     try:
         receipt = prove(
             env.get("CLOUDFLARE_ACCESS_READ_TOKEN"),
