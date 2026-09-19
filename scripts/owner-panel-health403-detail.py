@@ -23,6 +23,16 @@ TOKEN_LIFETIME_RESULTS = frozenset((
     "NOT_PROVEN_SELECTED_SERVICE_TOKEN_MATCH",
     "NOT_PROVEN_ACCESS_READ_FAILED",
 ))
+ACCESS_APPLICATION_MATCH_RESULTS = frozenset((
+    "PROVEN_UNIQUE_ACCESS_APPLICATION_MATCH",
+    "NOT_PROVEN_ACCESS_APPLICATION_MATCH_ABSENT",
+    "NOT_PROVEN_ACCESS_APPLICATION_MATCH_AMBIGUOUS",
+))
+SERVICE_TOKEN_HEADER_MODE_RESULTS = frozenset((
+    "PROVEN_STANDARD_SERVICE_TOKEN_HEADER_PAIR",
+    "PROVEN_CUSTOM_SERVICE_TOKEN_SINGLE_HEADER",
+    "NOT_PROVEN_SERVICE_TOKEN_HEADER_MODE",
+))
 GRAPHQL_RESULTS = frozenset(P.ACCESS_EVENT_DIAGNOSTICS).union((
     "PROVEN_GRAPHQL_UNAUTHORIZED",
     "PROVEN_GRAPHQL_INTERNAL_SERVER_ERROR",
@@ -41,12 +51,39 @@ def parse_cloudflare_time(value):
     return parsed.astimezone(datetime.timezone.utc)
 
 
-def unavailable_service_token_metadata(match="NOT_PROVEN_ACCESS_READ_FAILED"):
+def unavailable_service_token_metadata(
+        match="NOT_PROVEN_ACCESS_READ_FAILED",
+        access_application_match="NOT_PROVEN_ACCESS_APPLICATION_MATCH_ABSENT",
+        service_token_header_mode="NOT_PROVEN_SERVICE_TOKEN_HEADER_MODE"):
     return {
         "service_token_lifetime": "NOT_PROVEN_SELECTED_SERVICE_TOKEN_MATCH",
         "service_token_match": match,
         "service_token_policy_eligibility": "NOT_PROVEN_SERVICE_TOKEN_MATCH",
+        "access_application_match": access_application_match,
+        "service_token_header_mode": service_token_header_mode,
     }
+
+
+def access_application_metadata(apps):
+    candidates = [(score, app) for app in apps
+                  if (score := P.health_access_match_score(app)) is not None]
+    if not candidates:
+        return None, "NOT_PROVEN_ACCESS_APPLICATION_MATCH_ABSENT", "NOT_PROVEN_SERVICE_TOKEN_HEADER_MODE"
+    best_score = max(score for score, _ in candidates)
+    best_apps = {app["id"]: app for score, app in candidates if score == best_score}
+    app_ids = sorted(best_apps)
+    P.require(1 <= len(app_ids) <= 20, "CF_RESPONSE_INVALID")
+    if len(app_ids) != 1:
+        return app_ids, "NOT_PROVEN_ACCESS_APPLICATION_MATCH_AMBIGUOUS", "NOT_PROVEN_SERVICE_TOKEN_HEADER_MODE"
+    app = best_apps[app_ids[0]]
+    custom_header = app.get("read_service_tokens_from_header")
+    if custom_header in (None, ""):
+        header_mode = "PROVEN_STANDARD_SERVICE_TOKEN_HEADER_PAIR"
+    elif isinstance(custom_header, str) and 1 <= len(custom_header) <= 256:
+        header_mode = "PROVEN_CUSTOM_SERVICE_TOKEN_SINGLE_HEADER"
+    else:
+        header_mode = "NOT_PROVEN_SERVICE_TOKEN_HEADER_MODE"
+    return app_ids, "PROVEN_UNIQUE_ACCESS_APPLICATION_MATCH", header_mode
 
 
 def selected_service_token_metadata(access_read_token, access_client_id, read=P.request, now=None):
@@ -57,13 +94,10 @@ def selected_service_token_metadata(access_read_token, access_client_id, read=P.
     now = now or datetime.datetime.now(datetime.timezone.utc)
     try:
         apps = P.access_pages(read, access_read_token, P.access_apps_url)
-        candidates = [(score, app["id"]) for app in apps
-                      if (score := P.health_access_match_score(app)) is not None]
-        if not candidates:
-            return unavailable_service_token_metadata("NOT_PROVEN_SEPARATE_READ_SCOPE")
-        best_score = max(score for score, _ in candidates)
-        app_ids = sorted({app_id for score, app_id in candidates if score == best_score})
-        P.require(1 <= len(app_ids) <= 20, "CF_RESPONSE_INVALID")
+        app_ids, access_application_match, service_token_header_mode = access_application_metadata(apps)
+        if app_ids is None:
+            return unavailable_service_token_metadata(
+                "NOT_PROVEN_SEPARATE_READ_SCOPE", access_application_match, service_token_header_mode)
         policies = []
         for app_id in app_ids:
             policies.extend(P.access_pages(
@@ -74,21 +108,27 @@ def selected_service_token_metadata(access_read_token, access_client_id, read=P.
         if not any_valid and not token_ids:
             return unavailable_service_token_metadata(
                 "NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID" if invalid
-                else "NOT_PROVEN_NO_SERVICE_TOKEN_SELECTOR")
+                else "NOT_PROVEN_NO_SERVICE_TOKEN_SELECTOR",
+                access_application_match, service_token_header_mode)
         if invalid:
-            return unavailable_service_token_metadata("NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID")
+            return unavailable_service_token_metadata(
+                "NOT_PROVEN_SERVICE_TOKEN_SELECTOR_INVALID",
+                access_application_match, service_token_header_mode)
         try:
             tokens = P.access_pages(read, access_read_token, P.access_service_tokens_url)
         except urllib.error.HTTPError as error:
             metadata = unavailable_service_token_metadata(
                 "NOT_PROVEN_SERVICE_TOKENS_READ_DENIED" if error.code in (401, 403)
-                else "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED")
+                else "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED",
+                access_application_match, service_token_header_mode)
             metadata["service_token_lifetime"] = "NOT_PROVEN_ACCESS_READ_FAILED"
             return metadata
         except (P.PreflightError, urllib.error.URLError, TimeoutError,
                 json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError,
                 IndexError, OSError):
-            metadata = unavailable_service_token_metadata("NOT_PROVEN_SERVICE_TOKENS_READ_FAILED")
+            metadata = unavailable_service_token_metadata(
+                "NOT_PROVEN_SERVICE_TOKENS_READ_FAILED",
+                access_application_match, service_token_header_mode)
             metadata["service_token_lifetime"] = "NOT_PROVEN_ACCESS_READ_FAILED"
             return metadata
         P.require(all(isinstance(token, dict) and P.uuid(token.get("id"))
@@ -97,10 +137,14 @@ def selected_service_token_metadata(access_read_token, access_client_id, read=P.
                   "CF_RESPONSE_INVALID")
         client_tokens = [token for token in tokens if token["client_id"] == access_client_id]
         if not client_tokens:
-            return unavailable_service_token_metadata("NOT_PROVEN_SERVICE_TOKEN_CLIENT_ID_NOT_LISTED")
+            return unavailable_service_token_metadata(
+                "NOT_PROVEN_SERVICE_TOKEN_CLIENT_ID_NOT_LISTED",
+                access_application_match, service_token_header_mode)
         selected = [token for token in client_tokens if any_valid or token["id"] in token_ids]
         if not selected:
-            return unavailable_service_token_metadata("NOT_PROVEN_SERVICE_TOKEN_NOT_SELECTED")
+            return unavailable_service_token_metadata(
+                "NOT_PROVEN_SERVICE_TOKEN_NOT_SELECTED",
+                access_application_match, service_token_header_mode)
         enabled_selected_ids = frozenset(token["id"] for token in selected if token["enabled"])
         service_token_match = (
             "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED" if enabled_selected_ids
@@ -125,6 +169,8 @@ def selected_service_token_metadata(access_read_token, access_client_id, read=P.
             "service_token_lifetime": lifetime,
             "service_token_match": service_token_match,
             "service_token_policy_eligibility": policy_eligibility,
+            "access_application_match": access_application_match,
+            "service_token_header_mode": service_token_header_mode,
         }
     except (P.PreflightError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError,
             json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, AttributeError,
@@ -200,12 +246,16 @@ def health403_detail(env, read=P.request, now=None):
             or token_metadata["service_token_lifetime"] not in TOKEN_LIFETIME_RESULTS
             or token_metadata["service_token_match"] not in P.ACCESS_POLICY_DIAGNOSTICS
             or token_metadata["service_token_policy_eligibility"] not in P.SERVICE_TOKEN_POLICY_ELIGIBILITY
+            or token_metadata["access_application_match"] not in ACCESS_APPLICATION_MATCH_RESULTS
+            or token_metadata["service_token_header_mode"] not in SERVICE_TOKEN_HEADER_MODE_RESULTS
             or graphql_result not in GRAPHQL_RESULTS):
         return {"detail": "STOP", "reason": "DETAIL_CLASSIFICATION_INVALID",
                 "production_mutations": 0, "activation_ready": False}
     return {
         "detail": "BOUNDED_HEALTH403_DETAIL_COMPLETE",
         "health_403_response_class": health_response_class,
+        "access_application_match": token_metadata["access_application_match"],
+        "service_token_header_mode": token_metadata["service_token_header_mode"],
         "service_token_lifetime": token_metadata["service_token_lifetime"],
         "service_token_match": token_metadata["service_token_match"],
         "service_token_policy_eligibility": token_metadata["service_token_policy_eligibility"],
