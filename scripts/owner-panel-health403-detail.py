@@ -123,6 +123,7 @@ def health403_detail(env, read=P.request, now=None):
         if error.code != 403:
             return {"detail": "STOP", "reason": "HEALTH_HTTP_OTHER",
                     "production_mutations": 0, "activation_ready": False}
+        health_response_class = P.health_403_response_class(error)
         ray_id = P.private_cf_ray_id(error)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
         return {"detail": "STOP", "reason": "HEALTH_REQUEST_FAILED",
@@ -144,11 +145,13 @@ def health403_detail(env, read=P.request, now=None):
                 UnicodeDecodeError, KeyError, TypeError, AttributeError, IndexError, OSError):
             graphql_result = "NOT_PROVEN_GRAPHQL_ACCESS_EVENT_READ_FAILED"
 
-    if lifetime not in TOKEN_LIFETIME_RESULTS or graphql_result not in GRAPHQL_RESULTS:
+    if (health_response_class not in P.HEALTH_ACCESS_RESPONSE_CLASSES
+            or lifetime not in TOKEN_LIFETIME_RESULTS or graphql_result not in GRAPHQL_RESULTS):
         return {"detail": "STOP", "reason": "DETAIL_CLASSIFICATION_INVALID",
                 "production_mutations": 0, "activation_ready": False}
     return {
         "detail": "BOUNDED_HEALTH403_DETAIL_COMPLETE",
+        "health_403_response_class": health_response_class,
         "service_token_lifetime": lifetime,
         "client_secret_validity": "NOT_PROVEN_BY_METADATA",
         "graphql_access_event": graphql_result,
