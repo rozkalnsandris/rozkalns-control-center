@@ -13,21 +13,32 @@ SPEC.loader.exec_module(D)
 P = D.P
 
 APP_ID = "33333333-3333-4333-8333-333333333333"
+APP_ID_2 = "55555555-5555-4555-8555-555555555555"
 TOKEN_ID = "44444444-4444-4444-8444-444444444444"
 NOW = datetime.datetime(2026, 9, 18, 16, 40, tzinfo=datetime.timezone.utc)
 
 
 class Health403DetailTest(unittest.TestCase):
     def token_read(self, expires_at, enabled=True, client_id="synthetic-client-id",
-                   decision="non_identity", require=None, exclude=None):
+                   decision="non_identity", require=None, exclude=None,
+                   read_service_tokens_from_header=None, extra_matching_app=False):
+        def app(app_id):
+            value = {
+                "id": app_id,
+                "type": "self_hosted",
+                "destinations": [{"type": "public", "uri": P.ORIGIN + "/api/health"}],
+            }
+            if app_id == APP_ID and read_service_tokens_from_header is not None:
+                value["read_service_tokens_from_header"] = read_service_tokens_from_header
+            return value
+
         def read(url, _token, **_kwargs):
             if url == P.access_apps_url(1):
-                return {"success": True, "result": [{
-                    "id": APP_ID,
-                    "type": "self_hosted",
-                    "destinations": [{"type": "public", "uri": P.ORIGIN + "/api/health"}],
-                }]}
-            if url == P.access_app_policies_url(APP_ID, 1):
+                apps = [app(APP_ID)]
+                if extra_matching_app:
+                    apps.append(app(APP_ID_2))
+                return {"success": True, "result": apps}
+            if url in (P.access_app_policies_url(APP_ID, 1), P.access_app_policies_url(APP_ID_2, 1)):
                 policy = {
                     "decision": decision,
                     "include": [{"service_token": {"token_id": TOKEN_ID}}],
@@ -88,6 +99,8 @@ class Health403DetailTest(unittest.TestCase):
             "service_token_lifetime": "PROVEN_SELECTED_SERVICE_TOKEN_ENABLED_UNEXPIRED",
             "service_token_match": "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
             "service_token_policy_eligibility": "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
+            "access_application_match": "PROVEN_UNIQUE_ACCESS_APPLICATION_MATCH",
+            "service_token_header_mode": "PROVEN_STANDARD_SERVICE_TOKEN_HEADER_PAIR",
         })
         metadata = D.selected_service_token_metadata(
             "synthetic-read", "synthetic-client-id",
@@ -103,6 +116,33 @@ class Health403DetailTest(unittest.TestCase):
             metadata["service_token_policy_eligibility"],
             "NOT_PROVEN_SELECTED_SERVICE_TOKEN_POLICY_CONSTRAINED",
         )
+
+    def test_access_application_and_header_mode_are_bounded(self):
+        future = "2026-09-19T16:40:00Z"
+        metadata = D.selected_service_token_metadata(
+            "synthetic-read", "synthetic-client-id", self.token_read(future), NOW)
+        self.assertEqual(metadata["access_application_match"],
+                         "PROVEN_UNIQUE_ACCESS_APPLICATION_MATCH")
+        self.assertEqual(metadata["service_token_header_mode"],
+                         "PROVEN_STANDARD_SERVICE_TOKEN_HEADER_PAIR")
+
+        private_header = "X-Private-Service-Token"
+        metadata = D.selected_service_token_metadata(
+            "synthetic-read", "synthetic-client-id",
+            self.token_read(future, read_service_tokens_from_header=private_header), NOW)
+        self.assertEqual(metadata["access_application_match"],
+                         "PROVEN_UNIQUE_ACCESS_APPLICATION_MATCH")
+        self.assertEqual(metadata["service_token_header_mode"],
+                         "PROVEN_CUSTOM_SERVICE_TOKEN_SINGLE_HEADER")
+        self.assertNotIn(private_header, json.dumps(metadata))
+
+        metadata = D.selected_service_token_metadata(
+            "synthetic-read", "synthetic-client-id",
+            self.token_read(future, extra_matching_app=True), NOW)
+        self.assertEqual(metadata["access_application_match"],
+                         "NOT_PROVEN_ACCESS_APPLICATION_MATCH_AMBIGUOUS")
+        self.assertEqual(metadata["service_token_header_mode"],
+                         "NOT_PROVEN_SERVICE_TOKEN_HEADER_MODE")
 
     def test_graphql_documented_top_level_errors_override_null_path(self):
         cases = (
@@ -168,6 +208,8 @@ class Health403DetailTest(unittest.TestCase):
         self.assertEqual(receipt, {
             "detail": "BOUNDED_HEALTH403_DETAIL_COMPLETE",
             "health_403_response_class": "WORKER_ACCESS_JWT_SIGNATURE_INVALID",
+            "access_application_match": "PROVEN_UNIQUE_ACCESS_APPLICATION_MATCH",
+            "service_token_header_mode": "PROVEN_STANDARD_SERVICE_TOKEN_HEADER_PAIR",
             "service_token_lifetime": "PROVEN_SELECTED_SERVICE_TOKEN_ENABLED_UNEXPIRED",
             "service_token_match": "PROVEN_SERVICE_TOKEN_SELECTOR_MATCH_ENABLED",
             "service_token_policy_eligibility": "PROVEN_ENABLED_SERVICE_AUTH_POLICY_UNCONSTRAINED",
