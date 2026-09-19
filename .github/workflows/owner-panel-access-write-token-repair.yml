@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     environment:
-      name: production-readonly-reconcile
+      name: production-access-token-policy-repair
       deployment: false
     env:
       CONTROL_REPO: rozkalnsandris/rozkalns-control-center
@@ -87,7 +87,9 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Dedicated token-administration credential. The read-only reconcile
+          # credential must never be repurposed for token-policy mutation.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN_MANAGEMENT_TOKEN }}
           CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
           CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
           CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
