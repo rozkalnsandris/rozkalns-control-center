@@ -111,3 +111,10 @@ jobs:
       - name: Wrangler dry run
         if: steps.scope.outputs.full == 'true'
         run: npm run cf:dry-run
+
+
+  workflow-security:
+    name: GitHub Actions static analysis
+    uses: rozkalnsandris/ops-workflows/.github/workflows/workflow-security.yml@0450e662093c41e98ca96802b523ac91eb02e5fe
+    permissions:
+      contents: read
