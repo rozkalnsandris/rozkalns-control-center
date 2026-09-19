@@ -73,6 +73,7 @@ jobs:
       - name: Offline owner-panel safety tests
         run: |
           python3 scripts/owner-panel-readonly-preflight.test.py
+          python3 scripts/owner-panel-browser-compatible-runtime.test.py
           python3 scripts/owner-panel-token-proof.test.py
           python3 scripts/owner-panel-token-proof-account-rate-message.test.py
           python3 scripts/owner-panel-token-proof-envelope.test.py
