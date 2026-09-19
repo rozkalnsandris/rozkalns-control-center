@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   CONTINUATION_ACCESS_APP_NAME,
@@ -215,4 +216,27 @@ test("postflight fails closed on broadened owner policy or non-target drift", ()
       }),
     "ACCESS_NON_TARGET_DIGEST_CHANGED",
   );
+});
+
+test("read-only workflow owner-comment path is fixed, bounded and mutation-free", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/continuation-access-readonly-preflight.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workflow, /issue_comment:\n\s+types: \[created\]/);
+  assert.match(workflow, /github\.event\.issue\.number == 278/);
+  assert.match(workflow, /github\.event\.issue\.pull_request == null/);
+  assert.match(workflow, /github\.event\.comment\.user\.id == 277435981/);
+  assert.match(workflow, /github\.event\.comment\.user\.type == 'User'/);
+  assert.match(workflow, /\/continuation-access-idp-inventory/);
+  assert.match(workflow, /\/continuation-access-preflight:/);
+  assert.match(workflow, /ACCESS_IDP_PUBLIC_INVENTORY_UNBOUNDED/);
+  assert.match(workflow, /CONTINUATION_ACCESS_IDP_INVENTORY=PASS/);
+  assert.match(workflow, /ACCESS_API_METHOD=GET_ONLY/);
+  assert.match(workflow, /PRODUCTION_MUTATIONS=0/);
+  assert.match(workflow, /CLOUDFLARE_ACCESS_MUTATION=NO/);
+  assert.match(workflow, /CLOUDFLARE_ACCESS_READ_TOKEN/);
+  assert.doesNotMatch(workflow, /CLOUDFLARE_ACCESS_WRITE_TOKEN/);
+  assert.doesNotMatch(workflow, /curl[^\n]*\s-X\s+(POST|PUT|PATCH|DELETE)\b/i);
 });
