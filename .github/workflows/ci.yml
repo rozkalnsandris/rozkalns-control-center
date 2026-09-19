@@ -80,6 +80,7 @@ jobs:
           python3 scripts/owner-panel-access-secret-rotate.test.py
           python3 scripts/owner-panel-access-secret-rotation-recovery.test.py
           python3 scripts/owner-panel-access-write-token-proof.test.py
+          python3 scripts/owner-panel-access-write-token-repair.test.py
 
       - name: Install locked dependencies
         if: steps.scope.outputs.full == 'true'
