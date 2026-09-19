@@ -92,20 +92,15 @@ def list_service_tokens(token, read=read_json):
 
 def select_target(tokens, client_id):
     require(isinstance(client_id, str) and 1 <= len(client_id) <= 128, "CLIENT_ID_INVALID")
-    require(
-        all(
-            isinstance(token, dict)
-            and uuid(token.get("id"))
-            and isinstance(token.get("client_id"), str)
-            and type(token.get("enabled")) is bool
-            for token in tokens
-        ),
-        "SERVICE_TOKEN_LIST_INVALID",
-    )
-    matches = [token for token in tokens if token["client_id"] == client_id]
+    require(all(isinstance(token, dict) for token in tokens), "SERVICE_TOKEN_LIST_INVALID")
+    matches = [token for token in tokens if token.get("client_id") == client_id]
     require(len(matches) == 1, "SELECTED_SERVICE_TOKEN_NOT_UNIQUE")
-    require(matches[0]["enabled"] is True, "SELECTED_SERVICE_TOKEN_DISABLED")
-    return matches[0]
+    selected = matches[0]
+    require(uuid(selected.get("id")), "SERVICE_TOKEN_ID_INVALID")
+    enabled = selected.get("enabled")
+    require(enabled is None or type(enabled) is bool, "SERVICE_TOKEN_ENABLED_INVALID")
+    require(enabled is not False, "SELECTED_SERVICE_TOKEN_DISABLED")
+    return selected
 
 
 def get_service_token(token, token_id, read=read_json):
@@ -210,7 +205,11 @@ def probe(token, client_id, read=read_json):
     ) as error:
         return classify_failure(receipt, "LIST", error)
 
-    receipt["selected_service_token_match"] = "PROVEN_SELECTOR_MATCH_ENABLED"
+    receipt["selected_service_token_match"] = (
+        "PROVEN_SELECTOR_MATCH_ENABLED"
+        if selected.get("enabled") is True
+        else "PROVEN_SELECTOR_MATCH"
+    )
     receipt["request_stage"] = "LIST"
     receipt["response_class"] = "HTTP_200_CONTRACT_VALID"
 
@@ -218,7 +217,14 @@ def probe(token, client_id, read=read_json):
         detail = get_service_token(token, selected["id"], read)
         require(detail.get("id") == selected["id"], "SERVICE_TOKEN_TARGET_MISMATCH")
         require(detail.get("client_id") == client_id, "SERVICE_TOKEN_CLIENT_ID_MISMATCH")
-        require(detail.get("enabled") is True, "SERVICE_TOKEN_DISABLED")
+        detail_enabled = detail.get("enabled")
+        require(
+            detail_enabled is None or type(detail_enabled) is bool,
+            "SERVICE_TOKEN_ENABLED_INVALID",
+        )
+        require(detail_enabled is not False, "SERVICE_TOKEN_DISABLED")
+        if detail_enabled is True:
+            receipt["selected_service_token_match"] = "PROVEN_SELECTOR_MATCH_ENABLED"
     except (
         urllib.error.HTTPError,
         urllib.error.URLError,
