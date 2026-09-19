@@ -42,6 +42,7 @@ jobs:
       - name: Focused offline safety tests
         run: |
           python3 scripts/owner-panel-readonly-preflight.test.py
+          python3 scripts/owner-panel-browser-compatible-runtime.test.py
           python3 scripts/owner-panel-token-proof.test.py
           python3 scripts/owner-panel-token-proof-account-rate-message.test.py
           python3 scripts/owner-panel-token-proof-envelope.test.py
@@ -70,20 +71,20 @@ jobs:
           CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
           CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
           CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
-        run: python3 scripts/owner-panel-readonly-preflight.py
+        run: python3 scripts/owner-panel-browser-compatible-runtime.py scripts/owner-panel-readonly-preflight.py
       - name: Bounded health403 detail proof only
         if: inputs.diagnostic == 'health403-detail'
         env:
           CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
           CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
           CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
-        run: python3 scripts/owner-panel-health403-detail.py
+        run: python3 scripts/owner-panel-browser-compatible-runtime.py scripts/owner-panel-health403-detail.py
       - name: Bounded health403 credential effect proof only
         if: inputs.diagnostic == 'health403-credential-effect'
         env:
           CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
           CONTROL_ACCESS_CLIENT_SECRET: ${{ secrets.CONTROL_ACCESS_CLIENT_SECRET }}
-        run: python3 scripts/owner-panel-health403-credential-effect.py
+        run: python3 scripts/owner-panel-browser-compatible-runtime.py scripts/owner-panel-health403-credential-effect.py
       - name: Bounded Access rotation recovery metadata only
         if: inputs.diagnostic == 'rotation-recovery-metadata'
         env:
