@@ -100,12 +100,17 @@ class Health403DetailTest(unittest.TestCase):
         }
         ray_header = "0123456789abcdef-FRA"
         calls = []
+        worker_body = json.dumps({
+            "error": "ACCESS_AUTHENTICATION_FAILED",
+            "diagnostic": "ACCESS_JWT_SIGNATURE_INVALID",
+            "private": "must-not-leak",
+        }).encode()
 
         def read(url, token, **kwargs):
             calls.append(url)
             if url == P.ORIGIN + "/api/health":
                 raise P.urllib.error.HTTPError(
-                    url, 403, "synthetic-private-health", {"CF-Ray": ray_header}, io.BytesIO(b"private"))
+                    url, 403, "synthetic-private-health", {"CF-Ray": ray_header}, io.BytesIO(worker_body))
             if url == P.access_apps_url(1):
                 return {"success": True, "result": [{
                     "id": APP_ID,
@@ -132,6 +137,7 @@ class Health403DetailTest(unittest.TestCase):
         receipt = D.health403_detail(env, read, NOW)
         self.assertEqual(receipt, {
             "detail": "BOUNDED_HEALTH403_DETAIL_COMPLETE",
+            "health_403_response_class": "WORKER_ACCESS_JWT_SIGNATURE_INVALID",
             "service_token_lifetime": "PROVEN_SELECTED_SERVICE_TOKEN_ENABLED_UNEXPIRED",
             "client_secret_validity": "NOT_PROVEN_BY_METADATA",
             "graphql_access_event": "PROVEN_GRAPHQL_UNAUTHORIZED",
@@ -142,7 +148,7 @@ class Health403DetailTest(unittest.TestCase):
         self.assertEqual(calls.count(P.GRAPHQL), 1)
         rendered = json.dumps(receipt)
         for private in ("synthetic-access-read-secret", "synthetic-client-secret", TOKEN_ID,
-                        ray_header, "0123456789abcdef"):
+                        ray_header, "0123456789abcdef", "must-not-leak"):
             self.assertNotIn(private, rendered)
 
     def test_contract_failures_do_not_touch_network(self):
