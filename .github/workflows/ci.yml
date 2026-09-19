@@ -77,6 +77,7 @@ jobs:
           python3 scripts/owner-panel-token-proof-account-rate-message.test.py
           python3 scripts/owner-panel-token-proof-envelope.test.py
           python3 scripts/owner-panel-health403-detail.test.py
+          python3 scripts/owner-panel-access-secret-rotate.test.py
 
       - name: Install locked dependencies
         if: steps.scope.outputs.full == 'true'
