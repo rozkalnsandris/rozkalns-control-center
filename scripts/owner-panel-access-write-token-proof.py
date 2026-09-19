@@ -143,6 +143,7 @@ def empty_receipt(detail):
         "response_class": "NOT_RUN",
         "selected_service_token_match": "NOT_PROVEN",
         "service_token_get_access": "NOT_PROVEN",
+        "visibility_relation": "NOT_CHECKED",
         "write_token_status": "NOT_PROVEN",
     }
 
@@ -180,7 +181,33 @@ def classify_failure(receipt, stage, error):
     return receipt
 
 
-def probe(token, client_id, read=read_json):
+def compare_read_visibility(read_token, client_id, read=read_json):
+    if not isinstance(read_token, str) or not read_token:
+        return "READ_CREDENTIAL_UNAVAILABLE"
+    try:
+        tokens = list_service_tokens(read_token, read)
+        matches = [row for row in tokens if row.get("client_id") == client_id]
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        OSError,
+        ProofError,
+        ValueError,
+        TypeError,
+        KeyError,
+    ):
+        return "READ_VISIBILITY_UNPROVEN"
+    if len(matches) == 1:
+        return "WRITE_TARGET_HIDDEN_WHILE_READ_TARGET_VISIBLE"
+    if len(matches) == 0:
+        return "TARGET_NOT_VISIBLE_TO_EITHER_TOKEN"
+    return "READ_VISIBILITY_UNPROVEN"
+
+
+def probe(token, client_id, read=read_json, read_token=None):
     if not isinstance(token, str) or not token or not isinstance(client_id, str) or not client_id:
         return empty_receipt("ACCESS_WRITE_TOKEN_CREDENTIAL_UNAVAILABLE")
 
@@ -220,7 +247,12 @@ def probe(token, client_id, read=read_json):
         TypeError,
         KeyError,
     ) as error:
-        return classify_failure(receipt, "LIST", error)
+        classify_failure(receipt, "LIST", error)
+        if isinstance(error, ProofError) and str(error) == "TARGET_NOT_FOUND":
+            receipt["visibility_relation"] = compare_read_visibility(
+                read_token, client_id, read
+            )
+        return receipt
 
     receipt["selected_service_token_match"] = (
         "PROVEN_SELECTOR_MATCH_ENABLED"
@@ -272,6 +304,7 @@ def main(env, read=read_json):
             env.get("CLOUDFLARE_ACCESS_WRITE_TOKEN"),
             env.get("CONTROL_ACCESS_CLIENT_ID"),
             read,
+            env.get("CLOUDFLARE_ACCESS_READ_TOKEN"),
         )
     except Exception:
         receipt = empty_receipt("ACCESS_WRITE_TOKEN_RESPONSE_UNPROVEN")
