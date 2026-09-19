@@ -16,6 +16,7 @@ on:
           - health403-detail
           - health403-credential-effect
           - rotation-recovery-metadata
+          - access-write-token-proof
 
 permissions:
   contents: read
@@ -47,6 +48,7 @@ jobs:
           python3 scripts/owner-panel-account-analytics-canary.test.py
           python3 scripts/owner-panel-health403-credential-effect.test.py
           python3 scripts/owner-panel-access-secret-rotation-recovery.test.py
+          python3 scripts/owner-panel-access-write-token-proof.test.py
       - name: Token Analytics permission proof only
         if: inputs.diagnostic == 'token-analytics-proof'
         env:
@@ -86,3 +88,9 @@ jobs:
           CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
           CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
         run: python3 scripts/owner-panel-access-secret-rotation-recovery.py
+      - name: Bounded Access write-token GET proof only
+        if: inputs.diagnostic == 'access-write-token-proof'
+        env:
+          CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
+          CONTROL_ACCESS_CLIENT_ID: ${{ secrets.CONTROL_ACCESS_CLIENT_ID }}
+        run: python3 scripts/owner-panel-access-write-token-proof.py
