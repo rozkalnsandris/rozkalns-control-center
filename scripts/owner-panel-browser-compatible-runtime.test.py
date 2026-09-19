@@ -37,10 +37,17 @@ class BrowserCompatibleRuntimeTest(unittest.TestCase):
         self.assertEqual(headers["user-agent"], "synthetic-existing-agent")
 
     def test_target_allowlist_is_exact(self):
-        for target in M.ALLOWED_RELATIVE_TARGETS:
-            resolved = M.resolve_target(target)
-            self.assertEqual(resolved.parent, ROOT / "scripts")
+        self.assertEqual(
+            M.ALLOWED_RELATIVE_TARGETS,
+            frozenset(("scripts/owner-panel-readonly-preflight.py",)),
+        )
+        self.assertEqual(
+            M.resolve_target("scripts/owner-panel-readonly-preflight.py").parent,
+            ROOT / "scripts",
+        )
         for target in (
+            "scripts/owner-panel-health403-detail.py",
+            "scripts/owner-panel-health403-credential-effect.py",
             "scripts/owner-panel-access-secret-rotate.py",
             "../outside.py",
             "/tmp/outside.py",
