@@ -52,6 +52,21 @@ test("catalog projects only public-safe IdP fields and is deterministic", () => 
   assert.equal(JSON.stringify(result).includes("config"), false);
 });
 
+test("unsafe display names are redacted to null without weakening UUID/type proof", () => {
+  const unsafeNames = [
+    " owner ",
+    "bad\nname",
+    "",
+    "x".repeat(129),
+  ];
+  for (const name of unsafeNames) {
+    assert.deepEqual(sanitizeIdentityProviderInventory([provider({ name })]), [
+      { id: IDP_A, name: null, type: "google", readOnly: false },
+    ]);
+  }
+  expectCode(() => sanitizeIdentityProviderInventory([provider({ name: 42 })]), "ACCESS_IDP_NAME_INVALID");
+});
+
 test("missing read_only is represented as unknown rather than guessed", () => {
   const withoutReadOnly = provider();
   delete withoutReadOnly.read_only;
@@ -63,8 +78,6 @@ test("missing read_only is represented as unknown rather than guessed", () => {
 test("catalog fails closed on malformed or ambiguous provider evidence", () => {
   expectCode(() => sanitizeIdentityProviderInventory({ success: false, result: [] }), "ACCESS_IDP_INVENTORY_RESPONSE_INVALID");
   expectCode(() => sanitizeIdentityProviderInventory([provider({ id: "not-a-uuid" })]), "ACCESS_IDP_ID_INVALID");
-  expectCode(() => sanitizeIdentityProviderInventory([provider({ name: " owner " })]), "ACCESS_IDP_NAME_INVALID");
-  expectCode(() => sanitizeIdentityProviderInventory([provider({ name: "bad\nname" })]), "ACCESS_IDP_NAME_INVALID");
   expectCode(() => sanitizeIdentityProviderInventory([provider({ type: "future-unknown-provider" })]), "ACCESS_IDP_TYPE_INVALID");
   expectCode(() => sanitizeIdentityProviderInventory([provider({ read_only: "false" })]), "ACCESS_IDP_READ_ONLY_INVALID");
   expectCode(
@@ -88,6 +101,14 @@ test("exact selection accepts one observed UUID and rejects absent selection", (
     id: IDP_B,
     name: "GitHub login",
     type: "github",
+    readOnly: false,
+  });
+  assert.deepEqual(verifyIdentityProviderSelection([provider({ name: " unsafe " })], IDP_A), {
+    status: "PASS",
+    source: CONTINUATION_ACCESS_IDP_EVIDENCE_SOURCE,
+    id: IDP_A,
+    name: null,
+    type: "google",
     readOnly: false,
   });
   expectCode(() => verifyIdentityProviderSelection(input, "33333333-3333-4333-8333-333333333333"), "ACCESS_IDP_SELECTED_NOT_FOUND");
