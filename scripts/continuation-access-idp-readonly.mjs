@@ -5,7 +5,6 @@ export const CONTINUATION_ACCESS_IDP_EVIDENCE_SOURCE = "ACCESS_IDENTITY_PROVIDER
 export const CONTINUATION_ACCESS_IDP_MAX_COUNT = 32;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const IDENTITY_PROVIDER_TYPES = new Set([
   "onetimepin",
   "azureAD",
@@ -47,13 +46,21 @@ function assertUuid(value, code) {
   return value;
 }
 
+function hasControlCharacter(value) {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint <= 0x1f || codePoint === 0x7f) return true;
+  }
+  return false;
+}
+
 function sanitizeName(value) {
   if (
     typeof value !== "string" ||
     value.length < 1 ||
     value.length > 128 ||
     value !== value.trim() ||
-    CONTROL_CHARACTER_PATTERN.test(value)
+    hasControlCharacter(value)
   ) {
     fail("ACCESS_IDP_NAME_INVALID");
   }
