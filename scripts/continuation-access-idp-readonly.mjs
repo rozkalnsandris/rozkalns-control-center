@@ -55,14 +55,14 @@ function hasControlCharacter(value) {
 }
 
 function sanitizeName(value) {
+  if (typeof value !== "string") fail("ACCESS_IDP_NAME_INVALID");
   if (
-    typeof value !== "string" ||
     value.length < 1 ||
     value.length > 128 ||
     value !== value.trim() ||
     hasControlCharacter(value)
   ) {
-    fail("ACCESS_IDP_NAME_INVALID");
+    return null;
   }
   return value;
 }
@@ -105,7 +105,7 @@ export function sanitizeIdentityProviderInventory(document) {
   });
 
   return sanitized.sort((left, right) =>
-    `${left.type}\u0000${left.name}\u0000${left.id}`.localeCompare(`${right.type}\u0000${right.name}\u0000${right.id}`),
+    `${left.type}\u0000${left.name ?? ""}\u0000${left.id}`.localeCompare(`${right.type}\u0000${right.name ?? ""}\u0000${right.id}`),
   );
 }
 

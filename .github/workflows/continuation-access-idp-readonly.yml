@@ -133,7 +133,7 @@ jobs:
             catalog_rc=$?
             set -e
             [ "$catalog_rc" -eq 0 ] || stop ACCESS_IDP_CATALOG_CONTRACT_REJECTED
-            jq -e '.status == "PASS" and .source == "ACCESS_IDENTITY_PROVIDERS_API" and (.count | type == "number") and (.identityProviders | type == "array") and .count == (.identityProviders | length)' <<<"$catalog" >/dev/null || stop ACCESS_IDP_CATALOG_PROOF_INVALID
+            jq -e '.status == "PASS" and .source == "ACCESS_IDENTITY_PROVIDERS_API" and (.count | type == "number") and (.identityProviders | type == "array") and .count == (.identityProviders | length) and all(.identityProviders[]; (.id | type == "string") and ((.name | type) == "string" or .name == null) and (.type | type == "string") and ((.readOnly | type) == "boolean" or .readOnly == null))' <<<"$catalog" >/dev/null || stop ACCESS_IDP_CATALOG_PROOF_INVALID
             idp_count="$(jq -r '.count' <<<"$catalog")"
             catalog_json="$(jq -c '.identityProviders' <<<"$catalog")"
             printf 'CONTINUATION_ACCESS_IDP_CATALOG=PASS\n'
@@ -154,8 +154,8 @@ jobs:
           proof_rc=$?
           set -e
           [ "$proof_rc" -eq 0 ] || stop ACCESS_IDP_VERIFY_CONTRACT_REJECTED
-          jq -e --arg id "$expected_idp_id" '.status == "PASS" and .source == "ACCESS_IDENTITY_PROVIDERS_API" and .id == $id and (.name | type == "string") and (.type | type == "string") and ((.readOnly | type) == "boolean" or .readOnly == null)' <<<"$proof" >/dev/null || stop ACCESS_IDP_VERIFY_PROOF_INVALID
-          idp_name="$(jq -r '.name' <<<"$proof")"
+          jq -e --arg id "$expected_idp_id" '.status == "PASS" and .source == "ACCESS_IDENTITY_PROVIDERS_API" and .id == $id and ((.name | type) == "string" or .name == null) and (.type | type == "string") and ((.readOnly | type) == "boolean" or .readOnly == null)' <<<"$proof" >/dev/null || stop ACCESS_IDP_VERIFY_PROOF_INVALID
+          idp_name="$(jq -r 'if .name == null then "REDACTED" else .name end' <<<"$proof")"
           idp_type="$(jq -r '.type' <<<"$proof")"
           idp_read_only="$(jq -r 'if .readOnly == null then "UNKNOWN" else (.readOnly | tostring) end' <<<"$proof")"
           printf 'CONTINUATION_ACCESS_IDP_VERIFY=PASS\n'
