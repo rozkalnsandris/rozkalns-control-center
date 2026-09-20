@@ -38,6 +38,9 @@ test("GitHub App rollout manifest and declared production runtime bindings remai
       '{"schemaVersion":1,"maxAttempts":2,"retryDelaysSeconds":[60]}',
     CONTROL_TELEGRAM_TARGET_KEY: "primary",
     CONTROL_NOTIFICATION_CONTROL_ORIGIN: "https://control.rozkalns.net",
+    CONTROL_CONTINUATION_ACCESS_ISSUER: "https://super-salad-2357.cloudflareaccess.com",
+    CONTROL_CONTINUATION_ACCESS_AUDIENCE:
+      "10ce4ed7a5852cf1514251f4971bf575fdae13ea6d4317bee4962b4146bdb228",
     CONTROL_NEEDS_CHANGES_ACCESS_ISSUER: "https://super-salad-2357.cloudflareaccess.com",
     CONTROL_NEEDS_CHANGES_ACCESS_AUDIENCE:
       "a8cce1f50660ab0f82afccb5d427be1107fc8b238b70cb67b57f00593493d6cc",
