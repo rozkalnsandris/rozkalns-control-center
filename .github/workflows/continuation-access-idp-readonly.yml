@@ -1,0 +1,172 @@
+name: Continuation Access IdP read-only inventory
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: continuation-access-idp-readonly
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: list or verify sanitized continuation Access identity-provider evidence
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event.action == 'created' &&
+      github.event.issue.number == 278 &&
+      github.event.issue.pull_request == null &&
+      github.event.comment.user.id == 277435981 &&
+      github.event.comment.user.type == 'User' &&
+      (
+        github.event.comment.body == '/continuation-access-idp-catalog' ||
+        startsWith(github.event.comment.body, '/continuation-access-idp-verify:')
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment:
+      name: production-readonly-reconcile
+      deployment: false
+    env:
+      CONTROL_REPO: rozkalnsandris/rozkalns-control-center
+      CF_ACCOUNT_ID: 70e29dbca0e8363358659102d2b74178
+      GITHUB_TOKEN: ${{ github.token }}
+      CLOUDFLARE_ACCESS_IDP_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_IDP_READ_TOKEN }}
+
+    steps:
+      - name: Checkout exact main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Focused offline IdP evidence contract tests
+        run: node --test scripts/continuation-access-idp-readonly.test.mjs
+
+      - name: GET-only sanitized Access identity-provider evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+
+          stop() {
+            {
+              printf 'CONTINUATION_ACCESS_IDP_READONLY=STOP\n'
+              printf 'STOP=%s\n' "$1"
+              printf 'ACCESS_API_METHOD=GET_ONLY\n'
+              printf 'PRODUCTION_MUTATIONS=0\n'
+              printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
+              printf 'SECRET_MUTATION=NO\n'
+              printf 'PERMISSION_MUTATION=NO\n'
+              printf 'WORKER_MUTATION=NO\n'
+              printf 'D1_MUTATION=NO\n'
+            } >&2
+            exit 1
+          }
+
+          for cmd in curl jq node; do
+            command -v "$cmd" >/dev/null 2>&1 || stop "MISSING_${cmd^^}"
+          done
+          [ "${GITHUB_REF_NAME:-}" = "main" ] || stop WORKFLOW_REF_NOT_MAIN
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop WORKFLOW_ATTEMPT_NOT_ONE
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || stop WORKFLOW_SHA_INVALID
+          [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
+          [ -n "${CLOUDFLARE_ACCESS_IDP_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_IDP_READ_TOKEN
+          [ -n "${GITHUB_EVENT_PATH:-}" ] || stop MISSING_GITHUB_EVENT_PATH
+
+          jq -e '
+            .action == "created" and
+            .issue.number == 278 and
+            (.issue | has("pull_request") | not) and
+            .comment.user.id == 277435981 and
+            .comment.user.type == "User" and
+            ((.comment.body == "/continuation-access-idp-catalog") or (.comment.body | startswith("/continuation-access-idp-verify:")))
+          ' "$GITHUB_EVENT_PATH" >/dev/null || stop OWNER_COMMENT_TRIGGER_INVALID
+
+          comment_body="$(jq -er '.comment.body | select(type == "string" and length > 0)' "$GITHUB_EVENT_PATH")" || stop OWNER_COMMENT_BODY_INVALID
+          mode=''
+          expected_idp_id=''
+          if [ "$comment_body" = '/continuation-access-idp-catalog' ]; then
+            mode='catalog'
+          elif [[ "$comment_body" =~ ^/continuation-access-idp-verify:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$ ]]; then
+            mode='verify'
+            expected_idp_id="${BASH_REMATCH[1]}"
+          else
+            stop OWNER_COMMENT_COMMAND_INVALID
+          fi
+
+          tmp="${RUNNER_TEMP}/continuation-access-idp-readonly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$tmp"
+          trap 'rm -rf "$tmp"' EXIT
+
+          gh_get() {
+            local path="$1" out="$2"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${CONTROL_REPO}${path}" > "$out" || stop GITHUB_GET_FAILED
+          }
+
+          printf '%s\n' STAGE=EXACT_MAIN_CI
+          gh_get '/branches/main' "$tmp/main.json"
+          jq -e --arg sha "$GITHUB_SHA" '.commit.sha == $sha' "$tmp/main.json" >/dev/null || stop MAIN_SHA_DRIFT
+          gh_get "/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${GITHUB_SHA}&per_page=10" "$tmp/ci-runs.json"
+          ci_run_id="$(jq -r --arg sha "$GITHUB_SHA" '[.workflow_runs[]? | select(.name == "CI" and .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .run_attempt == 1 and .status == "completed" and .conclusion == "success")] | sort_by(.run_number) | last | .id // empty' "$tmp/ci-runs.json")"
+          [[ "$ci_run_id" =~ ^[1-9][0-9]*$ ]] || stop EXACT_MAIN_CI_NOT_SUCCESS
+          gh_get "/actions/runs/${ci_run_id}" "$tmp/ci.json"
+          jq -e --arg sha "$GITHUB_SHA" --argjson id "$ci_run_id" '.id == $id and .name == "CI" and .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $sha and .event == "push" and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' "$tmp/ci.json" >/dev/null || stop EXACT_MAIN_CI_DRIFT
+
+          printf '%s\n' STAGE=ACCESS_IDENTITY_PROVIDERS_GET_ONLY
+          curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_IDP_READ_TOKEN}" \
+            -H 'Accept: application/json' \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/access/identity_providers?per_page=1000&page=1" > "$tmp/idps.json" || stop ACCESS_IDP_GET_FAILED
+
+          if [ "$mode" = 'catalog' ]; then
+            set +e
+            catalog="$(node scripts/continuation-access-idp-readonly.mjs catalog "$tmp/idps.json")"
+            catalog_rc=$?
+            set -e
+            [ "$catalog_rc" -eq 0 ] || stop ACCESS_IDP_CATALOG_CONTRACT_REJECTED
+            jq -e '.status == "PASS" and .source == "ACCESS_IDENTITY_PROVIDERS_API" and (.count | type == "number") and (.identityProviders | type == "array") and .count == (.identityProviders | length)' <<<"$catalog" >/dev/null || stop ACCESS_IDP_CATALOG_PROOF_INVALID
+            idp_count="$(jq -r '.count' <<<"$catalog")"
+            catalog_json="$(jq -c '.identityProviders' <<<"$catalog")"
+            printf 'CONTINUATION_ACCESS_IDP_CATALOG=PASS\n'
+            printf 'SOURCE_SHA=%s\n' "$GITHUB_SHA"
+            printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+            printf 'IDP_SOURCE=ACCESS_IDENTITY_PROVIDERS_API\n'
+            printf 'IDP_COUNT=%s\n' "$idp_count"
+            printf 'IDP_CATALOG_JSON=%s\n' "$catalog_json"
+            printf 'RAW_IDP_CONFIG_EXPOSED=NO\n'
+            printf 'ACCESS_API_METHOD=GET_ONLY\n'
+            printf 'PRODUCTION_MUTATIONS=0\n'
+            printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
+            exit 0
+          fi
+
+          set +e
+          proof="$(node scripts/continuation-access-idp-readonly.mjs verify "$tmp/idps.json" "$expected_idp_id")"
+          proof_rc=$?
+          set -e
+          [ "$proof_rc" -eq 0 ] || stop ACCESS_IDP_VERIFY_CONTRACT_REJECTED
+          jq -e --arg id "$expected_idp_id" '.status == "PASS" and .source == "ACCESS_IDENTITY_PROVIDERS_API" and .id == $id and (.name | type == "string") and (.type | type == "string") and ((.readOnly | type) == "boolean" or .readOnly == null)' <<<"$proof" >/dev/null || stop ACCESS_IDP_VERIFY_PROOF_INVALID
+          idp_name="$(jq -r '.name' <<<"$proof")"
+          idp_type="$(jq -r '.type' <<<"$proof")"
+          idp_read_only="$(jq -r 'if .readOnly == null then "UNKNOWN" else (.readOnly | tostring) end' <<<"$proof")"
+          printf 'CONTINUATION_ACCESS_IDP_VERIFY=PASS\n'
+          printf 'SOURCE_SHA=%s\n' "$GITHUB_SHA"
+          printf 'CI_RUN_ID=%s\n' "$ci_run_id"
+          printf 'IDP_SOURCE=ACCESS_IDENTITY_PROVIDERS_API\n'
+          printf 'IDP_ID=%s\n' "$expected_idp_id"
+          printf 'IDP_NAME=%s\n' "$idp_name"
+          printf 'IDP_TYPE=%s\n' "$idp_type"
+          printf 'IDP_READ_ONLY=%s\n' "$idp_read_only"
+          printf 'RAW_IDP_CONFIG_EXPOSED=NO\n'
+          printf 'ACCESS_API_METHOD=GET_ONLY\n'
+          printf 'PRODUCTION_MUTATIONS=0\n'
+          printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
