@@ -31,6 +31,7 @@ jobs:
       ACCESS_ISSUER: https://super-salad-2357.cloudflareaccess.com
       GITHUB_TOKEN: ${{ github.token }}
       CLOUDFLARE_ACCESS_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_READ_TOKEN }}
+      CLOUDFLARE_ACCESS_IDP_READ_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_IDP_READ_TOKEN }}
       CLOUDFLARE_ACCESS_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_WRITE_TOKEN }}
       CONTROL_CONTINUATION_OWNER_EMAIL: ${{ secrets.CONTROL_CONTINUATION_OWNER_EMAIL }}
 
@@ -80,6 +81,7 @@ jobs:
           [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || stop WORKFLOW_ATTEMPT_NOT_ONE
           [ -n "${GITHUB_TOKEN:-}" ] || stop MISSING_GITHUB_TOKEN
           [ -n "${CLOUDFLARE_ACCESS_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_READ_TOKEN
+          [ -n "${CLOUDFLARE_ACCESS_IDP_READ_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_IDP_READ_TOKEN
           [ -n "${CLOUDFLARE_ACCESS_WRITE_TOKEN:-}" ] || stop MISSING_CLOUDFLARE_ACCESS_WRITE_TOKEN
           [ -n "${CONTROL_CONTINUATION_OWNER_EMAIL:-}" ] || stop MISSING_CONTROL_CONTINUATION_OWNER_EMAIL
           [ "$ACCESS_ISSUER" = 'https://super-salad-2357.cloudflareaccess.com' ] || stop ACCESS_ISSUER_SOURCE_DRIFT
@@ -156,6 +158,21 @@ jobs:
             done < <(jq -r '.[].id' "$tmp/${prefix}-apps.json")
           }
 
+          direct_idp_snapshot() {
+            local prefix="$1"
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_IDP_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/access/identity_providers?per_page=1000&page=1" > "$tmp/${prefix}-idps.json" || stop ACCESS_IDP_GET_FAILED
+            jq -e '.success == true and (.result | type == "array")' "$tmp/${prefix}-idps.json" >/dev/null || stop ACCESS_IDP_RESPONSE_INVALID
+
+            curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
+              -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_READ_TOKEN}" \
+              -H 'Accept: application/json' \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/access/apps/235c0666-9e1b-45a2-a7a2-63433c8a2247" > "$tmp/${prefix}-reference-app.json" || stop ACCESS_IDP_REFERENCE_EXACT_APP_GET_FAILED
+            jq -e '.success == true and (.result | type == "object")' "$tmp/${prefix}-reference-app.json" >/dev/null || stop ACCESS_IDP_REFERENCE_EXACT_APP_RESPONSE_INVALID
+          }
+
           prove_access_issuer() {
             local out="$1"
             curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
@@ -184,7 +201,7 @@ jobs:
           grep -F "IDP_ID=${expected_idp_id}" "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_NOT_BOUND
           grep -F 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_APP_NOT_BOUND
           grep -F 'IDP_REFERENCE_URI=*.rozkalns.net' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_URI_NOT_BOUND
-          grep -F 'IDP_REFERENCE_SOURCE=ACCESS_POLICY_POSITIVE_HUMAN_IDP' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_SOURCE_NOT_BOUND
+          grep -F 'IDP_REFERENCE_SOURCE=ACCESS_IDENTITY_PROVIDERS_API' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_SOURCE_NOT_BOUND
           grep -F 'ACCESS_ISSUER_JWKS=PASS' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_ISSUER_JWKS_NOT_BOUND
           grep -F "NON_TARGET_DIGEST=${expected_digest}" "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_DIGEST_NOT_BOUND
           grep -F 'CONFLICT_COUNT=0' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_CONFLICT_STATE_INVALID
@@ -195,13 +212,14 @@ jobs:
 
           printf '%s\n' STAGE=FRESH_GET_ONLY_REVALIDATION
           inventory_snapshot before
+          direct_idp_snapshot before
           prove_access_issuer "$tmp/access-jwks-before.json"
           set +e
-          fresh_proof="$(node scripts/continuation-access-provisioning.mjs preflight "$tmp/before-apps.json" "$tmp/before-policies.json" "$expected_idp_id" "$ACCESS_ISSUER")"
+          fresh_proof="$(node scripts/continuation-access-direct-idp-proof.mjs preflight "$tmp/before-apps.json" "$tmp/before-policies.json" "$tmp/before-idps.json" "$expected_idp_id" "$ACCESS_ISSUER" "$tmp/before-reference-app.json")"
           fresh_rc=$?
           set -e
           [ "$fresh_rc" -eq 0 ] || stop FRESH_PREFLIGHT_CONTRACT_REJECTED
-          jq -e --arg digest "$expected_digest" --arg issuer "$expected_issuer" --arg idp "$expected_idp_id" '.status == "PASS" and .conflictCount == 0 and .nonTargetDigest == $digest and .issuer == $issuer and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.referenceUri == "*.rozkalns.net" and .idp.source == "ACCESS_POLICY_POSITIVE_HUMAN_IDP"' <<<"$fresh_proof" >/dev/null || stop FRESH_PREFLIGHT_DRIFT
+          jq -e --arg digest "$expected_digest" --arg issuer "$expected_issuer" --arg idp "$expected_idp_id" '.status == "PASS" and .conflictCount == 0 and .nonTargetDigest == $digest and .issuer == $issuer and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.referenceUri == "*.rozkalns.net" and .idp.source == "ACCESS_IDENTITY_PROVIDERS_API"' <<<"$fresh_proof" >/dev/null || stop FRESH_PREFLIGHT_DRIFT
 
           curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
             -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_WRITE_TOKEN}" \
@@ -236,15 +254,17 @@ jobs:
 
           printf '%s\n' STAGE=POST_GET_VERIFICATION
           inventory_snapshot after
+          direct_idp_snapshot after
           set +e
-          postflight="$(node scripts/continuation-access-provisioning.mjs postflight "$tmp/after-apps.json" "$tmp/after-policies.json" "$created_app_id" "$expected_idp_id" "$ACCESS_ISSUER" "$expected_digest" "$tmp/create-response.json")"
+          postflight="$(node scripts/continuation-access-direct-idp-proof.mjs postflight "$tmp/after-apps.json" "$tmp/after-policies.json" "$tmp/after-idps.json" "$created_app_id" "$expected_idp_id" "$ACCESS_ISSUER" "$expected_digest" "$tmp/after-reference-app.json" "$tmp/create-response.json")"
           postflight_rc=$?
           set -e
           [ "$postflight_rc" -eq 0 ] || stop ACCESS_POSTFLIGHT_CONTRACT_REJECTED
-          jq -e --arg issuer "$expected_issuer" --arg digest "$expected_digest" --arg idp "$expected_idp_id" '.status == "PASS" and .issuer == $issuer and .nonTargetDigest == $digest and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.source == "ACCESS_POLICY_POSITIVE_HUMAN_IDP" and (.audience | test("^[A-Za-z0-9_-]{1,64}$"))' <<<"$postflight" >/dev/null || stop ACCESS_POSTFLIGHT_PROOF_INVALID
+          jq -e --arg issuer "$expected_issuer" --arg digest "$expected_digest" --arg idp "$expected_idp_id" '.status == "PASS" and .issuer == $issuer and .nonTargetDigest == $digest and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.source == "ACCESS_IDENTITY_PROVIDERS_API" and (.audience | test("^[A-Za-z0-9_-]{1,64}$"))' <<<"$postflight" >/dev/null || stop ACCESS_POSTFLIGHT_PROOF_INVALID
 
           created_aud="$(jq -r '.audience' <<<"$postflight")"
           created_policy_id="$(jq -r '.policyId' <<<"$postflight")"
+          idp_reference_constraint="$(jq -r '.idp.referenceConstraint' <<<"$postflight")"
           printf 'CONTINUATION_ACCESS_PROVISION=PASS\n'
           printf 'AUTHORIZATION_CONSUMED=YES\n'
           printf 'SOURCE_SHA=%s\n' "$approved_sha"
@@ -253,7 +273,8 @@ jobs:
           printf 'IDP_ID=%s\n' "$expected_idp_id"
           printf 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247\n'
           printf 'IDP_REFERENCE_URI=*.rozkalns.net\n'
-          printf 'IDP_REFERENCE_SOURCE=ACCESS_POLICY_POSITIVE_HUMAN_IDP\n'
+          printf 'IDP_REFERENCE_SOURCE=ACCESS_IDENTITY_PROVIDERS_API\n'
+          printf 'IDP_REFERENCE_CONSTRAINT=%s\n' "$idp_reference_constraint"
           printf 'ACCESS_ISSUER=%s\n' "$expected_issuer"
           printf 'NON_TARGET_DIGEST=%s\n' "$expected_digest"
           printf 'APP_ID=%s\n' "$created_app_id"

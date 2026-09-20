@@ -379,36 +379,45 @@ test("postflight fails closed on broadened owner policy IdP drift or non-target 
   );
 });
 
-test("read-only workflow keeps Apps Policies read boundary and binds policy-derived IdP source", () => {
+test("read-only preflight separates Apps Policies reads from direct IdP evidence", () => {
   const workflow = readFileSync(new URL("../.github/workflows/continuation-access-readonly-preflight.yml", import.meta.url), "utf8");
   assert.match(workflow, /issue_comment:\n\s+types: \[created\]/);
   assert.match(workflow, /github\.event\.issue\.number == 278/);
-  assert.match(workflow, /\/continuation-access-idp-inventory/);
   assert.match(workflow, /\/continuation-access-preflight:/);
-  assert.match(workflow, /reference-idp/);
-  assert.match(workflow, /CONTINUATION_ACCESS_IDP_INVENTORY=PASS/);
-  assert.match(workflow, /IDP_REFERENCE_SOURCE=ACCESS_POLICY_POSITIVE_HUMAN_IDP/);
-  assert.match(workflow, /\.idp\.source == "ACCESS_POLICY_POSITIVE_HUMAN_IDP"/);
+  assert.doesNotMatch(workflow, /\/continuation-access-idp-inventory/);
+  assert.match(workflow, /continuation-access-direct-idp-proof\.mjs preflight/);
+  assert.match(workflow, /IDP_REFERENCE_SOURCE=ACCESS_IDENTITY_PROVIDERS_API/);
+  assert.match(workflow, /\.idp\.source == "ACCESS_IDENTITY_PROVIDERS_API"/);
+  assert.doesNotMatch(workflow, /ACCESS_POLICY_POSITIVE_HUMAN_IDP/);
   assert.match(workflow, /ACCESS_ISSUER: https:\/\/super-salad-2357\.cloudflareaccess\.com/);
   assert.match(workflow, /\/cdn-cgi\/access\/certs/);
   assert.match(workflow, /\/access\/apps/);
+  assert.match(workflow, /\/access\/identity_providers/);
+  assert.match(workflow, /CLOUDFLARE_ACCESS_READ_TOKEN/);
+  assert.match(workflow, /CLOUDFLARE_ACCESS_IDP_READ_TOKEN/);
   assert.match(workflow, /ACCESS_API_METHOD=GET_ONLY/);
   assert.match(workflow, /PRODUCTION_MUTATIONS=0/);
-  assert.match(workflow, /CLOUDFLARE_ACCESS_READ_TOKEN/);
-  assert.doesNotMatch(workflow, /\/access\/identity_providers/);
   assert.doesNotMatch(workflow, /\/access\/organizations/);
   assert.doesNotMatch(workflow, /CLOUDFLARE_ACCESS_WRITE_TOKEN/);
   assert.doesNotMatch(workflow, /curl[^\n]*\s-X\s+(POST|PUT|PATCH|DELETE)\b/i);
 });
 
-test("one-shot binds the same policy-derived source without IdP organization permission expansion", () => {
+test("one-shot revalidates direct IdP evidence without expanding the single-POST envelope", () => {
   const workflow = readFileSync(new URL("../.github/workflows/continuation-access-provision-one-shot.yml", import.meta.url), "utf8");
-  assert.match(workflow, /IDP_REFERENCE_SOURCE=ACCESS_POLICY_POSITIVE_HUMAN_IDP/);
-  assert.match(workflow, /\.idp\.source == "ACCESS_POLICY_POSITIVE_HUMAN_IDP"/);
+  assert.match(workflow, /IDP_REFERENCE_SOURCE=ACCESS_IDENTITY_PROVIDERS_API/);
+  assert.match(workflow, /\.idp\.source == "ACCESS_IDENTITY_PROVIDERS_API"/);
+  assert.doesNotMatch(workflow, /ACCESS_POLICY_POSITIVE_HUMAN_IDP/);
+  assert.match(workflow, /continuation-access-direct-idp-proof\.mjs preflight/);
+  assert.match(workflow, /continuation-access-direct-idp-proof\.mjs postflight/);
+  assert.match(workflow, /CLOUDFLARE_ACCESS_READ_TOKEN/);
+  assert.match(workflow, /CLOUDFLARE_ACCESS_IDP_READ_TOKEN/);
+  assert.match(workflow, /CLOUDFLARE_ACCESS_WRITE_TOKEN/);
   assert.match(workflow, /ACCESS_ISSUER: https:\/\/super-salad-2357\.cloudflareaccess\.com/);
   assert.match(workflow, /\/cdn-cgi\/access\/certs/);
   assert.match(workflow, /\/access\/apps/);
+  assert.match(workflow, /\/access\/identity_providers/);
   assert.match(workflow, /\.event == "workflow_dispatch" or \.event == "issue_comment"/);
-  assert.doesNotMatch(workflow, /\/access\/identity_providers/);
+  assert.match(workflow, /CLOUDFLARE_ACCESS_MUTATION=ONE_APP_CREATE_POST_WITH_ONE_INLINE_POLICY/);
+  assert.match(workflow, /NO_RETRY_ROLLBACK_CLEANUP=YES/);
   assert.doesNotMatch(workflow, /\/access\/organizations/);
 });
