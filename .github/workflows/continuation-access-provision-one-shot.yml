@@ -184,7 +184,7 @@ jobs:
           grep -F "IDP_ID=${expected_idp_id}" "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_NOT_BOUND
           grep -F 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_APP_NOT_BOUND
           grep -F 'IDP_REFERENCE_URI=*.rozkalns.net' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_URI_NOT_BOUND
-          grep -F 'IDP_REFERENCE_SOURCE=ACCESS_APP_ALLOWED_IDPS' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_SOURCE_NOT_BOUND
+          grep -F 'IDP_REFERENCE_SOURCE=ACCESS_POLICY_POSITIVE_HUMAN_IDP' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_IDP_REFERENCE_SOURCE_NOT_BOUND
           grep -F 'ACCESS_ISSUER_JWKS=PASS' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_ISSUER_JWKS_NOT_BOUND
           grep -F "NON_TARGET_DIGEST=${expected_digest}" "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_DIGEST_NOT_BOUND
           grep -F 'CONFLICT_COUNT=0' "$tmp/preflight.log" >/dev/null || stop PREFLIGHT_CONFLICT_STATE_INVALID
@@ -201,7 +201,7 @@ jobs:
           fresh_rc=$?
           set -e
           [ "$fresh_rc" -eq 0 ] || stop FRESH_PREFLIGHT_CONTRACT_REJECTED
-          jq -e --arg digest "$expected_digest" --arg issuer "$expected_issuer" --arg idp "$expected_idp_id" '.status == "PASS" and .conflictCount == 0 and .nonTargetDigest == $digest and .issuer == $issuer and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.referenceUri == "*.rozkalns.net"' <<<"$fresh_proof" >/dev/null || stop FRESH_PREFLIGHT_DRIFT
+          jq -e --arg digest "$expected_digest" --arg issuer "$expected_issuer" --arg idp "$expected_idp_id" '.status == "PASS" and .conflictCount == 0 and .nonTargetDigest == $digest and .issuer == $issuer and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.referenceUri == "*.rozkalns.net" and .idp.source == "ACCESS_POLICY_POSITIVE_HUMAN_IDP"' <<<"$fresh_proof" >/dev/null || stop FRESH_PREFLIGHT_DRIFT
 
           curl -fsS --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
             -H "Authorization: Bearer ${CLOUDFLARE_ACCESS_WRITE_TOKEN}" \
@@ -241,7 +241,7 @@ jobs:
           postflight_rc=$?
           set -e
           [ "$postflight_rc" -eq 0 ] || stop ACCESS_POSTFLIGHT_CONTRACT_REJECTED
-          jq -e --arg issuer "$expected_issuer" --arg digest "$expected_digest" --arg idp "$expected_idp_id" '.status == "PASS" and .issuer == $issuer and .nonTargetDigest == $digest and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and (.audience | test("^[A-Za-z0-9_-]{1,64}$"))' <<<"$postflight" >/dev/null || stop ACCESS_POSTFLIGHT_PROOF_INVALID
+          jq -e --arg issuer "$expected_issuer" --arg digest "$expected_digest" --arg idp "$expected_idp_id" '.status == "PASS" and .issuer == $issuer and .nonTargetDigest == $digest and .idp.id == $idp and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.source == "ACCESS_POLICY_POSITIVE_HUMAN_IDP" and (.audience | test("^[A-Za-z0-9_-]{1,64}$"))' <<<"$postflight" >/dev/null || stop ACCESS_POSTFLIGHT_PROOF_INVALID
 
           created_aud="$(jq -r '.audience' <<<"$postflight")"
           created_policy_id="$(jq -r '.policyId' <<<"$postflight")"
@@ -253,6 +253,7 @@ jobs:
           printf 'IDP_ID=%s\n' "$expected_idp_id"
           printf 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247\n'
           printf 'IDP_REFERENCE_URI=*.rozkalns.net\n'
+          printf 'IDP_REFERENCE_SOURCE=ACCESS_POLICY_POSITIVE_HUMAN_IDP\n'
           printf 'ACCESS_ISSUER=%s\n' "$expected_issuer"
           printf 'NON_TARGET_DIGEST=%s\n' "$expected_digest"
           printf 'APP_ID=%s\n' "$created_app_id"

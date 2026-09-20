@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       expected_idp_id:
-        description: Existing reviewed Access identity-provider UUID referenced by the canonical human Access app
+        description: Existing reviewed Access identity-provider UUID proven by the canonical human Access app policy
         required: true
         type: string
   issue_comment:
@@ -195,7 +195,7 @@ jobs:
           reference_rc=$?
           set -e
           [ "$reference_rc" -eq 0 ] || stop ACCESS_IDP_REFERENCE_CONTRACT_REJECTED
-          jq -e '.status == "PASS" and (.id | test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and .referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .referenceUri == "*.rozkalns.net"' <<<"$reference" >/dev/null || stop ACCESS_IDP_REFERENCE_PROOF_INVALID
+          jq -e '.status == "PASS" and (.id | test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and .referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .referenceUri == "*.rozkalns.net" and .source == "ACCESS_POLICY_POSITIVE_HUMAN_IDP"' <<<"$reference" >/dev/null || stop ACCESS_IDP_REFERENCE_PROOF_INVALID
           referenced_idp_id="$(jq -r '.id' <<<"$reference")"
 
           if [ "$mode" = 'idp-inventory' ]; then
@@ -208,7 +208,7 @@ jobs:
             printf 'IDP_1_ID=%s\n' "$referenced_idp_id"
             printf 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247\n'
             printf 'IDP_REFERENCE_URI=*.rozkalns.net\n'
-            printf 'IDP_REFERENCE_SOURCE=ACCESS_APP_ALLOWED_IDPS\n'
+            printf 'IDP_REFERENCE_SOURCE=ACCESS_POLICY_POSITIVE_HUMAN_IDP\n'
             printf 'ACCESS_API_METHOD=GET_ONLY\n'
             printf 'PRODUCTION_MUTATIONS=0\n'
             printf 'CLOUDFLARE_ACCESS_MUTATION=NO\n'
@@ -237,7 +237,7 @@ jobs:
           proof_rc=$?
           set -e
           [ "$proof_rc" -eq 0 ] || stop CONTINUATION_ACCESS_CONTRACT_REJECTED
-          jq -e '.status == "PASS" and .conflictCount == 0 and (.nonTargetDigest | test("^[0-9a-f]{64}$")) and .issuer == "https://super-salad-2357.cloudflareaccess.com" and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.referenceUri == "*.rozkalns.net"' <<<"$proof" >/dev/null || stop CONTINUATION_ACCESS_PROOF_INVALID
+          jq -e '.status == "PASS" and .conflictCount == 0 and (.nonTargetDigest | test("^[0-9a-f]{64}$")) and .issuer == "https://super-salad-2357.cloudflareaccess.com" and .idp.referenceAppId == "235c0666-9e1b-45a2-a7a2-63433c8a2247" and .idp.referenceUri == "*.rozkalns.net" and .idp.source == "ACCESS_POLICY_POSITIVE_HUMAN_IDP"' <<<"$proof" >/dev/null || stop CONTINUATION_ACCESS_PROOF_INVALID
 
           proven_idp_id="$(jq -r '.idp.id' <<<"$proof")"
           non_target_digest="$(jq -r '.nonTargetDigest' <<<"$proof")"
@@ -249,7 +249,7 @@ jobs:
           printf 'IDP_ID=%s\n' "$proven_idp_id"
           printf 'IDP_REFERENCE_APP_ID=235c0666-9e1b-45a2-a7a2-63433c8a2247\n'
           printf 'IDP_REFERENCE_URI=*.rozkalns.net\n'
-          printf 'IDP_REFERENCE_SOURCE=ACCESS_APP_ALLOWED_IDPS\n'
+          printf 'IDP_REFERENCE_SOURCE=ACCESS_POLICY_POSITIVE_HUMAN_IDP\n'
           printf 'ACCESS_ISSUER=%s\n' "$ACCESS_ISSUER"
           printf 'ACCESS_ISSUER_JWKS=PASS\n'
           printf 'NON_TARGET_DIGEST=%s\n' "$non_target_digest"

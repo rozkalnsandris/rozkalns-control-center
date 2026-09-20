@@ -12,6 +12,7 @@ export const CONTINUATION_ACCESS_DESTINATIONS = Object.freeze([
 ]);
 export const CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID = "235c0666-9e1b-45a2-a7a2-63433c8a2247";
 export const CONTINUATION_ACCESS_IDP_REFERENCE_URI = "*.rozkalns.net";
+export const CONTINUATION_ACCESS_IDP_REFERENCE_SOURCE = "ACCESS_POLICY_POSITIVE_HUMAN_IDP";
 export const CONTINUATION_ACCESS_ISSUER = "https://super-salad-2357.cloudflareaccess.com";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -36,6 +37,10 @@ function assertUuid(value, code) {
   return value;
 }
 
+function isObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function normalizeUri(value) {
   if (typeof value !== "string") return "";
   let normalized = value.trim().replace(/^https?:\/\//i, "");
@@ -50,12 +55,8 @@ function resultArray(document, code) {
 }
 
 function resultObject(document, code) {
-  if (document && typeof document === "object" && !Array.isArray(document) && !Object.hasOwn(document, "success")) {
-    return document;
-  }
-  if (document?.success === true && document.result && typeof document.result === "object" && !Array.isArray(document.result)) {
-    return document.result;
-  }
+  if (isObject(document) && !Object.hasOwn(document, "success")) return document;
+  if (document?.success === true && isObject(document.result)) return document.result;
   fail(code);
 }
 
@@ -105,6 +106,50 @@ function canonicalReferenceApplicationFromInventory(appsDocument) {
   return assertReferenceApplicationShape(matches[0]);
 }
 
+function containsIdentityProviderIdField(value) {
+  if (Array.isArray(value)) return value.some(containsIdentityProviderIdField);
+  if (!isObject(value)) return false;
+  if (Object.hasOwn(value, "identity_provider_id")) return true;
+  return Object.values(value).some(containsIdentityProviderIdField);
+}
+
+function identityProviderIdFromPositiveRule(rule) {
+  if (!isObject(rule)) fail("ACCESS_IDP_POLICY_RULE_INVALID");
+  const entries = Object.entries(rule);
+  const identityLooking = entries.some(
+    ([selectorName, selector]) => selectorName === "login_method" || containsIdentityProviderIdField(selector),
+  );
+  if (entries.length !== 1) {
+    if (identityLooking) fail("ACCESS_IDP_POLICY_SELECTOR_SHAPE_INVALID");
+    return null;
+  }
+
+  const [selectorName, selector] = entries[0];
+  if (selectorName === "login_method") {
+    if (!isObject(selector) || !Object.hasOwn(selector, "id")) {
+      fail("ACCESS_IDP_POLICY_LOGIN_METHOD_INVALID");
+    }
+    return assertUuid(selector.id, "ACCESS_IDP_POLICY_ID_INVALID");
+  }
+
+  if (isObject(selector) && Object.hasOwn(selector, "identity_provider_id")) {
+    return assertUuid(selector.identity_provider_id, "ACCESS_IDP_POLICY_ID_INVALID");
+  }
+
+  if (containsIdentityProviderIdField(selector)) fail("ACCESS_IDP_POLICY_SELECTOR_UNSUPPORTED");
+  return null;
+}
+
+function referencePoliciesFromMap(policiesByApp) {
+  if (!isObject(policiesByApp)) fail("ACCESS_POLICY_MAP_INVALID");
+  if (!Object.hasOwn(policiesByApp, CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID)) {
+    fail("ACCESS_IDP_REFERENCE_POLICY_MAP_INCOMPLETE");
+  }
+  const policies = policiesByApp[CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID];
+  if (!Array.isArray(policies)) fail("ACCESS_IDP_REFERENCE_POLICY_INVENTORY_INVALID");
+  return policies;
+}
+
 export function assertContinuationAccessIssuer(issuer) {
   if (issuer !== CONTINUATION_ACCESS_ISSUER) fail("ACCESS_ISSUER_NOT_REVIEWED");
   return issuer;
@@ -114,16 +159,10 @@ export function classifyExactIdentityProviderReference(exactAppDocument) {
   const app = assertReferenceApplicationShape(
     resultObject(exactAppDocument, "ACCESS_IDP_REFERENCE_EXACT_APP_RESPONSE_INVALID"),
   );
-  if (!Object.hasOwn(app, "allowed_idps")) {
-    return { classification: "ABSENT", count: 0 };
-  }
+  if (!Object.hasOwn(app, "allowed_idps")) return { classification: "ABSENT", count: 0 };
   if (!Array.isArray(app.allowed_idps)) fail("ACCESS_IDP_REFERENCE_ALLOWED_IDPS_INVALID");
-  if (app.allowed_idps.length === 0) {
-    return { classification: "EMPTY", count: 0 };
-  }
-  if (app.allowed_idps.length > 1) {
-    return { classification: "MULTIPLE", count: app.allowed_idps.length };
-  }
+  if (app.allowed_idps.length === 0) return { classification: "EMPTY", count: 0 };
+  if (app.allowed_idps.length > 1) return { classification: "MULTIPLE", count: app.allowed_idps.length };
   return {
     classification: "ONE",
     count: 1,
@@ -131,27 +170,78 @@ export function classifyExactIdentityProviderReference(exactAppDocument) {
   };
 }
 
-export function canonicalIdentityProviderReference(appsDocument, exactAppDocument = undefined) {
-  const inventoryApp = canonicalReferenceApplicationFromInventory(appsDocument);
-  const exactProvided = exactAppDocument !== undefined;
-  const evidence = classifyExactIdentityProviderReference(exactProvided ? exactAppDocument : inventoryApp);
-  if (evidence.classification !== "ONE") {
-    if (!exactProvided) fail("ACCESS_IDP_REFERENCE_NOT_EXACT");
-    if (evidence.classification === "ABSENT") fail("ACCESS_IDP_REFERENCE_ALLOWED_IDPS_ABSENT");
-    if (evidence.classification === "EMPTY") fail("ACCESS_IDP_REFERENCE_ALLOWED_IDPS_EMPTY");
-    if (evidence.classification === "MULTIPLE") fail("ACCESS_IDP_REFERENCE_ALLOWED_IDPS_MULTIPLE");
-    fail("ACCESS_IDP_REFERENCE_NOT_EXACT");
+export function classifyPolicyIdentityProviderReference(policiesDocument) {
+  const policies = resultArray(policiesDocument, "ACCESS_IDP_REFERENCE_POLICY_INVENTORY_INVALID");
+  if (policies.length > 100) fail("ACCESS_IDP_REFERENCE_POLICY_COUNT_UNBOUNDED");
+  const ids = new Set();
+  let evidenceRuleCount = 0;
+
+  for (const policy of policies) {
+    if (!isObject(policy)) fail("ACCESS_IDP_REFERENCE_POLICY_INVALID");
+    if (policy.decision !== "allow") continue;
+    for (const field of ["include", "require"]) {
+      if (!Object.hasOwn(policy, field)) continue;
+      const rules = policy[field];
+      if (!Array.isArray(rules)) fail("ACCESS_IDP_POLICY_RULES_INVALID");
+      for (const rule of rules) {
+        const id = identityProviderIdFromPositiveRule(rule);
+        if (!id) continue;
+        ids.add(id);
+        evidenceRuleCount += 1;
+      }
+    }
+  }
+
+  const distinctIds = [...ids].sort();
+  if (distinctIds.length === 0) {
+    return { classification: "ZERO", count: 0, evidenceRuleCount: 0 };
+  }
+  if (distinctIds.length > 1) {
+    return { classification: "MULTIPLE", count: distinctIds.length, evidenceRuleCount };
   }
   return {
-    id: evidence.id,
-    referenceAppId: CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID,
-    referenceUri: CONTINUATION_ACCESS_IDP_REFERENCE_URI,
+    classification: "ONE",
+    count: 1,
+    evidenceRuleCount,
+    id: distinctIds[0],
+    source: CONTINUATION_ACCESS_IDP_REFERENCE_SOURCE,
   };
 }
 
-export function assertSelectedIdentityProviderReference(appsDocument, expectedId, exactAppDocument = undefined) {
+export function canonicalIdentityProviderReference(appsDocument, policiesByApp, exactAppDocument = undefined) {
+  const inventoryApp = canonicalReferenceApplicationFromInventory(appsDocument);
+  const referenceApp = exactAppDocument === undefined
+    ? inventoryApp
+    : assertReferenceApplicationShape(
+        resultObject(exactAppDocument, "ACCESS_IDP_REFERENCE_EXACT_APP_RESPONSE_INVALID"),
+      );
+  const appEvidence = classifyExactIdentityProviderReference(referenceApp);
+  if (appEvidence.classification === "MULTIPLE") fail("ACCESS_IDP_REFERENCE_ALLOWED_IDPS_MULTIPLE");
+
+  const policyEvidence = classifyPolicyIdentityProviderReference(referencePoliciesFromMap(policiesByApp));
+  if (policyEvidence.classification === "ZERO") fail("ACCESS_IDP_REFERENCE_POLICY_ZERO");
+  if (policyEvidence.classification === "MULTIPLE") fail("ACCESS_IDP_REFERENCE_POLICY_MULTIPLE");
+  if (policyEvidence.classification !== "ONE") fail("ACCESS_IDP_REFERENCE_POLICY_NOT_EXACT");
+  if (appEvidence.classification === "ONE" && appEvidence.id !== policyEvidence.id) {
+    fail("ACCESS_IDP_REFERENCE_APP_POLICY_MISMATCH");
+  }
+
+  return {
+    id: policyEvidence.id,
+    referenceAppId: CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID,
+    referenceUri: CONTINUATION_ACCESS_IDP_REFERENCE_URI,
+    source: CONTINUATION_ACCESS_IDP_REFERENCE_SOURCE,
+  };
+}
+
+export function assertSelectedIdentityProviderReference(
+  appsDocument,
+  policiesByApp,
+  expectedId,
+  exactAppDocument = undefined,
+) {
   assertUuid(expectedId, "ACCESS_IDP_ID_INVALID");
-  const reference = canonicalIdentityProviderReference(appsDocument, exactAppDocument);
+  const reference = canonicalIdentityProviderReference(appsDocument, policiesByApp, exactAppDocument);
   if (reference.id !== expectedId) fail("ACCESS_IDP_REFERENCE_CHANGED");
   return reference;
 }
@@ -179,9 +269,7 @@ export function continuationAccessApplicationConflicts(appsDocument) {
 
 export function nonTargetAccessInventoryDigest(appsDocument, policiesByApp, excludeAppId = "") {
   const apps = resultArray(appsDocument, "ACCESS_APP_INVENTORY_INVALID");
-  if (!policiesByApp || typeof policiesByApp !== "object" || Array.isArray(policiesByApp)) {
-    fail("ACCESS_POLICY_MAP_INVALID");
-  }
+  if (!isObject(policiesByApp)) fail("ACCESS_POLICY_MAP_INVALID");
   if (excludeAppId !== "") assertUuid(excludeAppId, "ACCESS_EXCLUDED_APP_ID_INVALID");
 
   const records = [];
@@ -261,7 +349,7 @@ export function assertExactContinuationAccessApplication(appDocument, expectedId
 
 export function assertExactContinuationAccessPolicy(policy, ownerEmail) {
   const exactOwnerEmail = assertOwnerEmail(ownerEmail);
-  if (!policy || typeof policy !== "object") fail("ACCESS_CREATED_POLICY_INVALID");
+  if (!isObject(policy)) fail("ACCESS_CREATED_POLICY_INVALID");
   assertUuid(policy?.id, "ACCESS_CREATED_POLICY_ID_INVALID");
   if (policy?.name !== CONTINUATION_ACCESS_POLICY_NAME || policy?.decision !== "allow" || Number(policy?.precedence) !== 1) {
     fail("ACCESS_CREATED_POLICY_SHAPE_INVALID");
@@ -284,7 +372,7 @@ export function assertExactContinuationAccessPolicy(policy, ownerEmail) {
 export function evaluateContinuationAccessPreflight({ apps, policiesByApp, expectedIdpId, issuer, referenceApp }) {
   const conflicts = continuationAccessApplicationConflicts(apps);
   if (conflicts.length !== 0) fail("ACCESS_CONTINUATION_TARGET_CONFLICT");
-  const idp = assertSelectedIdentityProviderReference(apps, expectedIdpId, referenceApp);
+  const idp = assertSelectedIdentityProviderReference(apps, policiesByApp, expectedIdpId, referenceApp);
   const reviewedIssuer = assertContinuationAccessIssuer(issuer);
   const nonTargetDigest = nonTargetAccessInventoryDigest(apps, policiesByApp);
   return {
@@ -310,11 +398,9 @@ export function evaluateContinuationAccessPostflight({
   if (!SHA256_PATTERN.test(expectedNonTargetDigest)) fail("ACCESS_EXPECTED_DIGEST_INVALID");
   const reviewedIssuer = assertContinuationAccessIssuer(issuer);
   const appList = resultArray(apps, "ACCESS_APP_INVENTORY_INVALID");
-  const idp = assertSelectedIdentityProviderReference(appList, expectedIdpId, referenceApp);
+  const idp = assertSelectedIdentityProviderReference(appList, policiesByApp, expectedIdpId, referenceApp);
   const conflicts = continuationAccessApplicationConflicts(appList);
-  if (conflicts.length !== 1 || conflicts[0].id !== createdAppId) {
-    fail("ACCESS_CREATED_APP_NOT_UNIQUE");
-  }
+  if (conflicts.length !== 1 || conflicts[0].id !== createdAppId) fail("ACCESS_CREATED_APP_NOT_UNIQUE");
   const app = appList.find((candidate) => candidate?.id === createdAppId);
   const exactApp = assertExactContinuationAccessApplication(app, createdAppId, expectedIdpId);
   const policies = policiesByApp?.[createdAppId];
@@ -345,21 +431,23 @@ function writePrivateJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
-async function fetchExactReferenceAppDocument() {
+function reviewedReadToken() {
   if ((process.env.CF_ACCOUNT_ID ?? "") !== CONTINUATION_ACCESS_ACCOUNT_ID) {
     fail("ACCESS_IDP_REFERENCE_ACCOUNT_ID_NOT_REVIEWED");
   }
   const token = process.env.CLOUDFLARE_ACCESS_READ_TOKEN ?? "";
   if (token.length === 0) fail("ACCESS_IDP_REFERENCE_READ_TOKEN_MISSING");
+  return token;
+}
+
+async function fetchExactReferenceAppDocument() {
+  const token = reviewedReadToken();
   const url = `https://api.cloudflare.com/client/v4/accounts/${CONTINUATION_ACCESS_ACCOUNT_ID}/access/apps/${CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID}`;
   let response;
   try {
     response = await fetch(url, {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       redirect: "error",
       signal: AbortSignal.timeout(30_000),
     });
@@ -377,6 +465,39 @@ async function fetchExactReferenceAppDocument() {
   return document;
 }
 
+async function fetchExactReferencePolicies() {
+  const token = reviewedReadToken();
+  const collected = [];
+  for (let page = 1; page <= 2; page += 1) {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${CONTINUATION_ACCESS_ACCOUNT_ID}/access/apps/${CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID}/policies?per_page=100&page=${page}`;
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        redirect: "error",
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      fail("ACCESS_IDP_REFERENCE_POLICY_GET_FAILED");
+    }
+    if (!response.ok) fail("ACCESS_IDP_REFERENCE_POLICY_GET_FAILED");
+    let document;
+    try {
+      document = await response.json();
+    } catch {
+      fail("ACCESS_IDP_REFERENCE_POLICY_RESPONSE_INVALID");
+    }
+    if (document?.success !== true || !Array.isArray(document.result)) {
+      fail("ACCESS_IDP_REFERENCE_POLICY_RESPONSE_INVALID");
+    }
+    collected.push(...document.result);
+    if (collected.length > 100) fail("ACCESS_IDP_REFERENCE_POLICY_COUNT_UNBOUNDED");
+    if (document.result.length < 100) return collected;
+  }
+  fail("ACCESS_IDP_REFERENCE_POLICY_COUNT_UNBOUNDED");
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (!command) fail("COMMAND_MISSING");
@@ -385,7 +506,9 @@ async function main() {
     if (args.length !== 1) fail("REFERENCE_IDP_ARGUMENTS_INVALID");
     const [appsPath] = args;
     const exactReferenceApp = await fetchExactReferenceAppDocument();
-    const result = canonicalIdentityProviderReference(readJson(appsPath), exactReferenceApp);
+    const exactReferencePolicies = await fetchExactReferencePolicies();
+    const policiesByApp = { [CONTINUATION_ACCESS_IDP_REFERENCE_APP_ID]: exactReferencePolicies };
+    const result = canonicalIdentityProviderReference(readJson(appsPath), policiesByApp, exactReferenceApp);
     process.stdout.write(`${JSON.stringify({ status: "PASS", ...result })}\n`);
     return;
   }
@@ -393,10 +516,11 @@ async function main() {
   if (command === "preflight") {
     if (args.length !== 4) fail("PREFLIGHT_ARGUMENTS_INVALID");
     const [appsPath, policiesPath, expectedIdpId, issuer] = args;
+    const policiesByApp = readJson(policiesPath);
     const exactReferenceApp = await fetchExactReferenceAppDocument();
     const result = evaluateContinuationAccessPreflight({
       apps: readJson(appsPath),
-      policiesByApp: readJson(policiesPath),
+      policiesByApp,
       expectedIdpId,
       issuer,
       referenceApp: exactReferenceApp,
@@ -421,10 +545,11 @@ async function main() {
     const [appsPath, policiesPath, createdAppId, expectedIdpId, issuer, expectedDigest, createdAppResponsePath] = args;
     const responseApp = resultObject(readJson(createdAppResponsePath), "ACCESS_CREATED_APP_RESPONSE_INVALID");
     if (responseApp?.id !== createdAppId) fail("ACCESS_CREATED_APP_RESPONSE_ID_CHANGED");
+    const policiesByApp = readJson(policiesPath);
     const exactReferenceApp = await fetchExactReferenceAppDocument();
     const result = evaluateContinuationAccessPostflight({
       apps: readJson(appsPath),
-      policiesByApp: readJson(policiesPath),
+      policiesByApp,
       createdAppId,
       expectedIdpId,
       ownerEmail: process.env.CONTROL_CONTINUATION_OWNER_EMAIL ?? "",
