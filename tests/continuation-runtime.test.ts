@@ -135,12 +135,20 @@ test("NOT_FOUND recovery performs bounded D1 reads and no GitHub request", async
   assert.equal(fetches, 0);
 });
 
-test("Worker composition and production config keep continuation dormant", () => {
+test("Worker config freezes continuation Access identity while runtime stays dormant", () => {
   const workerSource = readFileSync(resolve(process.cwd(), "src/worker/index.ts"), "utf8");
   const wranglerSource = readFileSync(resolve(process.cwd(), "wrangler.jsonc"), "utf8");
 
   assert.match(workerSource, /resolveCloudflareContinuationRuntime/u);
   assert.match(workerSource, /export function resolveContinuationRuntime\(env: Env\)/u);
   assert.equal((workerSource.match(/resolveContinuationRuntime\(env/u) ?? []).length, 1);
+  assert.match(
+    wranglerSource,
+    /"CONTROL_CONTINUATION_ACCESS_ISSUER": "https:\/\/super-salad-2357\.cloudflareaccess\.com"/u,
+  );
+  assert.match(
+    wranglerSource,
+    /"CONTROL_CONTINUATION_ACCESS_AUDIENCE": "10ce4ed7a5852cf1514251f4971bf575fdae13ea6d4317bee4962b4146bdb228"/u,
+  );
   assert.doesNotMatch(wranglerSource, /CONTROL_CONTINUATION_RUNTIME_ENABLED/u);
 });
