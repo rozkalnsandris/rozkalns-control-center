@@ -30,6 +30,8 @@ const enabledPolicy: ManagedProjectPolicy = {
   canRequestChanges: false,
   canMerge: true,
   canLater: false,
+  canLive: false,
+  canContinue: false,
   productionAdapter: "rpi5",
 };
 
