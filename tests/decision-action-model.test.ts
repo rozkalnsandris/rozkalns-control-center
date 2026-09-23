@@ -11,7 +11,7 @@ const project: ProjectReadModel = { id: "ops-workflows", repository: "rozkalnsan
 const decision: DecisionReadModel = { id: "github:ops-workflows:pr:5", projectId: project.id, workflowState: "MERGE_READY", issueNumber: 4, issueTitle: "Task", prNumber: 5, prTitle: "Change", prUrl: `${`https://github.com/${project.repository}`}/pull/5`, ci: "PASS", review: "PASS", deployImpact: "NO_DEPLOY", changedFiles: 1, expectedHeadSha: "a".repeat(40), currentHeadSha: "a".repeat(40), mainSha: "b".repeat(40), reason: "Owner gate", lastReconciledAt: new Date(now).toISOString(), allowedActions: ["OPEN_PR", "LATER"] };
 const normalize = (item = decision, live = true) => normalizeDecisionActions(item, project, { live, nowMs: now, verifiedGitHub: { merge: true, needsChanges: true } });
 
-test("normalized model represents every canonical action and requires explanations", () => {
+test("normalized model represents every canonical legacy presentation action and requires explanations", () => {
   const states = normalize().actionStates!;
   assert.deepEqual(Object.keys(states), [...DECISION_ACTIONS]);
   assert.equal(isDecisionActionStates(states), true);
@@ -42,20 +42,14 @@ test("Merge presentation requires verified exact-head CI and review evidence", (
   assert.equal(normalize({ ...decision, prUrl: "https://example.com/wrong" }).actionStates?.OPEN_PR.state, "unavailable");
 });
 
-test("Continue/Pause client binds campaign revision and cannot route to merge/deploy", () => {
-  for (const action of ["CONTINUE", "PAUSE"] as const) {
-    const item = normalize();
-    item.actionStates![action] = enabledAction();
-    item.continuation = { campaignId: "campaign:ops", revision: "c".repeat(64), expectedMainSha: item.mainSha };
-    const request = buildDecisionActionRequest({ item, project, action }, { requestIdFactory: () => "continuation_request_12345" });
-    assert.equal(request.path, "/api/control/continuation");
-    assert.equal(request.body.action, action);
-    assert.equal(request.body.revision, item.continuation.revision);
-    assert.equal(request.body.mergeMethod, undefined);
-  }
+test("Continue client uses only the new owner-action contract and fails closed without a reviewed workflow mapping", () => {
+  const item = normalize();
+  item.actionStates!.CONTINUE = enabledAction();
+  item.allowedActions.push("CONTINUE");
+  assert.throws(() => buildDecisionActionRequest({ item, project, action: "CONTINUE" }, { requestIdFactory: () => "continuation_request_12345" }), /Decision action failed/);
 });
 
-test("Retry CI is exact execution-bound and fail-closed even with forged cached permission", () => {
+test("Retry CI legacy eligibility remains fail-closed even with forged cached permission", () => {
   const execution: RetryCiExecution = { repository: project.repository, runId: 123, runAttempt: 2, headSha: "a".repeat(40), status: "completed", conclusion: "failure", observedAt: new Date(now).toISOString() };
   assert.equal(retryCiEligibility(execution, execution, now).reason, RETRY_CI_UNAVAILABLE_REASON);
   for (const delta of [{ repository: "other/repo" }, { runId: 124 }, { runAttempt: 3 }, { headSha: "b".repeat(40) }, { status: "queued" as const }, { conclusion: "success" as const }, { observedAt: "bad" }, { observedAt: new Date(now - 60001).toISOString() }]) {
@@ -63,15 +57,13 @@ test("Retry CI is exact execution-bound and fail-closed even with forged cached 
     assert.notEqual(state.state, "enabled");
     assert.notEqual(state.reason, RETRY_CI_UNAVAILABLE_REASON);
   }
-  const item = normalize(); item.actionStates!.RETRY_CI = enabledAction(); item.allowedActions.push("RETRY_CI");
-  assert.throws(() => buildDecisionActionRequest({ action: "RETRY_CI", item, project }), /Decision action failed/);
 });
 
-
-test("expired confirmation cannot submit a mutation", () => {
+test("expired confirmation cannot submit a Merge mutation", () => {
   const item = normalize();
+  item.allowedActions.push("MERGE");
   item.actionEligibilityExpiresAt = Date.now() - 1;
-  assert.throws(() => buildDecisionActionRequest({ action: "LATER", item, project }), /Decision action failed/);
+  assert.throws(() => buildDecisionActionRequest({ action: "MERGE", item, project }), /Decision action failed/);
 });
 
 test("continuation Access denial remains disabled and never follows a login redirect", async (context) => {
