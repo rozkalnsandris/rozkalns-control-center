@@ -18,6 +18,8 @@ const PROJECT: ManagedProjectPolicy = {
   canRequestChanges: true,
   canMerge: false,
   canLater: true,
+  canLive: false,
+  canContinue: false,
   productionAdapter: "none",
 };
 
