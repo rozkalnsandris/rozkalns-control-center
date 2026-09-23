@@ -23,7 +23,7 @@ const decisionSource = readFileSync(
   "utf8",
 );
 
-test("Phase 3 Needs changes route and confirmed UI client stay capability-gated and fail closed on incomplete live identity", () => {
+test("Phase 3 Needs changes route stays capability-gated while the simplified UI client excludes Needs changes", () => {
   assert.doesNotMatch(workerIndex, /pull-request-review-write|needs-changes-decision/);
   assert.match(workerIndex, /GITHUB_NEEDS_CHANGES_ROUTE_PATH/);
   assert.match(routeSource, /GITHUB_NEEDS_CHANGES_ROUTE_PATH = "\/api\/github\/needs-changes"/);
@@ -33,7 +33,8 @@ test("Phase 3 Needs changes route and confirmed UI client stay capability-gated 
   assert.match(appSource, /postDecisionAction/);
   assert.match(appSource, /ActionConfirmationDialog/);
   assert.doesNotMatch(appSource, /\/api\/github\/needs-changes/);
-  assert.match(clientSource, /"\/api\/github\/needs-changes"/);
+  assert.doesNotMatch(clientSource, /"\/api\/github\/needs-changes"/);
+  assert.match(clientSource, /"\/api\/github\/owner-action"/);
   assert.match(clientSource, /method:\s*"POST"/);
 
   assert.match(policySource, /repository: "rozkalnsandris\/ops-workflows"[\s\S]*?canRequestChanges: true/);

@@ -6,7 +6,7 @@ async function source(path: string): Promise<string> {
   return readFile(path, "utf8");
 }
 
-test("Later route, canary policy, live projection and confirmed UI client remain fail-closed at their separate boundaries", async () => {
+test("Later route, canary policy and live projection remain fail-closed while the simplified UI client excludes Later", async () => {
   const [
     laterSource,
     actionSource,
@@ -59,11 +59,10 @@ test("Later route, canary policy, live projection and confirmed UI client remain
   assert.match(liveDashboardSource, /policy\.canLater/);
   assert.match(liveDashboardSource, /actions\.push\("LATER"\)/);
 
-  assert.match(clientSource, /"\/api\/github\/later"/);
-  assert.match(clientSource, /laterDecisionStateFingerprint/);
   assert.match(clientSource, /"\/api\/github\/merge"/);
   assert.match(clientSource, /mergeMethod: "squash"/);
-  assert.match(clientSource, /"\/api\/github\/needs-changes"/);
+  assert.match(clientSource, /"\/api\/github\/owner-action"/);
+  assert.doesNotMatch(clientSource, /"\/api\/github\/later"|laterDecisionStateFingerprint|"\/api\/github\/needs-changes"/);
   assert.match(appSource, /ActionConfirmationDialog/);
   assert.match(appSource, /postDecisionAction/);
   assert.match(appSource, /liveState\s*!==\s*"LIVE"/);

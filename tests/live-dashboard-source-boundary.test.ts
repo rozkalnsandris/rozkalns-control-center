@@ -59,8 +59,9 @@ test("live dashboard UI uses one same-origin snapshot request and one authoritat
   assert.match(app, /ActionConfirmationDialog/);
   assert.match(app, /postDecisionAction/);
   assert.doesNotMatch(app, /api\.github\.com/);
-  assert.match(card, /action\s*===\s*"OPEN_PR"/);
-  assert.match(card, /onAction\(action,\s*renderedItem,\s*project\)/);
+  assert.match(card, /OWNER_ACTIONS\.map/);
+  assert.match(card, /onAction\(action,\s*actionItem,\s*project\)/);
+  assert.doesNotMatch(card, /OPEN_PR/);
   assert.match(card, /applyAuthoritativeGitHubWriteEligibility/);
   assert.equal(card.match(/readAuthoritativeGitHubWriteEligibility\(/g)?.length, 1);
   assert.doesNotMatch(card, /readAuthoritativeNeedsChangesEligibility/);
@@ -71,8 +72,8 @@ test("live dashboard UI uses one same-origin snapshot request and one authoritat
   assert.match(eligibility, /\/api\/github\/reconcile/);
   assert.match(eligibility, /method:\s*"GET"/);
   assert.match(client, /"\/api\/github\/merge"/);
-  assert.match(client, /"\/api\/github\/needs-changes"/);
-  assert.match(client, /"\/api\/github\/later"/);
+  assert.match(client, /"\/api\/github\/owner-action"/);
+  assert.doesNotMatch(client, /"\/api\/github\/(?:needs-changes|later)"/);
   assert.match(client, /method:\s*"POST"/);
   assert.doesNotMatch(client, /api\.github\.com/);
 });

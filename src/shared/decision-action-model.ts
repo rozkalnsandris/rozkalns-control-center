@@ -3,7 +3,7 @@ import { resolveManagedProjectPolicy } from "./project-policy.js";
 import { classifyDashboardFreshness } from "./dashboard-freshness.js";
 
 export const RETRY_CI_UNAVAILABLE_REASON = "Retry CI unavailable: approved Control capability lacks Actions: write";
-export const ACTION_LABELS = { OPEN_PR: "Open PR", MERGE: "Merge", NEEDS_CHANGES: "Needs changes", LATER: "Later", RETRY_CI: "Retry CI", CONTINUE: "Continue", PAUSE: "Pause" } as const;
+export const ACTION_LABELS = { OPEN_PR: "Open PR", MERGE: "Merge", LIVE: "Live", NEEDS_CHANGES: "Needs changes", LATER: "Later", RETRY_CI: "Retry CI", CONTINUE: "Continue", PAUSE: "Pause" } as const;
 export const enabledAction = (): DecisionActionState => ({ state: "enabled", reason: null });
 export const disabledAction = (reason: string): DecisionActionState => ({ state: "disabled", reason });
 export const unavailableAction = (reason: string): DecisionActionState => ({ state: "unavailable", reason });

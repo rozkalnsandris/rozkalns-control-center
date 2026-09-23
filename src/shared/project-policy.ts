@@ -1,4 +1,10 @@
 export type ProductionAdapter = "none" | "rpi5";
+export type OwnerWorkflowAction = "LIVE" | "CONTINUE";
+
+export interface OwnerWorkflowTarget {
+  readonly workflow: string;
+  readonly ref: string;
+}
 
 export interface ManagedProjectPolicy {
   id: string;
@@ -9,16 +15,20 @@ export interface ManagedProjectPolicy {
   canRequestChanges: boolean;
   canMerge: boolean;
   canLater: boolean;
+  canLive: boolean;
+  canContinue: boolean;
+  liveWorkflow?: OwnerWorkflowTarget;
+  continueWorkflow?: OwnerWorkflowTarget;
   productionAdapter: ProductionAdapter;
 }
 
 export const managedProjectPolicies = [
-  { id: "hermes-tech", displayName: "Hermes Tech", repository: "rozkalnsandris/hermes-tech", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
-  { id: "hermes-deals", displayName: "Hermes Deals", repository: "rozkalnsandris/hermes-deals", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
-  { id: "rozkalns-cv", displayName: "Rozkalns CV", repository: "rozkalnsandris/rozkalns-cv", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
-  { id: "rpi5-main", displayName: "RPi5 Main", repository: "rozkalnsandris/RPi5_main", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "rpi5" },
-  { id: "ops-workflows", displayName: "Ops Workflows", repository: "rozkalnsandris/ops-workflows", enabled: true, githubReadEnabled: true, canRequestChanges: true, canMerge: true, canLater: true, productionAdapter: "none" },
-  { id: "profile", displayName: "GitHub Profile", repository: "rozkalnsandris/rozkalnsandris", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, productionAdapter: "none" },
+  { id: "hermes-tech", displayName: "Hermes Tech", repository: "rozkalnsandris/hermes-tech", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, productionAdapter: "rpi5" },
+  { id: "hermes-deals", displayName: "Hermes Deals", repository: "rozkalnsandris/hermes-deals", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, productionAdapter: "rpi5" },
+  { id: "rozkalns-cv", displayName: "Rozkalns CV", repository: "rozkalnsandris/rozkalns-cv", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, productionAdapter: "rpi5" },
+  { id: "rpi5-main", displayName: "RPi5 Main", repository: "rozkalnsandris/RPi5_main", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, productionAdapter: "rpi5" },
+  { id: "ops-workflows", displayName: "Ops Workflows", repository: "rozkalnsandris/ops-workflows", enabled: true, githubReadEnabled: true, canRequestChanges: true, canMerge: true, canLater: true, canLive: false, canContinue: true, productionAdapter: "none" },
+  { id: "profile", displayName: "GitHub Profile", repository: "rozkalnsandris/rozkalnsandris", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: false, canContinue: false, productionAdapter: "none" },
 ] as const satisfies readonly ManagedProjectPolicy[];
 
 export const explicitlyExcludedRepositories = ["rozkalnsandris/hermes-email-skill"] as const;
@@ -38,3 +48,9 @@ export function resolveMergeProjectPolicy(repository: string): ManagedProjectPol
 export function requireMergeProjectPolicy(repository: string): ManagedProjectPolicy { const policy = resolveMergeProjectPolicy(repository); if (!policy) throw new RepositoryMergeNotAllowedError(repository); return policy; }
 export function resolveLaterProjectPolicy(repository: string): ManagedProjectPolicy | null { const policy = resolveManagedProjectPolicy(repository); if (!policy || policy.canLater !== true) return null; return policy; }
 export function requireLaterProjectPolicy(repository: string): ManagedProjectPolicy { const policy = resolveLaterProjectPolicy(repository); if (!policy) throw new RepositoryLaterNotAllowedError(repository); return policy; }
+export function resolveOwnerWorkflowTarget(repository: string, action: OwnerWorkflowAction): OwnerWorkflowTarget | null {
+  const policy = resolveManagedProjectPolicy(repository);
+  if (!policy) return null;
+  if (action === "LIVE") return policy.canLive === true ? policy.liveWorkflow ?? null : null;
+  return policy.canContinue === true ? policy.continueWorkflow ?? null : null;
+}

@@ -16,205 +16,50 @@ import { buildHealthPayload } from "../shared/health";
 import { CONTINUATION_ACTION_PATH, CONTINUATION_PREFLIGHT_PATH, handleContinuationActionRequest } from "./continuation-action-route";
 import { resolveContinuationActionRuntime, type ContinuationActionBindings } from "./continuation-action-runtime";
 import { handleGitHubDashboardRequest } from "./github-dashboard-route";
-import {
-  GITHUB_LATER_ROUTE_PATH,
-  handleGitHubLaterRequest,
-} from "./github-later-route";
-import {
-  resolveCloudflareLaterRuntime,
-  type CloudflareLaterProductionBindings,
-} from "./github-later-runtime";
-import {
-  GITHUB_MERGE_ROUTE_PATH,
-  handleGitHubMergeRequest,
-} from "./github-merge-route";
-import {
-  resolveCloudflareMergeRuntime,
-  type CloudflareMergeProductionBindings,
-} from "./github-merge-runtime";
-import {
-  GITHUB_NEEDS_CHANGES_PREFLIGHT_ROUTE_PATH,
-  handleGitHubNeedsChangesPreflightRequest,
-} from "./github-needs-changes-preflight-route";
-import {
-  GITHUB_NEEDS_CHANGES_ROUTE_PATH,
-  handleGitHubNeedsChangesRequest,
-} from "./github-needs-changes-route";
-import {
-  resolveCloudflareNeedsChangesRuntime,
-  type CloudflareNeedsChangesProductionBindings,
-} from "./github-needs-changes-runtime";
+import { GITHUB_LATER_ROUTE_PATH, handleGitHubLaterRequest } from "./github-later-route";
+import { resolveCloudflareLaterRuntime, type CloudflareLaterProductionBindings } from "./github-later-runtime";
+import { GITHUB_MERGE_ROUTE_PATH, handleGitHubMergeRequest } from "./github-merge-route";
+import { resolveCloudflareMergeRuntime, type CloudflareMergeProductionBindings } from "./github-merge-runtime";
+import { GITHUB_NEEDS_CHANGES_PREFLIGHT_ROUTE_PATH, handleGitHubNeedsChangesPreflightRequest } from "./github-needs-changes-preflight-route";
+import { GITHUB_NEEDS_CHANGES_ROUTE_PATH, handleGitHubNeedsChangesRequest } from "./github-needs-changes-route";
+import { resolveCloudflareNeedsChangesRuntime, type CloudflareNeedsChangesProductionBindings } from "./github-needs-changes-runtime";
+import { GITHUB_OWNER_ACTION_ROUTE_PATH, handleGitHubOwnerActionRequest } from "./github-owner-action-route";
+import { resolveCloudflareOwnerActionRuntime, type CloudflareOwnerActionBindings } from "./github-owner-action-runtime";
 import { handleGitHubReconciliationRequest } from "./github-reconciliation-route";
-import {
-  GITHUB_WEBHOOK_OBSERVABILITY_ROUTE_PATH,
-  handleGitHubWebhookObservabilityRequest,
-} from "./github-webhook-observability-route";
+import { GITHUB_WEBHOOK_OBSERVABILITY_ROUTE_PATH, handleGitHubWebhookObservabilityRequest } from "./github-webhook-observability-route";
 import { handleGitHubWebhookRequest } from "./github-webhook-route";
-import {
-  handleRpi5ObservationRequest,
-  RPI5_OBSERVATION_ROUTE_PATH,
-} from "./rpi5-observation-route";
+import { handleRpi5ObservationRequest, RPI5_OBSERVATION_ROUTE_PATH } from "./rpi5-observation-route";
 import { applyApiResponseSecurityHeaders } from "./response-security";
-import {
-  withWorkerQueueLogging,
-  withWorkerRequestLogging,
-} from "./structured-logging";
+import { withWorkerQueueLogging, withWorkerRequestLogging } from "./structured-logging";
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
-
-/**
- * Source-only continuation composition point. No Worker route/queue/scheduler
- * invokes this resolver in the current slice, and production config does not set
- * its exact opt-in flag.
- */
-export function resolveContinuationRuntime(env: Env) {
-  return resolveCloudflareContinuationRuntime(
-    env as unknown as CloudflareContinuationRuntimeBindings,
-  );
-}
-
-function resolveWebhookQueueRuntime(env: Env) {
-  return resolveControlWebhookQueueRuntime(
-    env as unknown as ControlWebhookQueueRuntimeBindings,
-  );
-}
-
-function resolveRpi5Runtime(env: Env) {
-  return resolveRpi5ObservationRuntime(env as unknown as Rpi5ObservationRuntimeBindings);
-}
-
-function resolveNeedsChangesRuntime(env: Env) {
-  return resolveCloudflareNeedsChangesRuntime(
-    env as unknown as CloudflareNeedsChangesProductionBindings,
-  );
-}
-
-function resolveMergeRuntime(env: Env) {
-  return resolveCloudflareMergeRuntime(
-    env as unknown as CloudflareMergeProductionBindings,
-  );
-}
-
-function resolveLaterRuntime(env: Env) {
-  return resolveCloudflareLaterRuntime(
-    env as unknown as CloudflareLaterProductionBindings,
-  );
-}
+export function resolveContinuationRuntime(env: Env) { return resolveCloudflareContinuationRuntime(env as unknown as CloudflareContinuationRuntimeBindings); }
+function resolveWebhookQueueRuntime(env: Env) { return resolveControlWebhookQueueRuntime(env as unknown as ControlWebhookQueueRuntimeBindings); }
+function resolveRpi5Runtime(env: Env) { return resolveRpi5ObservationRuntime(env as unknown as Rpi5ObservationRuntimeBindings); }
+function resolveNeedsChangesRuntime(env: Env) { return resolveCloudflareNeedsChangesRuntime(env as unknown as CloudflareNeedsChangesProductionBindings); }
+function resolveMergeRuntime(env: Env) { return resolveCloudflareMergeRuntime(env as unknown as CloudflareMergeProductionBindings); }
+function resolveLaterRuntime(env: Env) { return resolveCloudflareLaterRuntime(env as unknown as CloudflareLaterProductionBindings); }
+function resolveOwnerActionRuntime(env: Env) { return resolveCloudflareOwnerActionRuntime(env as unknown as CloudflareOwnerActionBindings); }
 
 async function routeWorkerRequest(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === CONTINUATION_ACTION_PATH || url.pathname === CONTINUATION_PREFLIGHT_PATH) {
-      return handleContinuationActionRequest(request, resolveContinuationActionRuntime(env as unknown as ContinuationActionBindings));
-    }
-
-    if (request.method === "GET" && url.pathname === "/api/health") {
-      return Response.json(buildHealthPayload(env.CF_VERSION_METADATA.id), {
-        headers: NO_STORE_HEADERS,
-      });
-    }
-
-    if (url.pathname === RPI5_OBSERVATION_ROUTE_PATH) {
-      const resolution = resolveRpi5Runtime(env);
-      return handleRpi5ObservationRequest(
-        request,
-        new Date().toISOString(),
-        resolution.status === "READY" ? resolution.runtime : null,
-      );
-    }
-
-    if (url.pathname === "/api/github/dashboard") {
-      const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true";
-      if (!liveReadEnabled) {
-        return Response.json(
-          { error: "LIVE_READ_DISABLED" },
-          { status: 503, headers: NO_STORE_HEADERS },
-        );
-      }
-      return handleGitHubDashboardRequest(request, env, new Date().toISOString());
-    }
-
-    if (url.pathname === "/api/github/reconcile") {
-      const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true";
-      if (!liveReadEnabled) {
-        return Response.json(
-          { error: "LIVE_READ_DISABLED" },
-          { status: 503, headers: NO_STORE_HEADERS },
-        );
-      }
-      return handleGitHubReconciliationRequest(request, env, new Date().toISOString());
-    }
-
-    if (url.pathname === GITHUB_NEEDS_CHANGES_PREFLIGHT_ROUTE_PATH) {
-      const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true";
-      if (!liveReadEnabled) {
-        return Response.json(
-          { error: "LIVE_READ_DISABLED" },
-          { status: 503, headers: NO_STORE_HEADERS },
-        );
-      }
-      return handleGitHubNeedsChangesPreflightRequest(request, env, new Date().toISOString());
-    }
-
-    if (url.pathname === GITHUB_NEEDS_CHANGES_ROUTE_PATH) {
-      return handleGitHubNeedsChangesRequest(request, resolveNeedsChangesRuntime(env));
-    }
-
-    if (url.pathname === GITHUB_MERGE_ROUTE_PATH) {
-      return handleGitHubMergeRequest(request, resolveMergeRuntime(env));
-    }
-
-    if (url.pathname === GITHUB_LATER_ROUTE_PATH) {
-      return handleGitHubLaterRequest(request, resolveLaterRuntime(env));
-    }
-
-    if (url.pathname === GITHUB_WEBHOOK_OBSERVABILITY_ROUTE_PATH) {
-      const resolution = resolveWebhookQueueRuntime(env);
-      return handleGitHubWebhookObservabilityRequest(
-        request,
-        new Date().toISOString(),
-        resolution.status === "READY" ? resolution.runtime.observabilityReader : null,
-      );
-    }
-
-    if (url.pathname === "/api/github/webhook") {
-      const resolution = resolveWebhookQueueRuntime(env);
-      return handleGitHubWebhookRequest(
-        request,
-        new Date().toISOString(),
-        resolution.status === "READY"
-          ? {
-              secret: resolution.runtime.webhookSecret,
-              acceptor: resolution.runtime.webhookAcceptor,
-            }
-          : {
-              secret: null,
-              acceptor: null,
-            },
-      );
-    }
-
+  const url = new URL(request.url);
+  if (url.pathname === CONTINUATION_ACTION_PATH || url.pathname === CONTINUATION_PREFLIGHT_PATH) return handleContinuationActionRequest(request, resolveContinuationActionRuntime(env as unknown as ContinuationActionBindings));
+  if (request.method === "GET" && url.pathname === "/api/health") return Response.json(buildHealthPayload(env.CF_VERSION_METADATA.id), { headers: NO_STORE_HEADERS });
+  if (url.pathname === RPI5_OBSERVATION_ROUTE_PATH) { const resolution = resolveRpi5Runtime(env); return handleRpi5ObservationRequest(request, new Date().toISOString(), resolution.status === "READY" ? resolution.runtime : null); }
+  if (url.pathname === "/api/github/dashboard") { const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true"; if (!liveReadEnabled) return Response.json({ error: "LIVE_READ_DISABLED" }, { status: 503, headers: NO_STORE_HEADERS }); return handleGitHubDashboardRequest(request, env, new Date().toISOString()); }
+  if (url.pathname === "/api/github/reconcile") { const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true"; if (!liveReadEnabled) return Response.json({ error: "LIVE_READ_DISABLED" }, { status: 503, headers: NO_STORE_HEADERS }); return handleGitHubReconciliationRequest(request, env, new Date().toISOString()); }
+  if (url.pathname === GITHUB_NEEDS_CHANGES_PREFLIGHT_ROUTE_PATH) { const liveReadEnabled = String(env.CONTROL_LIVE_READ_ENABLED) === "true"; if (!liveReadEnabled) return Response.json({ error: "LIVE_READ_DISABLED" }, { status: 503, headers: NO_STORE_HEADERS }); return handleGitHubNeedsChangesPreflightRequest(request, env, new Date().toISOString()); }
+  if (url.pathname === GITHUB_NEEDS_CHANGES_ROUTE_PATH) return handleGitHubNeedsChangesRequest(request, resolveNeedsChangesRuntime(env));
+  if (url.pathname === GITHUB_MERGE_ROUTE_PATH) return handleGitHubMergeRequest(request, resolveMergeRuntime(env));
+  if (url.pathname === GITHUB_OWNER_ACTION_ROUTE_PATH) return handleGitHubOwnerActionRequest(request, resolveOwnerActionRuntime(env));
+  if (url.pathname === GITHUB_LATER_ROUTE_PATH) return handleGitHubLaterRequest(request, resolveLaterRuntime(env));
+  if (url.pathname === GITHUB_WEBHOOK_OBSERVABILITY_ROUTE_PATH) { const resolution = resolveWebhookQueueRuntime(env); return handleGitHubWebhookObservabilityRequest(request, new Date().toISOString(), resolution.status === "READY" ? resolution.runtime.observabilityReader : null); }
+  if (url.pathname === "/api/github/webhook") { const resolution = resolveWebhookQueueRuntime(env); return handleGitHubWebhookRequest(request, new Date().toISOString(), resolution.status === "READY" ? { secret: resolution.runtime.webhookSecret, acceptor: resolution.runtime.webhookAcceptor } : { secret: null, acceptor: null }); }
   return new Response("Not Found", { status: 404 });
 }
 
 const worker: ExportedHandler<Env> = {
-  async fetch(request, env) {
-    return withWorkerRequestLogging(
-      request,
-      env.CF_VERSION_METADATA.id,
-      async () => applyApiResponseSecurityHeaders(await routeWorkerRequest(request, env)),
-    );
-  },
-
-  async queue(batch, env) {
-    await withWorkerQueueLogging(batch, env.CF_VERSION_METADATA.id, async () => {
-      const resolution = resolveWebhookQueueRuntime(env);
-      if (resolution.status !== "READY") {
-        throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE");
-      }
-      await resolution.runtime.consumeQueueBatch(batch as unknown as QueueMessageBatchLike);
-    });
-  },
+  async fetch(request, env) { return withWorkerRequestLogging(request, env.CF_VERSION_METADATA.id, async () => applyApiResponseSecurityHeaders(await routeWorkerRequest(request, env))); },
+  async queue(batch, env) { await withWorkerQueueLogging(batch, env.CF_VERSION_METADATA.id, async () => { const resolution = resolveWebhookQueueRuntime(env); if (resolution.status !== "READY") throw new ControlWebhookQueueRuntimeError("RUNTIME_UNAVAILABLE"); await resolution.runtime.consumeQueueBatch(batch as unknown as QueueMessageBatchLike); }); },
 };
-
 export default worker;
