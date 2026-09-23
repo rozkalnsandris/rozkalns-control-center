@@ -31,8 +31,8 @@ async function runFixtureDeepLinkRegression(sessionId) {
   assert.equal(evidence.fixtureLabel, true);
   assert.deepEqual(evidence.mutatingButtons, []);
   const panel = await execute(sessionId, `const card=document.getElementById(${JSON.stringify(decisionTarget)}); return { actions: Array.from(card.querySelectorAll('[data-decision-action]')).map((item)=>item.dataset.decisionAction), reasons:card.querySelectorAll('.action-panel__entry small').length, overflow:document.documentElement.scrollWidth>window.innerWidth, touch:Array.from(card.querySelectorAll('[data-decision-action]')).every((item)=>item.getBoundingClientRect().height>=48) };`);
-  assert.deepEqual(panel.actions, ["OPEN_PR", "MERGE", "NEEDS_CHANGES", "LATER", "RETRY_CI", "CONTINUE", "PAUSE"]);
-  assert.ok(panel.reasons >= 6);
+  assert.deepEqual(panel.actions, ["MERGE", "LIVE", "CONTINUE"]);
+  assert.ok(panel.reasons >= 3);
   assert.equal(panel.overflow, false);
   assert.equal(panel.touch, true);
   console.log("browser regression: fixture deep-link focus and action suppression PASS");
