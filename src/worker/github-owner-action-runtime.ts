@@ -17,6 +17,16 @@ async function appJwt(clientId: string, nowMs: number, signer: GitHubAppJwtSigne
 function repoName(repository: string) { const parts = repository.split("/"); if (parts.length !== 2 || !parts[1]) throw new OwnerActionRuntimeError("DISPATCH_REJECTED"); return parts[1]; }
 async function jsonBody(response: Response): Promise<Record<string, unknown>> { const value: unknown = await response.json().catch(() => null); if (!value || typeof value !== "object" || Array.isArray(value)) throw new OwnerActionRuntimeError("DISPATCH_REJECTED"); return value as Record<string, unknown>; }
 
+export function buildOwnerActionWorkflowDispatchInputs(input: OwnerActionDispatchInput): Readonly<Record<string, string>> {
+  if (input.target.dispatchContract === "owner-action-v1") {
+    return { control_action: input.action, expected_main_sha: input.expectedMainSha, control_request_id: input.requestId };
+  }
+  if (input.target.dispatchContract === "deploy-sha-confirmation-v1" && input.action === "LIVE") {
+    return { target_sha: input.expectedMainSha, confirmation: `DEPLOY ${input.expectedMainSha}` };
+  }
+  throw new OwnerActionRuntimeError("DISPATCH_REJECTED");
+}
+
 async function acquireActionsToken(repository: string, clientId: string, installationId: number, signer: GitHubAppJwtSigner, fetchRequest: GitHubAppCredentialFetch, nowMs: number): Promise<string> {
   const jwt = await appJwt(clientId, nowMs, signer);
   let response: Response; try { response = await fetchRequest(new Request(`${GITHUB_REST_ORIGIN}/app/installations/${installationId}/access_tokens`, { method: "POST", headers: { Accept: GITHUB_REST_ACCEPT, Authorization: `Bearer ${jwt}`, "Content-Type": "application/json", "X-GitHub-Api-Version": GITHUB_REST_API_VERSION }, body: JSON.stringify({ repositories: [repoName(repository)], permissions: { actions: "write", contents: "read" } }), redirect: "manual" })); } catch { throw new OwnerActionRuntimeError("DISPATCH_OUTCOME_UNKNOWN"); }
@@ -41,7 +51,7 @@ export function createCloudflareOwnerActionRuntime(options: CloudflareOwnerActio
     const token = await acquireActionsToken(input.repository, readRuntime.clientId, readRuntime.installationId, signer, fetchRequest, now.getTime());
     const repoResponse = await authorizedFetch(fetchRequest, token, `${GITHUB_REST_ORIGIN}/repos/${input.repository}`, { method: "GET" }); if (repoResponse.status !== 200) throw new OwnerActionRuntimeError("DISPATCH_REJECTED"); const repo = await jsonBody(repoResponse); if (repo.default_branch !== input.target.ref) throw new OwnerActionRuntimeError("DISPATCH_REJECTED");
     const branchResponse = await authorizedFetch(fetchRequest, token, `${GITHUB_REST_ORIGIN}/repos/${input.repository}/branches/${encodeURIComponent(input.target.ref)}`, { method: "GET" }); if (branchResponse.status !== 200) throw new OwnerActionRuntimeError("DISPATCH_REJECTED"); const branch = await jsonBody(branchResponse); const commit = branch.commit; if (!commit || typeof commit !== "object" || Array.isArray(commit) || typeof (commit as Record<string, unknown>).sha !== "string") throw new OwnerActionRuntimeError("DISPATCH_REJECTED"); const observedMainSha = (commit as Record<string, unknown>).sha as string; if (observedMainSha !== input.expectedMainSha) throw new OwnerActionRuntimeError("STALE_MAIN_SHA");
-    const dispatch = await authorizedFetch(fetchRequest, token, `${GITHUB_REST_ORIGIN}/repos/${input.repository}/actions/workflows/${encodeURIComponent(input.target.workflow)}/dispatches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: input.target.ref, inputs: { control_action: input.action, expected_main_sha: input.expectedMainSha, control_request_id: input.requestId } }) }); if (dispatch.status !== 204) throw new OwnerActionRuntimeError("DISPATCH_REJECTED");
+    const dispatch = await authorizedFetch(fetchRequest, token, `${GITHUB_REST_ORIGIN}/repos/${input.repository}/actions/workflows/${encodeURIComponent(input.target.workflow)}/dispatches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: input.target.ref, inputs: buildOwnerActionWorkflowDispatchInputs(input) }) }); if (dispatch.status !== 204) throw new OwnerActionRuntimeError("DISPATCH_REJECTED");
     return { status: "DISPATCHED", action: input.action, repository: input.repository, workflow: input.target.workflow, ref: input.target.ref, expectedMainSha: input.expectedMainSha, observedMainSha, requestId: input.requestId };
   } };
 }
