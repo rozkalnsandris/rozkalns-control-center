@@ -9,10 +9,27 @@ test("owner panel is intentionally exactly Merge Live Continue", () => {
   assert.deepEqual(OWNER_ACTIONS.map((action) => OWNER_ACTION_LABELS[action]), ["Merge", "Live", "Continue"]);
 });
 
-test("workflow actions fail closed until a reviewed mapping exists", () => {
+test("Hermes LIVE resolves only the reviewed deploy workflow contract", () => {
   const policy = resolveManagedProjectPolicy("rozkalnsandris/hermes-deals");
   assert.equal(policy?.canLive, true);
   assert.equal(policy?.canContinue, true);
-  assert.equal(resolveOwnerWorkflowTarget("rozkalnsandris/hermes-deals", "LIVE"), null);
+  assert.deepEqual(resolveOwnerWorkflowTarget("rozkalnsandris/hermes-deals", "LIVE"), {
+    workflow: "deploy-main.yml",
+    ref: "main",
+    dispatchContract: "deploy-sha-confirmation-v1",
+  });
   assert.equal(resolveOwnerWorkflowTarget("rozkalnsandris/hermes-deals", "CONTINUE"), null);
+});
+
+test("all other managed projects remain fail closed for owner workflow dispatch", () => {
+  for (const repository of [
+    "rozkalnsandris/hermes-tech",
+    "rozkalnsandris/rozkalns-cv",
+    "rozkalnsandris/RPi5_main",
+    "rozkalnsandris/ops-workflows",
+    "rozkalnsandris/rozkalnsandris",
+  ]) {
+    assert.equal(resolveOwnerWorkflowTarget(repository, "LIVE"), null);
+    assert.equal(resolveOwnerWorkflowTarget(repository, "CONTINUE"), null);
+  }
 });
