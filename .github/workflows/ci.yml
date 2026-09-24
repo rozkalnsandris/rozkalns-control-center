@@ -88,6 +88,7 @@ jobs:
           python3 scripts/owner-panel-access-write-token-repair-boundary.test.py
           python3 scripts/owner-panel-token-management-preflight.test.py
           python3 scripts/worker-deploy-secret-recovery-contract.test.py
+          python3 scripts/worker-deploy-secret-recovery-workflow.test.py
 
       - name: Install locked dependencies
         if: steps.scope.outputs.full == 'true'
