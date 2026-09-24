@@ -1,9 +1,11 @@
 export type ProductionAdapter = "none" | "rpi5";
 export type OwnerWorkflowAction = "LIVE" | "CONTINUE";
+export type OwnerWorkflowDispatchContract = "owner-action-v1" | "deploy-sha-confirmation-v1";
 
 export interface OwnerWorkflowTarget {
   readonly workflow: string;
   readonly ref: string;
+  readonly dispatchContract: OwnerWorkflowDispatchContract;
 }
 
 export interface ManagedProjectPolicy {
@@ -24,7 +26,7 @@ export interface ManagedProjectPolicy {
 
 export const managedProjectPolicies = [
   { id: "hermes-tech", displayName: "Hermes Tech", repository: "rozkalnsandris/hermes-tech", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, productionAdapter: "rpi5" },
-  { id: "hermes-deals", displayName: "Hermes Deals", repository: "rozkalnsandris/hermes-deals", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, productionAdapter: "rpi5" },
+  { id: "hermes-deals", displayName: "Hermes Deals", repository: "rozkalnsandris/hermes-deals", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, liveWorkflow: { workflow: "deploy-main.yml", ref: "main", dispatchContract: "deploy-sha-confirmation-v1" }, productionAdapter: "rpi5" },
   { id: "rozkalns-cv", displayName: "Rozkalns CV", repository: "rozkalnsandris/rozkalns-cv", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, productionAdapter: "rpi5" },
   { id: "rpi5-main", displayName: "RPi5 Main", repository: "rozkalnsandris/RPi5_main", enabled: true, githubReadEnabled: true, canRequestChanges: false, canMerge: false, canLater: false, canLive: true, canContinue: true, productionAdapter: "rpi5" },
   { id: "ops-workflows", displayName: "Ops Workflows", repository: "rozkalnsandris/ops-workflows", enabled: true, githubReadEnabled: true, canRequestChanges: true, canMerge: true, canLater: true, canLive: false, canContinue: true, productionAdapter: "none" },
