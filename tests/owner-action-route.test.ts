@@ -21,17 +21,17 @@ test("owner action route fails closed when reviewed mapping is absent", async ()
 });
 
 test("owner action route passes Hermes LIVE only to the reviewed workflow target", async () => {
-  let captured: OwnerActionDispatchInput | null = null;
+  const captured: { value?: OwnerActionDispatchInput } = {};
   const liveRuntime: OwnerActionWorkerRuntime = {
     authenticator: { async authenticateRequest() { return {}; } },
     async dispatch(input) {
-      captured = input;
+      captured.value = input;
       return { status: "DISPATCHED", action: input.action, repository: input.repository, workflow: input.target.workflow, ref: input.target.ref, expectedMainSha: input.expectedMainSha, observedMainSha: input.expectedMainSha, requestId: input.requestId };
     },
   };
   const response = await handleGitHubOwnerActionRequest(request({ action: "LIVE", repository: "rozkalnsandris/hermes-deals", expectedMainSha: sha, requestId: "rc_live_1234567890123456" }), liveRuntime);
   assert.equal(response.status, 200);
-  assert.deepEqual(captured?.target, { workflow: "deploy-main.yml", ref: "main", dispatchContract: "deploy-sha-confirmation-v1" });
+  assert.deepEqual(captured.value?.target, { workflow: "deploy-main.yml", ref: "main", dispatchContract: "deploy-sha-confirmation-v1" });
 });
 
 test("stale main and missing Actions permission have explicit fail-closed codes", () => {
