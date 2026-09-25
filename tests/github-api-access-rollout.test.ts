@@ -3,12 +3,77 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
+type AmbiguousOutcome = {
+  disposition: string;
+  automatic_duplicate_mutation_allowed: boolean;
+  requires_reconciliation: boolean;
+  stop: boolean;
+};
+
+type ApiAccessManifest = {
+  schema: string;
+  status: string;
+  repository: string;
+  shared_contract: {
+    revision: string;
+  };
+  read_plan: {
+    serial_by_default_per_repository_lane: boolean;
+    minimum_sufficient_retrieval_required: boolean;
+    changed_files_on_demand_only: boolean;
+    tight_polling_allowed: boolean;
+    historical_workflow_runs_by_default: boolean;
+  };
+  mutation_boundary: {
+    expected_head_binding_required_when_supported: boolean;
+    automatic_duplicate_mutation_after_403: boolean;
+    automatic_duplicate_mutation_after_429: boolean;
+    automatic_duplicate_mutation_after_timeout: boolean;
+    automatic_duplicate_mutation_after_transport_error: boolean;
+    post_dispatch_uncertainty_fail_closed: boolean;
+    minimal_read_only_reconciliation_only: boolean;
+    stop_after_ambiguous_outcome: boolean;
+    merge_success_implies_live_or_deploy_authority: boolean;
+  };
+  synthetic_acceptance: {
+    intentionally_exhaust_real_quota: boolean;
+    post_dispatch_429: AmbiguousOutcome;
+    post_dispatch_timeout: AmbiguousOutcome;
+    post_dispatch_transport_error: AmbiguousOutcome;
+  };
+  local_stricter_rules: {
+    fast_merge_requires_explicit_owner_decision: boolean;
+    source_only_full_requires_explicit_issue_scoped_activation: boolean;
+    live_deploy_runtime_requires_exact_authority: boolean;
+    cloudflare_secrets_permissions_production_data_require_exact_authority: boolean;
+  };
+};
+
+type StartModeRouting = {
+  github_api_access: {
+    consumer_manifest: string;
+    shared_contract_revision: string;
+    applies_to: string[];
+  };
+  default_continuation_mode: string;
+  bare_continuation_result: string;
+  explicit_modes: {
+    'AUTO-RUN-FULL': {
+      requires_explicit_current_command_token: boolean;
+      requires_issue_argument: boolean;
+    };
+    'LIVE-ALL': {
+      requires_explicit_current_command_token: boolean;
+    };
+  };
+};
+
 const root = process.cwd();
 const manifestPath = path.join(root, '.github', 'github-api-access-v1.json');
 const routingPath = path.join(root, '.github', 'start-mode-routing.json');
 
-const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as any;
-const routing = JSON.parse(readFileSync(routingPath, 'utf8')) as any;
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ApiAccessManifest;
+const routing = JSON.parse(readFileSync(routingPath, 'utf8')) as StartModeRouting;
 
 test('pins the accepted shared GitHub API access contract without widening authority', () => {
   assert.equal(manifest.schema, 'rozkalns.github-api-access-consumer.v1');
