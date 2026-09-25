@@ -66,6 +66,10 @@ test("classifier and machine contract use exactly the same path policy", () => {
 test("deploy impact classification is deterministic and fail closed", () => {
   assert.equal(classifyDeployImpact(["docs/README.md"]).impact, DEPLOY_IMPACT.SOURCE_ONLY);
   assert.equal(classifyDeployImpact(["README.md", "docs/a.md"]).impact, DEPLOY_IMPACT.SOURCE_ONLY);
+  assert.equal(
+    classifyDeployImpact([".github/ISSUE_TEMPLATE/bug.md"]).impact,
+    DEPLOY_IMPACT.SOURCE_ONLY,
+  );
   assert.equal(classifyDeployImpact(["src/worker/index.ts"]).impact, DEPLOY_IMPACT.ORDINARY_PUBLICATION);
   assert.equal(classifyDeployImpact(["public/icon.svg", "docs/a.md"]).impact, DEPLOY_IMPACT.ORDINARY_PUBLICATION);
   assert.equal(classifyDeployImpact(["package-lock.json"]).impact, DEPLOY_IMPACT.ORDINARY_PUBLICATION);
