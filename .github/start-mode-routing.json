@@ -12,6 +12,12 @@
     "inspection_bridge": "RDC_IMAGE_READ",
     "rule": "When pixel-level visual inspection of this RPi5-hosted UI is needed, read the canonical RPi5_main visual-verification policy and use ui-proof by default. Runtime execution still requires applicable current LIVE authority."
   },
+  "github_api_access": {
+    "consumer_manifest": ".github/github-api-access-v1.json",
+    "shared_contract_revision": "3bb0740b5f0a8ce631d2ff79f1acc4999ff6ed2c",
+    "applies_to": ["START", "SYNC", "turpini"],
+    "rule": "Use serial minimum-sufficient GitHub reads, inspect changed files only on demand, avoid tight polling, and fail closed after ambiguous post-dispatch mutation outcomes with read-only reconciliation only. This binding does not create MERGE, LIVE, deploy, runtime, credential, permission, D1, Queue, Cloudflare or RPi5 authority."
+  },
   "lane_roles": {
     "FAST-LANE v2.2": "SAFE_DISCOVERY_AUDIT_AND_NON_FULL_CONTINUATION",
     "AUTO-RUN-FULL": "NORMAL_ISSUE_SCOPED_IMPLEMENTATION"
