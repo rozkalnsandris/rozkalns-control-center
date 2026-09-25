@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "repository": "rozkalnsandris/rozkalns-control-center",
+  "platform": "cloudflare-workers",
+  "runtime": {
+    "worker_name": "rozkalns-control",
+    "worker_entrypoint": "src/worker/index.ts",
+    "static_assets_directory": "./dist/client",
+    "wrangler_config": "wrangler.jsonc",
+    "production_workflow": ".github/workflows/production-worker-composite-live.yml",
+    "health_path": "/api/health"
+  },
+  "source_gate": {
+    "exact_reviewed_git_sha_required": true,
+    "exact_main_sha_required_before_live": true,
+    "required_push_workflow": ".github/workflows/ci.yml",
+    "required_push_workflow_name": "CI",
+    "build_test_evidence_required": true,
+    "wrangler_dry_run_required": true,
+    "unknown_or_stale_evidence_fails_closed": true
+  },
+  "publication_contract": {
+    "owner_authorization_required": true,
+    "upload_command": "wrangler versions upload",
+    "upload_does_not_immediately_promote_traffic": true,
+    "candidate_attachment_percent": 0,
+    "exact_candidate_health_smoke_required": true,
+    "prepromotion_main_sha_revalidation_required": true,
+    "promotion_command": "wrangler versions deploy",
+    "promotion_percent": 100,
+    "post_promotion_health_required": true,
+    "automatic_retry_after_first_mutation": false,
+    "automatic_rollback_after_first_mutation": false,
+    "automatic_cleanup_after_first_mutation": false,
+    "fail_closed_after_ambiguous_mutation": true
+  },
+  "deploy_impact": {
+    "classes": [
+      "SOURCE_ONLY",
+      "ORDINARY_PUBLICATION",
+      "STRICT_LIVE"
+    ],
+    "precedence_high_to_low": [
+      "STRICT_LIVE",
+      "ORDINARY_PUBLICATION",
+      "SOURCE_ONLY"
+    ],
+    "empty_or_unknown_path": "STRICT_LIVE",
+    "merge_never_authorizes_live": true,
+    "strict_live_requires_separate_exact_owner_authorization": true,
+    "path_policy": {
+      "source_only_files": [
+        "README.md",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md"
+      ],
+      "source_only_prefixes": [
+        "docs/",
+        ".github/ISSUE_TEMPLATE/"
+      ],
+      "ordinary_publication_files": [
+        ".nvmrc",
+        "eslint.config.js",
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "tsconfig.app.json",
+        "tsconfig.json",
+        "tsconfig.node.json",
+        "tsconfig.test.json",
+        "tsconfig.worker.json",
+        "vite.config.ts"
+      ],
+      "ordinary_publication_prefixes": [
+        "public/",
+        "src/"
+      ],
+      "strict_live_files": [
+        "wrangler.d1-local-verify.jsonc",
+        "wrangler.jsonc"
+      ],
+      "strict_live_prefixes": [
+        ".github/",
+        "migrations/",
+        "scripts/",
+        "tools/"
+      ]
+    }
+  },
+  "strict_live_exclusions": {
+    "production_worker_or_static_assets_publication": true,
+    "d1_schema_or_data_remote_apply": true,
+    "queue_or_dlq_mutation": true,
+    "cloudflare_access_dns_tunnel_network_or_account_mutation": true,
+    "credential_or_secret_mutation": true,
+    "github_app_permission_or_repository_selection_expansion": true,
+    "rpi5_target_allowlist_host_docker_systemd_or_runtime_mutation": true
+  }
+}
