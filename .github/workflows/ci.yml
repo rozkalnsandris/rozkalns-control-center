@@ -89,6 +89,7 @@ jobs:
           python3 scripts/owner-panel-token-management-preflight.test.py
           python3 scripts/worker-deploy-secret-recovery-contract.test.py
           python3 scripts/worker-deploy-secret-recovery-workflow.test.py
+          python3 scripts/worker-deploy-secret-recovery-prepare.test.py
           node --test tools/cloudflare-deploy-standardization.test.mjs
 
       - name: Install locked dependencies
