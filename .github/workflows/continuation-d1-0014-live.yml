@@ -1,0 +1,81 @@
+name: Continuation D1 0014 production apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact current main SHA authorized for continuation D1 0014 apply
+        required: true
+        type: string
+      expected_ci_run:
+        description: Exact successful push CI run on approved_sha
+        required: true
+        type: string
+      expected_preflight_run:
+        description: Exact successful Owner Action Panel inventory run on approved_sha
+        required: true
+        type: string
+      expected_migration_sha256:
+        description: Exact reviewed SHA-256 of migrations/0014_continuation_action_audit.sql
+        required: true
+        type: string
+      database:
+        description: Exact production D1 database name
+        required: true
+        type: string
+      authorization:
+        description: Exact owner LIVE authorization string binding every input
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: continuation-d1-0014-live
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: one-shot continuation D1 0014 apply
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: production-d1-live
+    env:
+      APPROVED_SHA: ${{ inputs.approved_sha }}
+      EXPECTED_CI_RUN: ${{ inputs.expected_ci_run }}
+      EXPECTED_PREFLIGHT_RUN: ${{ inputs.expected_preflight_run }}
+      EXPECTED_MIGRATION_SHA256: ${{ inputs.expected_migration_sha256 }}
+      EXPECTED_DATABASE: ${{ inputs.database }}
+      OWNER_AUTHORIZATION: ${{ inputs.authorization }}
+      GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout exact authorized source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.approved_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup canonical Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Verify canonical Node version
+        run: node scripts/verify-node-version.mjs
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Focused continuation D1 0014 safety tests
+        run: npm run test:continuation-d1-0014
+
+      - name: Execute one-shot continuation D1 0014 mutation class
+        env:
+          CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+          CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
+        run: node scripts/continuation-d1-0014-live.mjs
