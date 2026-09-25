@@ -53,6 +53,11 @@ function normalizePath(path) {
 }
 
 function classifySinglePath(path) {
+  // Explicit source-only exceptions are checked before the broad .github/ strict
+  // boundary. Everything else under .github/ remains strict by default.
+  if (sourceOnlyFiles.has(path) || hasPrefix(path, PATH_POLICY.sourceOnlyPrefixes)) {
+    return DEPLOY_IMPACT.SOURCE_ONLY;
+  }
   if (strictLiveFiles.has(path) || hasPrefix(path, PATH_POLICY.strictLivePrefixes)) {
     return DEPLOY_IMPACT.STRICT_LIVE;
   }
@@ -61,9 +66,6 @@ function classifySinglePath(path) {
     hasPrefix(path, PATH_POLICY.ordinaryPublicationPrefixes)
   ) {
     return DEPLOY_IMPACT.ORDINARY_PUBLICATION;
-  }
-  if (sourceOnlyFiles.has(path) || hasPrefix(path, PATH_POLICY.sourceOnlyPrefixes)) {
-    return DEPLOY_IMPACT.SOURCE_ONLY;
   }
   return DEPLOY_IMPACT.STRICT_LIVE;
 }
