@@ -1,0 +1,65 @@
+{
+  "schema": "rozkalns.work-cycle-v23.consumer.v1",
+  "repository": "rozkalnsandris/rozkalns-control-center",
+  "canonical_repository": "rozkalnsandris/ops-workflows",
+  "canonical_revision": "274d58f2d9d3cb86feded2751b8f9009a4501f6b",
+  "tracking_issue": 124,
+  "bootstrap_manifest": {
+    "status": "ADOPTED",
+    "path": ".github/agent-bootstrap.json",
+    "profile": "custom",
+    "mutable_operational_truth_allowed": false
+  },
+  "start_contract": {
+    "safe_auto_continuation": true,
+    "compact_terminal_response": true,
+    "single_selected_current_lane_per_start": true,
+    "unnecessary_technical_stop_allowed": false,
+    "local_owner_gates_preserved": true
+  },
+  "write_preflight": {
+    "status": "ADOPTED",
+    "contract": "WRITE_PREFLIGHT_COMPACT_V1",
+    "existing_github_api_adapter": ".github/github-api-access-v1.json",
+    "exact_existing_intent": "RECONCILE_OR_NOOP",
+    "conflicting_identity": "STOP",
+    "stale_writer": "STOP",
+    "duplicate_framework_created": false
+  },
+  "auto_run_full_normalized_state": {
+    "status": "ADOPTED",
+    "contract": "AUTO_RUN_FULL_SINGLE_ISSUE_STATE_V2",
+    "activation_mode": "NEW_EXPLICIT_RUNS_ONLY",
+    "legacy_controller_issue": 499,
+    "legacy_active_or_historical_state_read_only": true,
+    "rewrite_legacy_state_in_place": false,
+    "target_issue_owns_mutable_run_state": true,
+    "controller_owns_only_lock_and_active_run_pointer": true,
+    "receipts_are_evidence_only": true,
+    "fresh_github_only": ["CI_STATUS", "REVIEWS", "UNRESOLVED_THREADS", "MERGEABILITY"],
+    "stale_writer_disposition": "STOP",
+    "transition_collision_disposition": "STOP",
+    "exact_replay_is_idempotent": true,
+    "queue_vnext_96_activated": false
+  },
+  "deployment": {
+    "profile": "custom",
+    "simple_deploy_activated": false,
+    "production_deploy_authority_created": false
+  },
+  "local_stricter_rules": {
+    "master_issue_1_remains_authoritative": true,
+    "fast_merge_requires_explicit_owner_decision": true,
+    "full_requires_fresh_explicit_issue_scoped_activation": true,
+    "full_merge_never_implies_live": true,
+    "production_worker_d1_queue_cloudflare_permissions_secrets_rpi5_require_exact_authority": true,
+    "merge_implies_live_or_deploy": false
+  },
+  "authority": {
+    "source_authority_widened": false,
+    "merge_authority_widened": false,
+    "live_authority_widened": false,
+    "retry_rollback_cleanup_authority_created": false,
+    "queue_vnext_activated": false
+  }
+}

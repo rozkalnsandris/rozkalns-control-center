@@ -1,0 +1,26 @@
+{
+  "schema": "rozkalns.agent-bootstrap.v1",
+  "repository": "rozkalnsandris/rozkalns-control-center",
+  "shared_policy": {
+    "work_cycle": "docs/WORK_CYCLE_V23_ADOPTION.md",
+    "github_api_access": ".github/github-api-access-v1.json"
+  },
+  "rules": {
+    "primary": "AGENTS.md",
+    "local_strict_rules": [
+      "AGENTS.md#4-mvp-trust-boundaries",
+      "AGENTS.md#5-human-approval-invariants",
+      "AGENTS.md#6-forbidden-without-a-separately-scoped-owner-authorization",
+      "AGENTS.md#14-auto-run-full-v2"
+    ]
+  },
+  "continuation": {
+    "kind": "none"
+  },
+  "automation": {
+    "fast_lane": true,
+    "auto_run_full": true,
+    "queue_mode": "inactive"
+  },
+  "deployment_profile": "custom"
+}

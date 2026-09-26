@@ -42,6 +42,8 @@
       "requires_issue_argument": true,
       "issue_argument_pattern": "^#[1-9][0-9]*$",
       "policy": ".github/auto-run-full-v2.json",
+      "normalized_state_adapter": ".github/work-cycle-v23.json",
+      "normalized_state_activation": "NEW_EXPLICIT_RUNS_ONLY",
       "controller_issue": 499,
       "preferred_resume": "GITHUB_EVENT_TRIGGERED_WORK",
       "fallback_resume": "HOURLY_SCHEDULED_WATCHDOG",
