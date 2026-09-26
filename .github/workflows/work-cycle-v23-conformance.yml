@@ -1,0 +1,91 @@
+name: Work-cycle v2.3 conformance
+
+on:
+  pull_request:
+    paths:
+      - '.github/agent-bootstrap.json'
+      - '.github/work-cycle-v23.json'
+      - '.github/start-mode-routing.json'
+      - '.github/workflows/work-cycle-v23-conformance.yml'
+      - 'docs/WORK_CYCLE_V23_ADOPTION.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout canonical work-cycle contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: rozkalnsandris/ops-workflows
+          ref: 274d58f2d9d3cb86feded2751b8f9009a4501f6b
+          path: .canonical-ops-workflows
+          persist-credentials: false
+
+      - name: Validate bootstrap manifest
+        run: python3 .canonical-ops-workflows/scripts/agent_bootstrap_manifest.py .github/agent-bootstrap.json --repo-root .
+
+      - name: Validate Control adoption invariants
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('.github/agent-bootstrap.json').read_text())
+          adoption = json.loads(Path('.github/work-cycle-v23.json').read_text())
+          routing = json.loads(Path('.github/start-mode-routing.json').read_text())
+          full = json.loads(Path('.github/auto-run-full-v2.json').read_text())
+
+          assert manifest['repository'] == 'rozkalnsandris/rozkalns-control-center'
+          assert manifest['deployment_profile'] == 'custom'
+          assert manifest['automation'] == {
+              'fast_lane': True,
+              'auto_run_full': True,
+              'queue_mode': 'inactive',
+          }
+          assert manifest['continuation'] == {'kind': 'none'}
+
+          assert adoption['canonical_revision'] == '274d58f2d9d3cb86feded2751b8f9009a4501f6b'
+          assert adoption['tracking_issue'] == 124
+          assert adoption['start_contract']['safe_auto_continuation'] is True
+          assert adoption['start_contract']['compact_terminal_response'] is True
+          assert adoption['write_preflight']['status'] == 'ADOPTED'
+          assert adoption['write_preflight']['duplicate_framework_created'] is False
+
+          normalized = adoption['auto_run_full_normalized_state']
+          assert normalized['status'] == 'ADOPTED'
+          assert normalized['contract'] == 'AUTO_RUN_FULL_SINGLE_ISSUE_STATE_V2'
+          assert normalized['activation_mode'] == 'NEW_EXPLICIT_RUNS_ONLY'
+          assert normalized['legacy_controller_issue'] == 499
+          assert normalized['rewrite_legacy_state_in_place'] is False
+          assert normalized['target_issue_owns_mutable_run_state'] is True
+          assert normalized['controller_owns_only_lock_and_active_run_pointer'] is True
+          assert normalized['queue_vnext_96_activated'] is False
+
+          full_route = routing['explicit_modes']['AUTO-RUN-FULL']
+          assert full_route['policy'] == '.github/auto-run-full-v2.json'
+          assert full_route['normalized_state_adapter'] == '.github/work-cycle-v23.json'
+          assert full_route['normalized_state_activation'] == 'NEW_EXPLICIT_RUNS_ONLY'
+          assert full_route['controller_issue'] == 499
+
+          assert full['execution_model']['one_active_issue_at_a_time'] is True
+          assert full['execution_model']['canonical_state'] == 'GITHUB'
+          assert full['controller_issue'] == 499
+          assert full['command']['requires_explicit_current_command'] is True
+          assert full['command']['single_command_is_live_authorization'] is False
+          assert full['merge']['merge_authorizes_live_mutation'] is False
+
+          assert adoption['authority']['source_authority_widened'] is False
+          assert adoption['authority']['merge_authority_widened'] is False
+          assert adoption['authority']['live_authority_widened'] is False
+          assert adoption['authority']['retry_rollback_cleanup_authority_created'] is False
+          assert adoption['authority']['queue_vnext_activated'] is False
+          PY
